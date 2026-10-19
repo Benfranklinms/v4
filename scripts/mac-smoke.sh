@@ -22,7 +22,15 @@ sw_vers | tee -a "$OUT/dmg-contents.txt"
 export ITUNE_SMOKE_OUT="$OUT"
 # launch from the copied bundle; hard cap 16 min
 ( /tmp/iTune.app/Contents/MacOS/iTune --smoke > "$OUT/stdout.txt" 2> "$OUT/stderr.txt" ) & PID=$!
-for i in $(seq 1 960); do kill -0 $PID 2>/dev/null || break; sleep 1; done
+# stall diagnostics: when the log stops moving for 75 s, sample the process (main-thread stack)
+LAST=0; SINCE=0; NS=0
+for i in $(seq 1 960); do
+  kill -0 $PID 2>/dev/null || break
+  sleep 1
+  N=$(wc -l < "$OUT/stderr.txt" 2>/dev/null || echo 0)
+  if [ "$N" != "$LAST" ]; then LAST=$N; SINCE=0; else SINCE=$((SINCE+1)); fi
+  if [ $SINCE -ge 75 ] && [ $NS -lt 3 ]; then NS=$((NS+1)); SINCE=0; echo "no progress for 75 s, sampling ($NS)"; sample $PID 3 -file "$OUT/sample-$NS.txt" >/dev/null 2>&1 || true; fi
+done
 if kill -0 $PID 2>/dev/null; then echo "smoke hung, killing"; kill -9 $PID; fi
 wait $PID; CODE=$?
 grep "^SMOKE" "$OUT/stderr.txt" || tail -50 "$OUT/stderr.txt"

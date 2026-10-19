@@ -187,8 +187,11 @@ enum Smoke {
         } catch { record("search", false, Engine.message(error), soft: true) }
 
         if let t = track {
+            say("step: autoplay on")
             player.setAutoplay(true)
+            say("step: play")
             player.play([t], index: 0, source: "Smoke")
+            say("step: waiting for playback")
             let playing = await wait(40) { player.isPlaying && !player.buffering && player.position > 0.5 }
             let err = player.error ?? ""
             record("playback", playing, playing ? "playing at \(Int(player.position))s" : "not playing: \(err)", soft: !playing)
@@ -198,6 +201,7 @@ enum Smoke {
             nav.go(.home)
             await sleep(1)
             shot("11-player-bar")
+            say("step: waiting for autoplay")
 
             let auto = await wait(30) { (player.queue?.autoplayFrom ?? -1) >= 0 && (player.queue?.tracks.count ?? 0) > 1 }
             let upNext = (player.queue?.tracks.dropFirst().prefix(6).map { "\($0.title) — \($0.artists)" } ?? []).joined(separator: " | ")
