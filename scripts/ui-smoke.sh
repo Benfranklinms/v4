@@ -105,24 +105,36 @@ txt() { tap text "$1" "${2:-1}" "" "${3:-8}"; }
 desc() { tap content-desc "$1" "${2:-1}" "" "${3:-8}"; }
 type_text() { adb shell input text "$(echo "$1" | sed 's/ /%s/g')"; sleep 0.8; }
 clear_field() { adb shell input keyevent KEYCODE_MOVE_END; for _ in $(seq 1 30); do adb shell input keyevent KEYCODE_DEL; done; }
-back() { adb shell input keyevent KEYCODE_BACK; sleep 1; crash_check back; }
+back() { adb shell input keyevent KEYCODE_BACK; sleep 1; crash_check back; refocus; }
 # screen size (the CI emulator is small, so every coordinate is a fraction of it)
 read SW SH < <(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | tr 'x' ' ')
 SW=${SW:-1080}; SH=${SH:-1920}
 px() { echo $(( SW * $1 / 100 )); }
 py() { echo $(( SH * $1 / 100 )); }
 log "screen ${SW}x${SH}"
-scroll_down() { adb shell input swipe $(px 50) $(py 80) $(px 50) $(py 30) 300; sleep 1; crash_check scroll; }
-scroll_up() { adb shell input swipe $(px 50) $(py 30) $(px 50) $(py 80) 300; sleep 1; crash_check scroll; }
+# swipes stay inside the content area: on the small CI screen the mini player sits at ~78-87% of the height and a
+# swipe that starts on it opens Now Playing instead of scrolling
+scroll_down() { adb shell input swipe $(px 50) $(py 68) $(px 50) $(py 22) 300; sleep 1; crash_check scroll; }
+scroll_up() { adb shell input swipe $(px 50) $(py 22) $(px 50) $(py 68) 300; sleep 1; crash_check scroll; }
 tap_at() { adb shell input tap $(px $1) $(py $2); sleep 0.6; }
 # hide the soft keyboard if it is showing (BACK only when it is, so we never navigate by accident)
 fg() { timeout 10 adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | grep -q "$PKG"; }
 # if a BACK meant for the keyboard left the app (IME state misreported on some images), bring it back
-refocus() { fg || { log "app left the foreground: relaunching"; timeout 20 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 2; }; }
+refocus() { fg || { log "app left the foreground: relaunching"; timeout 10 adb shell cmd statusbar collapse >/dev/null 2>&1; timeout 20 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 2; }; }
 hide_kb() { if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 0.8; refocus; fi; }
 # glass chrome: the bottom nav hides while scrolling down and Now Playing covers it. Close NP, then tap the
 # tab; if the nav is hidden, a small scroll up springs it back and we retry.
-close_np() { dump; if find_node resource-id np_close >/dev/null; then local xy; xy=$(find_node resource-id np_close); adb shell input tap $xy; sleep 1.2; fi; }
+np_open() { find_node resource-id np_close >/dev/null || find_node resource-id np_more >/dev/null || find_node resource-id np_lyrics >/dev/null || find_node resource-id np_upnext >/dev/null; }
+close_np() {
+  local i
+  for i in 1 2 3 4; do
+    dump
+    if find_node resource-id np_close >/dev/null; then local xy; xy=$(find_node resource-id np_close); adb shell input tap $xy; sleep 1.2; continue; fi
+    np_open || return 0
+    # scrolled down inside Now Playing: scroll back to the top so the chevron shows, then back as a last resort
+    if [ $i -lt 3 ]; then adb shell input swipe $(px 50) $(py 25) $(px 50) $(py 70) 250; sleep 1; else adb shell input keyevent KEYCODE_BACK; sleep 1.2; fi
+  done
+}
 tab() {
   refocus
   close_np
@@ -132,7 +144,29 @@ tab() {
   scroll_up; scroll_up
   id "tab_$1"
 }
-home_tab() { tab Home; scroll_up; scroll_up; }
+home_tab() { tab Home; local i; for i in 1 2 3 4 5 6; do scroll_up; dump; find_node resource-id home_settings >/dev/null && break; done; }
+# submit a search: IME Enter, and if the suggestions list is still up (Enter not delivered on some images), tap the
+# suggestion row that repeats the query
+has_results() { find_node resource-id track_row >/dev/null || find_node resource-id search_album >/dev/null || find_node resource-id search_artist >/dev/null || find_node resource-id search_playlist >/dev/null; }
+submit_search() {
+  adb shell input keyevent KEYCODE_ENTER
+  sleep 1; hide_kb
+  local i
+  for i in $(seq 1 10); do dump; has_results && return 0; sleep 1; done
+  local xy
+  xy=$(python3 - "$O/ui.xml" "$1" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(1)
+for n in r.iter('node'):
+    if n.get('text','') == sys.argv[2] and 'EditText' not in n.get('class',''):
+        m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+        if len(m) == 4: print((m[0]+m[2])//2, (m[1]+m[3])//2); break
+PY
+)
+  if [ -n "$xy" ]; then log "search: Enter not taken, tapping the suggestion"; adb shell input tap $xy; sleep 2; hide_kb; fi
+  return 0
+}
 
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null
 sleep 12
@@ -157,12 +191,12 @@ log "home shelves visible: $SHELVES"
 gfx() { timeout 20 adb shell dumpsys gfxinfo $PKG > "$O/gfx-$1.txt" 2>&1; log "gfx $1: $(grep -E 'Total frames rendered|Janky frames:' "$O/gfx-$1.txt" | tr -s ' ' | tr '\n' ' ')"; }
 timeout 20 adb shell dumpsys meminfo $PKG > "$O/meminfo-home.txt" 2>&1
 timeout 10 adb shell dumpsys gfxinfo $PKG reset >/dev/null 2>&1
-for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 80) $(px 50) $(py 20) 150; sleep 0.4; done
-for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 20) $(px 50) $(py 80) 150; sleep 0.4; done
+for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 68) $(px 50) $(py 18) 150; sleep 0.4; done
+for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 18) $(px 50) $(py 68) 150; sleep 0.4; done
 gfx home
 [ $SHELVES = 1 ] || log "WARN: no home shelves seen (emulator network?)"
 shot home-scrolled
-for _ in 1 2 3 4; do scroll_up; done
+for _ in 1 2 3 4 5 6 7 8; do scroll_up; dump; find_node resource-id isa_length >/dev/null && break; done
 
 # ---------------------------------------------------------------- Isa command card
 log "== Isa"
@@ -216,16 +250,26 @@ tab Search
 shot search-empty
 id search_field
 type_text "adele hello"
-adb shell input keyevent KEYCODE_ENTER
-sleep 1; hide_kb
+submit_search "adele hello"
 if wait_for resource-id track_row 30; then
   for f in Songs Albums Artists Playlists Videos All; do id "filter_$f" 0; done
   shot search-results
   # add the first song to the new playlist
   id track_more
   txt "Add to playlist"
-  txt "Smoke list"
-  wait_for text "Added to Smoke list" 5 && log "add to playlist ok" || { log "MISSING (required): Added to Smoke list toast"; FAILS=$((FAILS + 1)); }
+  timeout 10 adb logcat -c >/dev/null 2>&1
+  ADDED=0
+  if wait_for text "Smoke list" 8; then
+    adb shell input tap $(find_node text "Smoke list")
+    for _ in 1 2 3 4 5; do dump; find_node text "Added to Smoke list" >/dev/null && { ADDED=1; shot added-toast; break; }; done
+    [ $ADDED = 1 ] || { timeout 15 adb logcat -d -s itune-toast:I 2>/dev/null | grep -q "Added to Smoke list" && ADDED=2; }
+    crash_check "add to playlist"
+  fi
+  case $ADDED in
+    1) log "add to playlist ok (toast seen)";;
+    2) log "add to playlist ok (toast logged; gone before the screen dump)";;
+    *) log "MISSING (required): Added to Smoke list toast"; FAILS=$((FAILS + 1)); shot missing-added;;
+  esac
   # play the first song
   id track_row
   sleep 6
@@ -259,6 +303,7 @@ fi
 
 # ---------------------------------------------------------------- session restore: force-stop + relaunch keeps the song
 log "== Session restore"
+refocus; close_np
 dump
 BEFORE=$(python3 - "$O/ui.xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
@@ -290,7 +335,7 @@ if [ $SHELVES = 1 ]; then
   for _ in 1 2 3 4 5 6 7 8; do
     dump
     if find_node text "Quick picks" >/dev/null || find_node text "Recently played" >/dev/null || find_node text "Daily Mixes" >/dev/null || find_node resource-id shelf_item >/dev/null || find_node text "Trending" >/dev/null; then CACHED=1; break; fi
-    adb shell input swipe $(px 50) $(py 75) $(px 50) $(py 35) 300; sleep 1
+    adb shell input swipe $(px 50) $(py 68) $(px 50) $(py 30) 300; sleep 1
   done
   shot home-cached-offline
   timeout 10 adb shell svc wifi enable; timeout 10 adb shell svc data enable; sleep 3
@@ -335,8 +380,7 @@ tab Search
 id search_field
 clear_field
 type_text "adele 25"
-adb shell input keyevent KEYCODE_ENTER
-sleep 1; hide_kb
+submit_search "adele 25"
 id filter_Albums 0 30
 if id search_album 1 30; then
   wait_for resource-id track_number 25 && log "album page: track numbers (no repeated art)" || log "WARN: album tracks not loaded"

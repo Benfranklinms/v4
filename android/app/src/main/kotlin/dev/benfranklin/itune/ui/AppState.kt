@@ -91,6 +91,7 @@ class AppState {
     }
 
     fun toast(msg: String) {
+        android.util.Log.i("itune-toast", msg)
         toast = msg
     }
 
