@@ -483,7 +483,7 @@ struct LibraryView: View {
                         Tile(title: "Downloads", sub: "\(lib.downloaded.count) songs", art: "", icon: "arrow.down.circle.fill", i: 1) { nav.go(.downloads) }
                     }
                     ForEach(Array(sorted(lib.visiblePlaylists, \.title).enumerated()), id: \.element.id) { i, pl in
-                        Tile(title: pl.title, sub: playlistSubtitle(pl.subtitle, count: pl.trackCount), art: pl.thumb, i: i + 2,
+                        Tile(title: pl.title, sub: playlistSubtitle(pl.subtitle, count: pl.trackCount.map { Int($0) }), art: pl.thumb, i: i + 2,
                              selected: selecting ? selected.contains(pl.id) : nil) {
                             if selecting { if selected.contains(pl.id) { selected.remove(pl.id) } else { selected.insert(pl.id) } }
                             else { nav.push(.playlist(pl.id)) }

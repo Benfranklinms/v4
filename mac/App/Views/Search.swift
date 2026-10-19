@@ -173,19 +173,25 @@ struct SearchPill: View {
     var body: some View {
         let p = theme.p
         let on = focused || m.dropdown
+        let fill: Color = p.light ? Color.black.opacity(on || hover ? 0.08 : 0.05) : Color.white.opacity(on || hover ? 0.11 : 0.075)
+        let stroke: Color = on ? p.txt.opacity(0.92) : Color.white.opacity(hover ? 0.14 : 0.06)
+        let lw: CGFloat = on ? 1.5 : 0.7
+        let shaped = fieldRow(p, on: on)
+            .padding(.leading, 14).padding(.trailing, 6)
+            .frame(height: 40)
+            .frame(maxWidth: .infinity)
+            .background(Capsule().fill(fill))
+            .overlay(Capsule().stroke(stroke, lineWidth: lw))
+            .contentShape(Capsule())
+        return behaviour(shaped)
+    }
+
+    private func fieldRow(_ p: Palette, on: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(on ? p.txt : p.t2)
-            TextField("", text: $m.text, prompt: Text("What do you want to play?").foregroundColor(p.t2))
-                .textFieldStyle(.plain)
-                .font(theme.ui(14, .medium))
-                .foregroundStyle(p.txt)
-                .focused($focused)
-                .focusEffectDisabled()
-                .onSubmit { m.submit() }
-                .accessibilityLabel("Search")
-                .accessibilityIdentifier("search_field")
+            field(p)
             if !m.text.isEmpty {
                 Button { m.set(text: ""); m.typed(""); userFocus = true; focused = true } label: {
                     Image(systemName: "xmark").font(.system(size: 12, weight: .semibold)).foregroundStyle(p.t2)
@@ -195,39 +201,57 @@ struct SearchPill: View {
                 .transition(.opacity)
             }
             Rectangle().fill(p.light ? Color.black.opacity(0.14) : Color.white.opacity(0.16)).frame(width: 1, height: 20)
-            Button { m.showBrowse() } label: {
-                Image(systemName: "archivebox")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(nav.section == .search && m.query.isEmpty ? p.txt : p.t2)
-                    .frame(width: 30, height: 30).contentShape(Rectangle())
+            browseButton(p)
+        }
+    }
+
+    private func field(_ p: Palette) -> some View {
+        let prompt = Text("What do you want to play?").foregroundColor(p.t2)
+        return TextField("", text: $m.text, prompt: prompt)
+            .textFieldStyle(.plain)
+            .font(theme.ui(14, .medium))
+            .foregroundStyle(p.txt)
+            .focused($focused)
+            .focusEffectDisabled()
+            .onSubmit { m.submit() }
+            .accessibilityLabel("Search")
+            .accessibilityIdentifier("search_field")
+    }
+
+    private func browseButton(_ p: Palette) -> some View {
+        let lit = nav.section == .search && m.query.isEmpty
+        return Button { m.showBrowse() } label: {
+            Image(systemName: "archivebox")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(lit ? p.txt : p.t2)
+                .frame(width: 30, height: 30).contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle(scale: 0.9)).help("Browse all").accessibilityLabel("Browse all").accessibilityIdentifier("search_browse")
+    }
+
+    private func behaviour<V: View>(_ v: V) -> some View {
+        v
+            .onTapGesture { userFocus = true; focused = true; _ = m.focusChanged(true, user: true) }
+            .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
+            .overlay(alignment: .top) { dropdownLayer }
+            .background(FrameProbe { LayoutProbe.searchPill = $0 })
+            .onChange(of: focused) { _, f in
+                let user = userFocus
+                userFocus = false
+                if !m.focusChanged(f, user: user) { focused = false }
             }
-            .buttonStyle(PressStyle(scale: 0.9)).help("Browse all").accessibilityLabel("Browse all").accessibilityIdentifier("search_browse")
+            .onChange(of: nav.focusSearch) { _, _ in userFocus = true; focused = true; _ = m.focusChanged(true, user: true) }
+            .onChange(of: m.text) { _, t in m.typed(t) }
+            .animation(Motion.spring, value: m.text.isEmpty)
+    }
+
+    @ViewBuilder private var dropdownLayer: some View {
+        if m.dropdown {
+            SearchDropdown()
+                .fixedSize(horizontal: false, vertical: true)
+                .offset(y: 48)
+                .transition(.opacity.combined(with: .offset(y: -6)))
         }
-        .padding(.leading, 14).padding(.trailing, 6)
-        .frame(height: 40)
-        .frame(maxWidth: .infinity)
-        .background(Capsule().fill(p.light ? Color.black.opacity(on || hover ? 0.08 : 0.05) : Color.white.opacity(on || hover ? 0.11 : 0.075)))
-        .overlay(Capsule().stroke(on ? p.txt.opacity(0.92) : Color.white.opacity(hover ? 0.14 : 0.06), lineWidth: on ? 1.5 : 0.7))
-        .contentShape(Capsule())
-        .onTapGesture { userFocus = true; focused = true; _ = m.focusChanged(true, user: true) }
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
-        .overlay(alignment: .top) {
-            if m.dropdown {
-                SearchDropdown()
-                    .fixedSize(horizontal: false, vertical: true)
-                    .offset(y: 48)
-                    .transition(.opacity.combined(with: .offset(y: -6)))
-            }
-        }
-        .background(FrameProbe { LayoutProbe.searchPill = $0 })
-        .onChange(of: focused) { _, f in
-            let user = userFocus
-            userFocus = false
-            if !m.focusChanged(f, user: user) { focused = false }
-        }
-        .onChange(of: nav.focusSearch) { _, _ in userFocus = true; focused = true; _ = m.focusChanged(true, user: true) }
-        .onChange(of: m.text) { _, t in m.typed(t) }
-        .animation(Motion.spring, value: m.text.isEmpty)
     }
 }
 
