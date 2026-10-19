@@ -98,7 +98,7 @@ fun AppRoot(s: AppState) {
 
     // Adaptive glow: dominant/vibrant colour of the current artwork, crossfaded by the theme.
     LaunchedEffect(current?.thumb) {
-        val url = current?.thumb ?: return@LaunchedEffect
+        val url = current?.thumb ?: run { s.glow = NoTrackGlow; return@LaunchedEffect }
         val r = ctx.imageLoader.execute(ImageRequest.Builder(ctx).data(url).allowHardware(false).size(Size(96, 96)).build())
         val bmp = (r as? SuccessResult)?.drawable?.let { (it as? android.graphics.drawable.BitmapDrawable)?.bitmap } ?: return@LaunchedEffect
         val pal = Palette.from(bmp).maximumColorCount(16).generate()

@@ -18,6 +18,10 @@ adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 
 sleep 5
 adb exec-out screencap -p > "$O/after.png"
 adb logcat -d -v threadtime > "$O/logcat.txt"
+# ANR stack traces (google_apis images allow adb root)
+adb root >/dev/null 2>&1; sleep 2
+adb shell 'ls /data/anr' > "$O/anr-list.txt" 2>&1 || true
+adb pull /data/anr "$O/anr" >/dev/null 2>&1 || true
 grep -nE "FATAL EXCEPTION|Fatal signal|ANR in $PKG|panicked at|CRASH: $PKG" "$O/logcat.txt" "$O/monkey.txt" > "$O/crashes.txt"
 if [ -s "$O/crashes.txt" ]; then
   echo "::error::crash detected ($NAME)"

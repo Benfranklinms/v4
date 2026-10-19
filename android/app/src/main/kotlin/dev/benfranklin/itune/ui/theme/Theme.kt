@@ -53,6 +53,7 @@ val LocalLyricsScale = staticCompositionLocalOf { 1f }
 fun colorsOf(p: Palette, glow: Color): ItuneColors {
     val accentTheme = p.id in setOf("nightgreen", "nightred", "daylight", "adaptive") || p.light && p.acc != p.txt
     val accentUi = when {
+        p.id == "adaptive" && glow == dev.benfranklin.itune.ui.NoTrackGlow -> p.acc
         p.id == "adaptive" -> lift(glow, p.light)
         accentTheme -> p.acc
         else -> p.acc

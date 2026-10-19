@@ -33,13 +33,16 @@ sealed interface Sheet {
     data object WhyThisSong : Sheet
 }
 
+/** Glow with nothing playing: neutral mono, so Adaptive looks like Pure Mono until a track plays. */
+val NoTrackGlow = Color(0xFF8A8A8C)
+
 /** UI navigation state (single root; transitions are driven from here). */
 class AppState {
     var tab by mutableStateOf(Tab.Home)
     val stack = mutableStateListOf<Dest>()
     var nowPlaying by mutableStateOf(false)
     var sheet by mutableStateOf<Sheet?>(null)
-    var glow by mutableStateOf(Color(0xFF5B4A7A))
+    var glow by mutableStateOf(NoTrackGlow)
     var toast by mutableStateOf<String?>(null)
     var forward by mutableStateOf(true)
     var updateNeedsKey by mutableStateOf(false)
