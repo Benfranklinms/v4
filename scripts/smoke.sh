@@ -14,7 +14,7 @@ adb logcat -c
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity
 sleep 20
 adb exec-out screencap -p > "$O/launch.png"
-adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 -v 250 > "$O/monkey.txt" 2>&1 || true
+adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 -v 600 > "$O/monkey.txt" 2>&1 || true
 sleep 5
 adb exec-out screencap -p > "$O/after.png"
 adb logcat -d -v threadtime > "$O/logcat.txt"

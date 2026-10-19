@@ -64,6 +64,7 @@ object Playback {
     private var lastTick = 0L
     private var retried = HashSet<String>()
     private var ticker: Job? = null
+    @Volatile private var connecting = false
 
     /** Ensure the session service is running (binds a MediaController), then run [block]. */
     fun ensure(ctx: Context, block: () -> Unit) {
@@ -72,11 +73,16 @@ object Playback {
             return
         }
         pending += block
-        if (controller != null) return
-        val token = SessionToken(ctx, ComponentName(ctx, PlaybackService::class.java))
-        val f = MediaController.Builder(ctx, token).buildAsync()
+        if (controller != null || connecting) return
+        connecting = true
+        // Bind with the APPLICATION context: binding with an Activity leaked the ServiceConnection when the
+        // Activity was destroyed, and the later release() crashed with "Service not registered" (0.1.0 crash).
+        val app = ctx.applicationContext
+        val token = SessionToken(app, ComponentName(app, PlaybackService::class.java))
+        val f = MediaController.Builder(app, token).buildAsync()
         f.addListener({
             controller = runCatching { f.get() }.getOrNull()
+            connecting = false
             flush()
         }, { main.post(it) })
     }
@@ -93,8 +99,9 @@ object Playback {
         player?.removeListener(listener)
         player = null
         ticker?.cancel()
-        controller?.release()
+        runCatching { controller?.release() }
         controller = null
+        connecting = false
     }
 
     private fun flush() {
