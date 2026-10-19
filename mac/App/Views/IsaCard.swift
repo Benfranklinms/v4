@@ -242,8 +242,22 @@ struct ThinkingShimmer: View {
 /// Mood tiles with generated mono pattern art (rings, stripes, waves, dots).
 struct MoodTile: View {
     enum Kind: CaseIterable { case focus, drive, rain, hype
-        var title: String { switch self { case .focus: "Focus"; case .drive: "Drive"; case .rain: "Rain"; case .hype: "Hype" } }
-        var prompt: String { switch self { case .focus: "focus, no vocals"; case .drive: "night drive"; case .rain: "rainy day, calm"; case .hype: "hype workout" } }
+        var title: String {
+            switch self {
+            case .focus: return "Focus"
+            case .drive: return "Drive"
+            case .rain: return "Rain"
+            case .hype: return "Hype"
+            }
+        }
+        var prompt: String {
+            switch self {
+            case .focus: return "focus, no vocals"
+            case .drive: return "night drive"
+            case .rain: return "rainy day, calm"
+            case .hype: return "hype workout"
+            }
+        }
     }
     @EnvironmentObject var theme: Theme
     let kind: Kind

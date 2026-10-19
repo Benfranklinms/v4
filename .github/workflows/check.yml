@@ -25,6 +25,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: mac
+          cache-on-failure: true
       - name: Tools
         run: |
           brew install xcodegen

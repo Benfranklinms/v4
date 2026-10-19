@@ -157,7 +157,8 @@ enum Smoke {
         await sleep(0.6)
 
         // every page
-        for (s, n) in [(Section.search, "04-search"), (.library, "05-library"), (.stats, "06-stats"), (.downloads, "07-downloads"), (.diagnostics, "08-diagnostics")] {
+        let pages: [(Section, String)] = [(.search, "04-search"), (.library, "05-library"), (.stats, "06-stats"), (.downloads, "07-downloads"), (.diagnostics, "08-diagnostics")]
+        for (s, n) in pages {
             nav.go(s)
             await sleep(1.5)
             shot(n)
@@ -284,7 +285,9 @@ enum Smoke {
 
         // bookmarks: album, playlist, artist (toast + Undo, Library › Albums)
         if let r = results {
-            if let a = r.albums.first ?? (try? await Engine.core.search(query: "After Hours The Weeknd"))?.albums.first {
+            var album = r.albums.first
+            if album == nil { album = (try? await Engine.core.search(query: "After Hours The Weeknd"))?.albums.first }
+            if let a = album {
                 nav.push(.album(a.id)); await sleep(2)
                 if lib.isSaved(album: a.id) { lib.toggleSaved(album: a); nav.flushPending() }
                 lib.toggleSaved(album: a)

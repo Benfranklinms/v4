@@ -281,7 +281,7 @@ struct SettingsView: View {
             let data = SettingsView.dirSize(Engine.supportDir.appendingPathComponent("core"))
             return (h.cacheBytes, dl, data)
         }
-        if let (c, dl, data) = r { sizes = (c, imgs, dl, data > c + dl ? data - c - dl : data) }
+        if let r { sizes = (r.0, imgs, r.1, r.2 > r.0 + r.1 ? r.2 - r.0 - r.1 : r.2) }
     }
 
     nonisolated static func dirSize(_ u: URL) -> UInt64 {

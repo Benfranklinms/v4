@@ -13,7 +13,7 @@ struct GlassSurface<S: Shape>: ViewModifier {
     var interactive = false
     var tint: Color? = nil
 
-    func body(content: Content) -> some View {
+    @ViewBuilder func body(content: Content) -> some View {
         let p = theme.p
         if GlassEnv.reduceTransparency {
             content
