@@ -122,7 +122,7 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: bash scripts/smoke.sh
+          script: bash scripts/smoke-all.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
