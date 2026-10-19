@@ -1,0 +1,26 @@
+name: attach
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        required: true
+      ref:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          for f in out/*; do gh release upload "${{ inputs.tag }}" "$f" --clobber -R "$GITHUB_REPOSITORY"; done
