@@ -39,6 +39,7 @@ class App : Application(), ImageLoaderFactory {
         val core: Core by lazy {
             Core(instance.filesDir.absolutePath + "/core", "android").also { c ->
                 c.setAutoplay(prefs.autoplay.value)
+                c.lastfmConfigure(BuildConfig.LASTFM_API_KEY, BuildConfig.LASTFM_API_SECRET)
                 runCatching { c.setCacheLimitMb(prefs.cacheMb.value.toUInt()) }
             }
         }

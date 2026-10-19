@@ -127,9 +127,12 @@ fun SettingsScreen(s: AppState) {
     var keyText by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
     var storage by remember { mutableStateOf(Storage()) }
+    var lastfm by remember { mutableStateOf<dev.benfranklin.itune.core.LastfmState?>(null) }
+    var lfToken by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         health = App.core.streamingHealth()
         storage = withContext(Dispatchers.IO) { Storage.measure(ctx) }
+        lastfm = App.core.lastfmState()
     }
     val signIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (p.signedIn.value) scope.launch {
@@ -233,6 +236,38 @@ fun SettingsScreen(s: AppState) {
                     SRow("Import playlists", "From a public Spotify or Apple Music link", 0, onClick = { s.push(Dest.Import) }) { Chevron() }
                     SRow("Local files", "Music on this phone, mixed with streaming", 1, onClick = { s.push(Dest.Local) }) { Chevron() }
                     SRow("Downloads", null, 2, onClick = { s.push(Dest.Downloads) }) { Chevron() }
+                }
+            }
+            if (lastfm?.available == true) item {
+                Group("Last.fm") {
+                    val lf = lastfm!!
+                    if (lf.username.isEmpty()) {
+                        SRow(
+                            if (lfToken == null) "Connect Last.fm" else "I've approved it",
+                            if (lfToken == null) "Scrobble what you play" else "Finish connecting after approving in the browser", 0,
+                            onClick = {
+                                scope.launch {
+                                    val tok = lfToken
+                                    if (tok == null) {
+                                        runCatching { App.core.lastfmBeginAuth() }.onSuccess { a ->
+                                            lfToken = a.token
+                                            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(a.url))) }
+                                        }.onFailure { s.toast("Couldn't reach Last.fm") }
+                                    } else {
+                                        runCatching { App.core.lastfmCompleteAuth(tok) }
+                                            .onSuccess { name -> lfToken = null; s.toast("Scrobbling as $name") }
+                                            .onFailure { s.toast("Not approved yet") }
+                                    }
+                                    lastfm = App.core.lastfmState()
+                                }
+                            },
+                        ) { Chevron() }
+                    } else {
+                        SRow("Scrobbling", "${lf.username}${if (lf.pending > 0u) " · ${lf.pending} queued" else ""}", 0) {
+                            Toggle(lf.enabled) { on -> App.core.lastfmSetEnabled(on); lastfm = App.core.lastfmState() }
+                        }
+                        SRow("Disconnect", null, 1, onClick = { App.core.lastfmSignOut(); lastfm = App.core.lastfmState() })
+                    }
                 }
             }
             item {

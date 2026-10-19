@@ -271,6 +271,7 @@ object Playback {
             applyLoudness(mediaItem?.mediaId)
             NowPlayingWidget.refresh(App.instance)
             App.scope.launch {
+                t?.let { runCatching { App.core.lastfmNowPlaying(it) } }
                 if (p.mediaItemCount - p.currentMediaItemIndex <= 3) extendAutoplay()
                 prefetchUpcoming()
             }
@@ -382,7 +383,10 @@ object Playback {
         val dur = (t.durationS.toLong() * 1000).coerceAtLeast(1)
         val wasSkip = skipped && ms < 30_000 && ms < dur / 2
         val tz = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
-        App.scope.launch { runCatching { App.core.recordPlay(t, playStartedAt, ms.toULong(), wasSkip, tz, "android") } }
+        App.scope.launch {
+            runCatching { App.core.recordPlay(t, playStartedAt, ms.toULong(), wasSkip, tz, "android") }
+            runCatching { App.core.lastfmFlush() } // offline-safe: stays queued in the DB on failure
+        }
     }
 
     fun positionFraction(): Float {

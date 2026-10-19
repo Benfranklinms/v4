@@ -44,7 +44,10 @@ struct ItuneApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Theme.registerBundledFonts()
+        // Lean storage: images capped at 64 MB on disk / 32 MB in memory; stream cache LRU-trimmed by the core.
+        URLCache.shared = URLCache(memoryCapacity: 32 * 1024 * 1024, diskCapacity: 64 * 1024 * 1024)
         _ = Engine.core
+        try? Engine.core.setCacheLimitMb(mb: Engine.core.cacheLimitMb())
         Task { @MainActor in await Updater.shared.checkOnLaunch() }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

@@ -115,6 +115,7 @@ final class Player: ObservableObject {
         buffering = true
         loadArtwork(t)
         updateNowPlaying()
+        Task { await Engine.core.lastfmNowPlaying(track: t) }
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -228,6 +229,7 @@ final class Player: ObservableObject {
         let wasSkip = skipped && listened < 30 && listened < dur / 2
         listened = 0
         try? core.recordPlay(track: t, startedAt: startedAt, listenedMs: ms, skipped: wasSkip, tzOffsetMin: Engine.tzMinutes, source: "macos")
+        Task { _ = try? await Engine.core.lastfmFlush() }
     }
 
     // MARK: artwork + glow (decoded off-main)

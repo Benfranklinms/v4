@@ -11,7 +11,12 @@ enum Engine {
     }()
 
     static let core: Core = {
-        do { return try Core(dataDir: supportDir.appendingPathComponent("core").path, platform: "macos") }
+        do {
+            let c = try Core(dataDir: supportDir.appendingPathComponent("core").path, platform: "macos")
+            let info = Bundle.main.infoDictionary ?? [:]
+            c.lastfmConfigure(apiKey: info["LastfmApiKey"] as? String ?? "", apiSecret: info["LastfmApiSecret"] as? String ?? "")
+            return c
+        }
         catch { fatalError("core init failed: \(error)") }
     }()
 

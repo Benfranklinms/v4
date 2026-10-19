@@ -4,6 +4,7 @@ pub mod cache;
 pub mod db;
 pub mod import;
 pub mod isa;
+pub mod lastfm;
 pub mod lyrics;
 pub mod model;
 pub mod queue;
@@ -44,6 +45,22 @@ pub struct Core {
     queue: Mutex<Queue>,
     streams: Mutex<HashMap<String, StreamInfo>>,
     progress: Arc<Mutex<HashMap<String, f32>>>,
+    lastfm: Mutex<Option<lastfm::Keys>>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LastfmState {
+    /// Keys were provided at build time (feature visible).
+    pub available: bool,
+    pub enabled: bool,
+    pub username: String,
+    pub pending: u32,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LastfmAuth {
+    pub token: String,
+    pub url: String,
 }
 
 fn io(e: std::io::Error) -> CoreError {
@@ -67,6 +84,7 @@ impl Core {
             queue: Mutex::new(Queue::new()),
             streams: Mutex::new(HashMap::new()),
             progress: Arc::new(Mutex::new(HashMap::new())),
+            lastfm: Mutex::new(None),
         }))
     }
 
@@ -432,7 +450,76 @@ impl Core {
         if listened_ms < 5_000 && !skipped {
             return Ok(());
         }
-        self.db.record_play(&track, started_at, listened_ms, skipped, tz_offset_min, &source)
+        self.db.record_play(&track, started_at, listened_ms, skipped, tz_offset_min, &source)?;
+        if !skipped && !track.id.starts_with("local:") && self.lastfm_on() && lastfm::qualifies(track.duration_s, listened_ms) {
+            let _ = lastfm::enqueue(&self.db, &track, started_at);
+        }
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------ last.fm (optional)
+    /// Build-time keys (empty = feature hidden).
+    pub fn lastfm_configure(&self, api_key: String, api_secret: String) {
+        let k = api_key.trim().to_string();
+        let s = api_secret.trim().to_string();
+        *self.lastfm.lock().unwrap() = if k.is_empty() || s.is_empty() { None } else { Some(lastfm::Keys { key: k, secret: s }) };
+    }
+    pub fn lastfm_state(&self) -> LastfmState {
+        LastfmState {
+            available: self.lastfm.lock().unwrap().is_some(),
+            enabled: self.lastfm_on(),
+            username: self.db.kv_get("lastfm_user").unwrap_or_default(),
+            pending: lastfm::pending(&self.db),
+        }
+    }
+    /// Step 1: returns the approval URL to open in the browser.
+    pub async fn lastfm_begin_auth(&self) -> Result<LastfmAuth, CoreError> {
+        let k = self.lastfm_keys()?;
+        let (token, url) = lastfm::get_token(self.yt.http(), &k).await?;
+        Ok(LastfmAuth { token, url })
+    }
+    /// Step 2 (after the user approved): stores the session; returns the username.
+    pub async fn lastfm_complete_auth(&self, token: String) -> Result<String, CoreError> {
+        let k = self.lastfm_keys()?;
+        let (sk, name) = lastfm::get_session(self.yt.http(), &k, &token).await?;
+        self.db.kv_set("lastfm_sk", &sk)?;
+        self.db.kv_set("lastfm_user", &name)?;
+        self.db.kv_set("lastfm_on", "1")?;
+        Ok(name)
+    }
+    pub fn lastfm_set_enabled(&self, on: bool) -> Result<(), CoreError> {
+        self.db.kv_set("lastfm_on", if on { "1" } else { "0" })
+    }
+    pub fn lastfm_sign_out(&self) -> Result<(), CoreError> {
+        self.db.kv_set("lastfm_sk", "")?;
+        self.db.kv_set("lastfm_user", "")?;
+        self.db.kv_set("lastfm_on", "0")
+    }
+    /// Best effort; never fails playback.
+    pub async fn lastfm_now_playing(&self, track: Track) {
+        if !self.lastfm_on() || track.id.starts_with("local:") {
+            return;
+        }
+        if let (Ok(k), Some(sk)) = (self.lastfm_keys(), self.db.kv_get("lastfm_sk")) {
+            let _ = lastfm::now_playing(self.yt.http(), &k, &sk, &track).await;
+        }
+    }
+    /// Sends queued scrobbles (call after record_play and when the network returns).
+    pub async fn lastfm_flush(&self) -> Result<u32, CoreError> {
+        if !self.lastfm_on() {
+            return Ok(0);
+        }
+        let k = self.lastfm_keys()?;
+        let sk = self.db.kv_get("lastfm_sk").unwrap_or_default();
+        let mut total = 0;
+        loop {
+            let n = lastfm::flush(self.yt.http(), &k, &sk, &self.db).await?;
+            total += n;
+            if n < 50 {
+                break;
+            }
+        }
+        Ok(total)
     }
     /// range: "week" | "month" | "year" | "all"
     pub fn stats(&self, range: String, tz_offset_min: i32) -> Result<StatsSummary, CoreError> {
@@ -647,6 +734,16 @@ impl Core {
 }
 
 impl Core {
+    fn lastfm_on(&self) -> bool {
+        self.lastfm.lock().unwrap().is_some()
+            && self.db.kv_get("lastfm_on").as_deref() == Some("1")
+            && !self.db.kv_get("lastfm_sk").unwrap_or_default().is_empty()
+    }
+    fn lastfm_keys(&self) -> Result<lastfm::Keys, CoreError> {
+        let g = self.lastfm.lock().unwrap();
+        let k = g.as_ref().ok_or(CoreError::Invalid { msg: "Last.fm is not configured in this build".into() })?;
+        Ok(lastfm::Keys { key: k.key.clone(), secret: k.secret.clone() })
+    }
     fn cache_dir(&self) -> String {
         format!("{}/cache", self.data_dir)
     }

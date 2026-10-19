@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var key = ""
     @State private var cookie = ""
     @State private var signingIn = false
+    @State private var lastfm: LastfmState?
+    @State private var lfToken: String?
     @State private var sizes: (cache: UInt64, images: UInt64, downloads: UInt64, data: UInt64) = (0, 0, 0, 0)
     private let cacheSteps: [UInt32] = [0, 128, 256, 512, 1024]
 
@@ -108,6 +110,21 @@ struct SettingsView: View {
                 }
             }
 
+            if let lf = lastfm, lf.available {
+                group("Last.fm") {
+                    if lf.username.isEmpty {
+                        row(lfToken == nil ? "Scrobble what you play" : "Approved it in the browser?") {
+                            Chip(label: lfToken == nil ? "Connect" : "Finish", selected: true) { lastfmStep() }
+                        }
+                    } else {
+                        row("Scrobbling as \(lf.username)\(lf.pending > 0 ? " · \(lf.pending) queued" : "")") {
+                            Toggle2(on: Binding(get: { lf.enabled }, set: { try? Engine.core.lastfmSetEnabled(on: $0); lastfm = Engine.core.lastfmState() }))
+                        }
+                        row("") { Chip(label: "Disconnect") { try? Engine.core.lastfmSignOut(); lastfm = Engine.core.lastfmState() } }
+                    }
+                }
+            }
+
             group("About") {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
@@ -140,7 +157,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .task { health = Engine.core.streamingHealth(); cacheMb = Engine.core.cacheLimitMb(); refreshSizes() }
+        .task { health = Engine.core.streamingHealth(); cacheMb = Engine.core.cacheLimitMb(); lastfm = Engine.core.lastfmState(); refreshSizes() }
         .sheet(isPresented: $keyEntry) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Access key").font(theme.ui(16, .bold)).foregroundStyle(theme.p.txt)
@@ -169,6 +186,22 @@ struct SettingsView: View {
         guard let h = health else { return "—" }
         if h.failures == 0 { return "Working · \(h.workingClient)" }
         return "\(h.failures) recent failures · \(h.lastError)"
+    }
+
+    private func lastfmStep() {
+        Task {
+            if let tok = lfToken {
+                do { let n = try await Engine.core.lastfmCompleteAuth(token: tok); lfToken = nil; nav.show("Scrobbling as \(n)") }
+                catch { nav.show("Not approved yet") }
+            } else {
+                do {
+                    let a = try await Engine.core.lastfmBeginAuth()
+                    lfToken = a.token
+                    if let u = URL(string: a.url) { NSWorkspace.shared.open(u) }
+                } catch { nav.show("Couldn't reach Last.fm") }
+            }
+            lastfm = Engine.core.lastfmState()
+        }
     }
 
     private func retry() {
