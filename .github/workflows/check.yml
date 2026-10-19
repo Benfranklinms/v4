@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 75
     env:
-      APP_VERSION_NAME: 0.0.0
+      APP_VERSION_NAME: 0.2.1
       APP_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4

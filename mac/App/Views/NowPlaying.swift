@@ -104,8 +104,8 @@ struct NowPlayingView: View {
                 .glassSurface(Circle(), interactive: true)
                 .help("More")
         }
-        // clear of the traffic lights (title bar inset)
-        .padding(.leading, 84).padding(.trailing, 18).padding(.top, 12).frame(height: 56)
+        // on the traffic-light centre line, clear of the lights; nothing else floats over this row
+        .padding(.leading, 86).padding(.trailing, 18).frame(height: WindowChrome.centerY * 2)
         .frame(maxWidth: .infinity)
     }
 

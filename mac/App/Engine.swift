@@ -59,6 +59,10 @@ enum Engine {
     static func bg(_ f: @escaping () throws -> Void) {
         writes.async { try? f() }
     }
+    /// Same, then `done` on the writes queue once the call returned (success or not).
+    static func bg(_ f: @escaping () throws -> Void, done: @escaping () -> Void) {
+        writes.async { try? f(); done() }
+    }
 
     static func message(_ e: Error) -> String {
         let s = "\(e)"

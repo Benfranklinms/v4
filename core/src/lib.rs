@@ -939,6 +939,12 @@ impl Core {
     pub fn saved_playlists(&self) -> Result<Vec<Playlist>, CoreError> {
         self.db.saved("playlist")
     }
+    /// Library revision: a number that goes up after every change to likes, playlists (create, rename,
+    /// add, remove, delete), saved albums / artists / playlists and downloads. Poll it (cheap, no SQLite)
+    /// or compare after a write to refresh counts and lists live.
+    pub fn library_revision(&self) -> u64 {
+        self.db.revision()
+    }
     pub fn library_counts(&self) -> LibraryCounts {
         guard(move || {
             self.db.counts()

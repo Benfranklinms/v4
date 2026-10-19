@@ -219,3 +219,22 @@ async fn album_page_cache() {
     assert_eq!(fresh.tracks[0].id, "a");
     assert!(!c.playlist_has_more("nope".into()));
 }
+
+/// Library revision goes up on like / unlike / playlist add (UIs refresh counts live from it).
+#[test]
+fn library_revision_bumps_on_changes() {
+    let c = core();
+    let t = Track { id: "revtest1".into(), title: "T".into(), artists: "A".into(), artist_id: None, album: None, album_id: None, duration_s: 10, thumb: String::new() };
+    let r0 = c.library_revision();
+    c.set_liked(t.clone(), true).unwrap();
+    let r1 = c.library_revision();
+    assert!(r1 > r0, "like did not bump");
+    assert_eq!(c.library_counts().liked, 1);
+    c.set_liked(t.clone(), false).unwrap();
+    let r2 = c.library_revision();
+    assert!(r2 > r1, "unlike did not bump");
+    let p = c.create_playlist_named("Rev".into(), String::new(), String::new(), vec![]).unwrap();
+    let r3 = c.library_revision();
+    c.add_to_playlist(p.id.clone(), t).unwrap();
+    assert!(c.library_revision() > r3, "add did not bump");
+}

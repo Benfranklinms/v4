@@ -89,6 +89,21 @@ final class Theme: ObservableObject {
         return c
     }
 
+    /// Sidebar icon colours: the selected row uses the accent; the others a muted grey mixed with the accent
+    /// (#8A8A8E on Pure Mono). Never the system blue.
+    var sideMuted: Color {
+        let pal = p
+        let a = Contrast.rgb(accent)
+        let grey = abs(a[0] - a[1]) < 0.04 && abs(a[1] - a[2]) < 0.04
+        if pal.light { return Theme.mix(pal.t2, accent, 0.25) }
+        if grey { return Palette.hex("8A8A8E") }
+        return Theme.mix(Palette.hex("8A8A8E"), accent, 0.3)
+    }
+    static func mix(_ x: Color, _ y: Color, _ t: Double) -> Color {
+        let a = Contrast.rgb(x), b = Contrast.rgb(y)
+        return Color(.sRGB, red: a[0] + (b[0] - a[0]) * t, green: a[1] + (b[1] - a[1]) * t, blue: a[2] + (b[2] - a[2]) * t, opacity: 1)
+    }
+
     /// Roughly the colour the blurred art backdrop settles to (art at ~55 % over the background, darkened).
     static func backdropEstimate(art: Color, bg: Color) -> Color {
         let a = Contrast.rgb(art), b = Contrast.rgb(bg)

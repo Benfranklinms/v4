@@ -8,6 +8,8 @@ use std::sync::Mutex;
 
 pub struct Db {
     pub conn: Mutex<Connection>,
+    /// Library revision: bumped after every change to likes, playlists, saved items or downloads.
+    rev: std::sync::atomic::AtomicU64,
 }
 
 fn e(x: rusqlite::Error) -> CoreError {
@@ -67,7 +69,15 @@ impl Db {
         // Keep the DB lean: drop expired cache rows and the old unbounded lyrics rows.
         let _ = conn.execute("DELETE FROM mcache WHERE at < ?1", [now_s() - MCACHE_TTL_S]);
         let _ = conn.execute("DELETE FROM kv WHERE k LIKE 'lyr:%'", []);
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self { conn: Mutex::new(conn), rev: std::sync::atomic::AtomicU64::new(1) })
+    }
+
+    /// Current library revision (see `rev`).
+    pub fn revision(&self) -> u64 {
+        self.rev.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn bump(&self) {
+        self.rev.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn kv_get(&self, k: &str) -> Option<String> {
@@ -278,6 +288,7 @@ impl Db {
         } else {
             c.execute("DELETE FROM likes WHERE track_id=?1", [&t.id]).map_err(e)?;
         }
+        self.bump();
         Ok(())
     }
     pub fn is_liked(&self, id: &str) -> bool {
@@ -313,6 +324,7 @@ impl Db {
             .map_err(e)?;
         }
         tx.commit().map_err(e)?;
+        self.bump();
         Ok(())
     }
     pub fn add_to_playlist(&self, id: &str, t: &Track) -> Result<(), CoreError> {
@@ -325,6 +337,7 @@ impl Db {
             params![id, n, serde_json::to_string(t).unwrap_or_default()],
         )
         .map_err(e)?;
+        self.bump();
         Ok(())
     }
     /// Rename / edit details of a library playlist (title, description, optional cover url).
@@ -335,6 +348,7 @@ impl Db {
             None => c.execute("UPDATE playlists SET title=?2, subtitle=?3 WHERE id=?1", params![id, title, subtitle]),
         }
         .map_err(e)?;
+        self.bump();
         Ok(())
     }
     /// Delete many playlists in ONE transaction (bulk delete from multi-select stays a single fsync).
@@ -347,6 +361,7 @@ impl Db {
             tx.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", [id]).map_err(e)?;
         }
         tx.commit().map_err(e)?;
+        self.bump();
         Ok(n)
     }
     /// Remove the track at `pos` and close the gap (one transaction).
@@ -368,6 +383,7 @@ impl Db {
             i += 1;
         }
         tx.commit().map_err(e)?;
+        self.bump();
         Ok(())
     }
     pub fn add_search(&self, q: &str) -> Result<(), CoreError> {
@@ -395,6 +411,7 @@ impl Db {
         let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute("DELETE FROM playlists WHERE id=?1", [id]).map_err(e)?;
         c.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", [id]).map_err(e)?;
+        self.bump();
         Ok(())
     }
     pub fn playlists(&self) -> Result<Vec<Playlist>, CoreError> {
@@ -435,6 +452,7 @@ impl Db {
                 .map_err(e)?,
             None => c.execute("DELETE FROM saved WHERE kind=?1 AND id=?2", [kind, id]).map_err(e)?,
         };
+        self.bump();
         Ok(())
     }
     pub fn is_saved(&self, kind: &str, id: &str) -> bool {
@@ -457,6 +475,7 @@ impl Db {
             params![t.id, serde_json::to_string(t).unwrap_or_default(), path, bytes as i64, crate::yt::now()],
         )
         .map_err(e)?;
+        self.bump();
         Ok(())
     }
     pub fn download_path(&self, id: &str) -> Option<String> {
@@ -467,6 +486,7 @@ impl Db {
         let p = self.download_path(id);
         let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute("DELETE FROM downloads WHERE track_id=?1", [id]).map_err(e)?;
+        self.bump();
         Ok(p)
     }
     pub fn downloads(&self) -> Result<Vec<DownloadItem>, CoreError> {
@@ -500,6 +520,7 @@ impl Db {
             .map_err(e)?;
         }
         tx.commit().map_err(e)?;
+        self.bump();
         Ok(())
     }
     pub fn local_tracks(&self) -> Result<Vec<Track>, CoreError> {

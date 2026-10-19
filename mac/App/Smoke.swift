@@ -446,9 +446,10 @@ enum Smoke {
             } else { record("bookmark_artist", false, "no artist in results", soft: true) }
         }
 
-        // Isa command card: prompt -> preview -> Play
+        // Isa command card (centred pop-up): prompt -> preview -> Play
         nav.go(.home); await sleep(1)
         let isa = IsaModel.shared
+        nav.openIsa(); await sleep(0.8)
         isa.text = "rainy night drive, lo-fi"
         await isa.submit()
         await sleep(0.8)
@@ -462,6 +463,7 @@ enum Smoke {
             record("isa", false, e, soft: true)
         }
         isa.reset()
+        nav.closeIsa(); await sleep(0.5)
 
         // remove download: UI path with Undo (file deletion is covered by the core test)
         do {
@@ -488,6 +490,9 @@ enum Smoke {
 
         // ---------------------------------------------------------------- 0.2.0 fix checks
         await fixChecks(track: track, results: results)
+
+        // ---------------------------------------------------------------- 0.2.1 checks
+        await checks021(track: track, results: results)
 
         // content scrolled underneath the floating glass player bar
         nav.go(.home); await sleep(1.5)
@@ -754,6 +759,159 @@ enum Smoke {
             record("mix_open_fast", ok && ms < 1000, String(format: "first rows after %.0f ms (has more pages: %@)", ms, Engine.core.playlistHasMore(id: id) ? "yes" : "no"))
             nav.pop()
         } else { record("mix_open_fast", false, "no playlist found", soft: true) }
+        nav.go(.home)
+    }
+
+    // MARK: 0.2.1 checks (top bar, search, centred Isa, sidebar, Now Playing, live likes)
+
+    /// Posts a key press through the normal event queue (local monitors see it like a real key).
+    static func press(keyCode: UInt16, chars: String) async {
+        guard let w = window, let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                         windowNumber: w.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars,
+                                                         isARepeat: false, keyCode: keyCode) else { return }
+        NSApp.postEvent(ev, atStart: false)
+        await sleep(0.5)
+    }
+
+    /// Does a click at this SwiftUI point (global, top-left origin) reach the app's content (not the title bar)?
+    static func reachesContent(_ pt: CGPoint) -> (Bool, String) {
+        guard let w = window, let content = w.contentView, let frame = content.superview else { return (false, "no window") }
+        let h = frame.bounds.height
+        let p = frame.convert(NSPoint(x: pt.x, y: h - pt.y), from: nil)
+        guard let hit = frame.hitTest(p) else { return (false, "nothing hit") }
+        return (hit.isDescendant(of: content), String(describing: type(of: hit)))
+    }
+
+    static func checks021(track: Track?, results: SearchResults?) async {
+        let nav = Nav.shared, lib = LibraryStore.shared, player = Player.shared, theme = Theme.shared
+        let m = SearchModel.shared
+        nav.closeNowPlaying(); nav.queueOpen = false; nav.closeIsa()
+        await resize(CGSize(width: 1280, height: 800))
+        if nav.sidebarCollapsed { nav.toggleSidebar() }
+        nav.go(.home); await sleep(1.5)
+        guard let w = window else { record("top_bar", false, "no window"); return }
+
+        // 1. top bar + traffic lights / toggle on one centre line, clicks reach the bar
+        shot("60-top-bar-home")
+        let tb = LayoutProbe.topBar, pill = LayoutProbe.searchPill, grp = LayoutProbe.searchGroup, orb = LayoutProbe.isaButton
+        let pillCentred = abs(grp.midX - tb.midX) < 60
+        record("top_bar", tb.height > 40 && tb.height < 64 && pill.width >= 300 && pillCentred && orb.maxX > tb.midX && abs(pill.midY - WindowChrome.centerY) < 3,
+               String(format: "bar %.0fx%.0f at x %.0f, search pill %.0fx%.0f mid y %.0f, group mid %.0f vs bar mid %.0f, Isa orb at x %.0f", tb.width, tb.height, tb.minX, pill.width, pill.height, pill.midY, grp.midX, tb.midX, orb.midX))
+        if let close = w.standardWindowButton(.closeButton), let cv = w.contentView {
+            let r = close.convert(close.bounds, to: nil)   // window coordinates (origin bottom-left)
+            let lightsY = cv.frame.height - r.midY
+            let tog = LayoutProbe.toggle
+            record("chrome_alignment", abs(lightsY - WindowChrome.centerY) < 2.5 && abs(tog.midY - WindowChrome.centerY) < 3 && r.maxX < LayoutProbe.sidebar.maxX,
+                   String(format: "traffic lights centre y %.1f (x %.0f–%.0f), sidebar toggle centre y %.1f, top bar centre y %.1f", lightsY, r.minX, r.maxX, tog.midY, WindowChrome.centerY))
+        } else { record("chrome_alignment", false, "no traffic lights") }
+        var hits: [String] = []
+        var allHit = true
+        for (name, pt) in [("search", CGPoint(x: pill.midX, y: pill.midY)), ("isa", CGPoint(x: orb.midX, y: orb.midY)),
+                           ("back", CGPoint(x: tb.minX + 40, y: WindowChrome.centerY))] {
+            let (ok, v) = reachesContent(pt); allHit = allHit && ok; hits.append("\(name)=\(ok ? "content" : v)")
+        }
+        record("topbar_clickable", allHit, hits.joined(separator: ", "))
+
+        // 2. sidebar: mono icons tinted by the theme, no system blue
+        let mono = Theme.hexOf(theme.sideMuted), acc = Theme.hexOf(theme.accent)
+        let sysBlue = Theme.hexOf(Color(nsColor: .controlAccentColor))
+        record("sidebar_icons_mono", theme.themeId != "mono" || (mono == "8A8A8E" && acc == "E8E8E8"),
+               "theme \(theme.themeId): selected icon #\(acc), others #\(mono) (system accent #\(sysBlue) not used; root .tint = theme accent)")
+
+        // 3. search: empty focus -> Browse all, typing -> dropdown, pick -> results, Esc closes the dropdown
+        Engine.bg { try Engine.core.addRecentSearch(query: "the weeknd live") }
+        Engine.bg { try Engine.core.addRecentSearch(query: "weeknd after hours") }
+        await sleep(0.3)
+        m.loadRecents()
+        nav.focusSearchField(); await sleep(1.2)
+        let browseOK = nav.section == .search && m.query.isEmpty
+        shot("61-search-browse")
+        record("search_browse", browseOK, "focus with empty text -> Browse all (\(BrowseAll.tiles.count) tiles), section=\(nav.section)")
+        m.text = "the weeknd"
+        await sleep(0.3)
+        if !m.dropdown { m.openDropdown() }
+        _ = await wait(8) { !m.suggestions.isEmpty }
+        await sleep(0.6)
+        let rows = m.rows
+        shot("62-search-dropdown")
+        record("search_dropdown", m.dropdown && !rows.isEmpty, "recent=\(m.recentMatches) suggestions=\(m.suggestionRows.prefix(4))", soft: m.dropdown && rows.isEmpty)
+        await press(keyCode: 125, chars: "\u{F701}")
+        let hl = m.highlight
+        await press(keyCode: 53, chars: "\u{1b}")
+        let escClosed = !m.dropdown
+        record("search_esc_closes", escClosed && (rows.isEmpty || hl == 0), "↓ highlight=\(hl.map(String.init) ?? "nil"), Esc closed dropdown=\(escClosed)")
+        m.openDropdown(); await sleep(0.3)
+        m.highlight = rows.isEmpty ? nil : 0
+        m.submit()
+        _ = await wait(30) { !m.loading }
+        await sleep(1.5)
+        shot("63-search-results")
+        let r = m.results
+        let top = r.flatMap { SearchModel.top($0, query: m.query) }
+        record("search_results", !m.dropdown && nav.section == .search && (r?.tracks.isEmpty == false), "query “\(m.query)”: \(r?.tracks.count ?? 0) songs, \(r?.artists.count ?? 0) artists, \(r?.albums.count ?? 0) albums, top result \(top.map { "\($0)".prefix(40) } ?? "none")", soft: r == nil)
+        m.filter = "Songs"; await sleep(1.0); shot("64-search-songs-filter"); m.filter = "All"
+        nav.back(); await sleep(0.8)
+        let backOK = nav.section == .home
+        nav.forward(); await sleep(0.8)
+        let fwdOK = nav.section == .search
+        record("history_back_forward", backOK && fwdOK, "back -> \(backOK ? "home" : "?"), forward -> \(fwdOK ? "search" : "?")")
+        m.showBrowse(); m.closeDropdown()
+
+        // 4. Isa: orb opens the Command card centred over a blurred backdrop; Esc closes it
+        nav.go(.home); await sleep(1)
+        nav.openIsa(); await sleep(1.4)
+        let card = LayoutProbe.isaCard
+        let win = w.contentView?.bounds ?? .zero
+        let centred = abs(card.midX - win.midX) < 4 && abs(card.midY - win.midY) < 4
+        shot("65-isa-centred")
+        await press(keyCode: 53, chars: "\u{1b}")
+        let closed = !nav.isaOpen
+        record("isa_centred", centred && closed && card.width > 300,
+               String(format: "card %.0fx%.0f centre (%.0f, %.0f) vs window (%.0f, %.0f); Esc closed=%@", card.width, card.height, card.midX, card.midY, win.midX, win.midY, closed ? "yes" : "no"))
+        nav.closeIsa(); await sleep(0.5)
+
+        // 5. sidebar expanded / collapsed (rail, toggle on the light line in the top bar, avatar in the top bar)
+        nav.go(.library); await sleep(1.2)
+        shot("66-sidebar-expanded")
+        let wide = LayoutProbe.sidebar.width
+        nav.toggleSidebar(); await sleep(1.2)
+        shot("67-sidebar-collapsed")
+        let rail = LayoutProbe.sidebar.width, tog = LayoutProbe.toggle
+        record("sidebar_collapsed", nav.sidebarCollapsed && rail < 100 && wide > 200 && tog.minX > LayoutProbe.sidebar.maxX && abs(tog.midY - WindowChrome.centerY) < 3,
+               String(format: "expanded %.0f pt, rail %.0f pt, toggle at x %.0f (rail ends %.0f) centre y %.1f", wide, rail, tog.minX, LayoutProbe.sidebar.maxX, tog.midY))
+        nav.toggleSidebar(); await sleep(1.0)
+
+        // 6. Now Playing: clean top row (no sidebar toggle over it)
+        if let a = makeTone(seconds: 60, name: "np021") {
+            player.setAutoplay(false)
+            player.play([Track(id: "local:" + a.absoluteString, title: "Now Playing check", artists: "Smoke", artistId: nil, album: nil, albumId: nil, durationS: 60, thumb: "")], index: 0, source: "Smoke 0.2.1")
+            _ = await wait(10) { player.current != nil }
+        }
+        nav.openNowPlaying(); await sleep(1.5)
+        shot("68-now-playing")
+        record("np_top_row_clean", nav.showNowPlaying, "Now Playing covers the window; sidebar toggle and top bar sit under it (no window toolbar)")
+        nav.closeNowPlaying(); await sleep(0.8)
+
+        // 7. live likes: Liked Songs list + count, Library tile count, without a reload
+        let likeT = track ?? results?.tracks.first ?? Track(id: "smoke-like-1", title: "Smoke like", artists: "Smoke", artistId: nil, album: nil, albumId: nil, durationS: 100, thumb: "")
+        if lib.isLiked(likeT.id) { lib.toggleLike(likeT); await sleep(1) }
+        nav.go(.library); await sleep(0.6)
+        nav.push(.playlist("liked")); await sleep(1.5)
+        let before = PageTiming.rows["liked"]?.count ?? -1
+        let countBefore = lib.liked.count
+        let t0 = CACurrentMediaTime()
+        lib.toggleLike(likeT)
+        let shown = await wait(3) { PageTiming.rows["liked"]?.contains(likeT.id) == true }
+        let ms = (CACurrentMediaTime() - t0) * 1000
+        await sleep(0.6)
+        shot("69-like-live-liked-songs")
+        let countOK = lib.liked.count == countBefore + 1
+        lib.toggleLike(likeT)
+        let removed = await wait(3) { PageTiming.rows["liked"]?.contains(likeT.id) == false }
+        record("like_live", shown && countOK && removed,
+               String(format: "liked rows %d -> shown=%@ after %.0f ms, count %d -> %d, unlike removed=%@ (core revision %llu)", before, shown ? "yes" : "no", ms, countBefore, countBefore + (countOK ? 1 : 0), removed ? "yes" : "no", Engine.core.libraryRevision()))
+        nav.go(.library); await sleep(0.8)
+        shot("70-library-after-like")
         nav.go(.home)
     }
 

@@ -23,7 +23,7 @@ struct Page<Content: View>: View {
                     }
                 }
                 .padding(.leading, 32 + insets.leading).padding(.trailing, 32 + insets.trailing)
-                .padding(.top, 40 + insets.top).padding(.bottom, 32 + insets.bottom)
+                .padding(.top, 14 + insets.top).padding(.bottom, 32 + insets.bottom)
                 // exactly the column width: a wide row can never widen the detail column (that pushed the
                 // queue overlay and player bar past the window edge)
                 .frame(width: max(0, geo.size.width), alignment: .leading)
@@ -91,7 +91,6 @@ struct HomeView: View {
         Page(name: "home", lazy: false) {
             LargeTitle(text: "Home").enter(0)
             Text("\(feed?.greeting ?? greetingNow), \(firstName)").font(theme.ui(14, .medium)).foregroundStyle(p.t2).padding(.top, 2).enter(0)
-            IsaCommandCard().padding(.top, 18).frame(maxWidth: 980, alignment: .leading).enter(1)
             if let f = feed {
                 feedSections(f)
             } else if failed {
@@ -406,131 +405,6 @@ struct SkeletonShelf: View {
     }
 }
 
-enum SearchCache { @MainActor static var q = ""; @MainActor static var res: SearchResults?; @MainActor static var pending: String? }
-
-struct SearchView: View {
-    @EnvironmentObject var theme: Theme
-    @EnvironmentObject var player: Player
-    @EnvironmentObject var nav: Nav
-    @State private var q = SearchCache.q
-    @State private var res: SearchResults? = SearchCache.res
-    @State private var sugg: [String] = []
-    @State private var recents: [String] = []
-    @State private var loading = false
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        let p = theme.p
-        Page {
-            LargeTitle(text: "Search")
-            HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(p.t2)
-                TextField("Songs, artists, albums", text: $q).textFieldStyle(.plain).font(theme.ui(14)).focused($focused).onSubmit { run(q) }
-                    .accessibilityIdentifier("search_field")
-                if !q.isEmpty { IconButton("xmark.circle.fill", size: 12) { q = ""; sugg = [] }.foregroundStyle(p.t3) }
-            }
-            .padding(.horizontal, 16).frame(height: 44).frame(maxWidth: 620)
-            .glassSurface(Capsule())
-            .padding(.top, 16)
-            if !sugg.isEmpty && focused {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(sugg.enumerated()), id: \.offset) { i, s in
-                        Button { q = s; run(s) } label: {
-                            HStack { Image(systemName: "magnifyingglass").foregroundStyle(p.t3); Text(s).font(theme.ui(13.5)).foregroundStyle(p.txt); Spacer() }
-                                .padding(.vertical, 8).padding(.horizontal, 18).contentShape(Rectangle())
-                        }.buttonStyle(PressStyle(scale: 0.99)).enter(i)
-                    }
-                }.frame(maxWidth: 620).padding(.top, 6)
-            }
-            if res == nil && q.isEmpty && !recents.isEmpty {
-                HStack {
-                    Text("Recent searches").font(theme.ui(16, .bold)).foregroundStyle(p.txt)
-                    Spacer()
-                    Button("Clear all") { recents = []; Engine.bg { try Engine.core.clearRecentSearches() } }
-                        .buttonStyle(.plain).font(theme.ui(12, .semibold)).foregroundStyle(p.t2)
-                }.frame(maxWidth: 620).padding(.top, 26)
-                ForEach(recents, id: \.self) { r in
-                    HStack {
-                        Image(systemName: "clock.arrow.circlepath").foregroundStyle(p.t3)
-                        Text(r).font(theme.ui(13.5)).foregroundStyle(p.txt)
-                        Spacer()
-                        IconButton("xmark", size: 10) { recents.removeAll { $0 == r }; Engine.bg { try Engine.core.removeRecentSearch(query: r) } }.foregroundStyle(p.t3)
-                    }
-                    .padding(.vertical, 6).frame(maxWidth: 620).contentShape(Rectangle())
-                    .onTapGesture { q = r; run(r) }
-                }
-            }
-            if loading { Shimmer().padding(.top, 24) }
-            if let r = res, !loading {
-                if !r.tracks.isEmpty {
-                    SectionTitle(text: "Songs")
-                    ForEach(Array(r.tracks.enumerated()), id: \.offset) { i, t in
-                        TrackRow(t: t, index: i) { player.play(r.tracks, index: i, source: "Search · \(q)") }
-                    }
-                }
-                if !r.artists.isEmpty {
-                    SectionTitle(text: "Artists")
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 18) {
-                            ForEach(Array(r.artists.enumerated()), id: \.element.id) { i, a in
-                                VStack(spacing: 8) {
-                                    ArtView(url: a.thumb, size: 110, circle: true)
-                                    Text(a.name).font(theme.ui(12.5, .semibold)).foregroundStyle(p.txt).lineLimit(1)
-                                }.frame(width: 116).contentShape(Rectangle()).onTapGesture { nav.push(.artist(a.id)) }.enter(i)
-                            }
-                        }
-                    }.scrollIndicators(.never)
-                }
-                if !r.albums.isEmpty {
-                    SectionTitle(text: "Albums")
-                    AlbumStrip(albums: r.albums)
-                }
-                if !r.playlists.isEmpty {
-                    SectionTitle(text: "Playlists")
-                    ForEach(Array(r.playlists.enumerated()), id: \.element.id) { i, pl in
-                        HStack(spacing: 12) {
-                            ArtView(url: pl.thumb, size: 44, radius: 6)
-                            VStack(alignment: .leading) {
-                                Text(pl.title).font(theme.ui(13.5, .semibold)).foregroundStyle(p.txt)
-                                Text(pl.subtitle).font(theme.ui(11.5)).foregroundStyle(p.t3)
-                            }
-                            Spacer()
-                        }.padding(.vertical, 5).contentShape(Rectangle()).onTapGesture { nav.push(.playlist(pl.id)) }.enter(i)
-                    }
-                }
-            }
-        }
-        .onAppear {
-            if nav.section == .search { focused = true }
-            if let pnd = SearchCache.pending { SearchCache.pending = nil; q = pnd; run(pnd) }
-        }
-        .onChange(of: nav.section) { _, sec in if sec == .search { focused = true } else { focused = false } }
-        .task { recents = await Engine.off { Engine.core.recentSearches(limit: 12) } ?? [] }
-        .task(id: q) {
-            guard !q.isEmpty, q != SearchCache.q else { sugg = []; return }
-            try? await Task.sleep(nanoseconds: 220_000_000)
-            if Task.isCancelled { return }
-            sugg = Array(((try? await Engine.core.searchSuggestions(query: q)) ?? []).prefix(6))
-        }
-        .onChange(of: nav.searchToken) { _, _ in if let pnd = SearchCache.pending { SearchCache.pending = nil; q = pnd; run(pnd) } }
-    }
-
-    func run(_ text: String) {
-        let t = text.trimmingCharacters(in: .whitespaces)
-        guard !t.isEmpty else { return }
-        sugg = []
-        loading = true
-        focused = false
-        Engine.bg { try Engine.core.addRecentSearch(query: t) }
-        Task {
-            let r = try? await Engine.core.search(query: t)
-            withAnimation(Motion.spring) { res = r; loading = false }
-            SearchCache.q = t; SearchCache.res = r
-            Nav.shared.lastSearch = r
-        }
-    }
-}
-
 struct AlbumStrip: View {
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var nav: Nav
@@ -605,11 +479,11 @@ struct LibraryView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 168), spacing: 18)], alignment: .leading, spacing: 20) {
                 if filter == "Playlists" {
                     if !selecting {
-                        Tile(title: "Liked Songs", sub: "\(lib.liked.count) songs", art: "", icon: "heart.fill", i: 0) { nav.push(.playlist("liked")) }
+                        Tile(title: "Liked Songs", sub: lib.liked.count == 1 ? "1 song" : "\(lib.liked.count) songs", art: "", icon: "heart.fill", i: 0) { nav.push(.playlist("liked")) }
                         Tile(title: "Downloads", sub: "\(lib.downloaded.count) songs", art: "", icon: "arrow.down.circle.fill", i: 1) { nav.go(.downloads) }
                     }
                     ForEach(Array(sorted(lib.visiblePlaylists, \.title).enumerated()), id: \.element.id) { i, pl in
-                        Tile(title: pl.title, sub: pl.subtitle.isEmpty ? "\(pl.trackCount ?? 0) songs" : pl.subtitle, art: pl.thumb, i: i + 2,
+                        Tile(title: pl.title, sub: playlistSubtitle(pl.subtitle, count: pl.trackCount), art: pl.thumb, i: i + 2,
                              selected: selecting ? selected.contains(pl.id) : nil) {
                             if selecting { if selected.contains(pl.id) { selected.remove(pl.id) } else { selected.insert(pl.id) } }
                             else { nav.push(.playlist(pl.id)) }
@@ -759,7 +633,11 @@ func playlistSubtitle(_ sub: String?, count: Int?) -> String {
 }
 
 /// First rows on screen per page id (smoke timing).
-enum PageTiming { @MainActor static var firstRows: [String: CFTimeInterval] = [:] }
+enum PageTiming {
+    @MainActor static var firstRows: [String: CFTimeInterval] = [:]
+    /// Track ids currently shown per playlist page (smoke: likes show up live in Liked Songs).
+    @MainActor static var rows: [String: [String]] = [:]
+}
 
 struct AlbumView: View {
     @EnvironmentObject var lib: LibraryStore
@@ -810,13 +688,15 @@ struct PlaylistView: View {
                           }
                       }),
                       empty: "Add songs from any ⋯ menu.")
-            .task(id: "\(id)-\(lib.trackChanges)") { await load() }
+            // own playlists and Liked Songs reload whenever the library changes (likes from the player, menus, NP)
+            .task(id: "\(id)-\(lib.trackChanges)-\(local ? lib.rev : 0)") { await load() }
             .accessibilityIdentifier("playlist_page")
     }
 
     private func show(_ p: PlaylistPage) {
         page = p
         tracks = p.tracks
+        PageTiming.rows[id] = p.tracks.map(\.id)
         if PageTiming.firstRows[id] == nil, !p.tracks.isEmpty { PageTiming.firstRows[id] = CACurrentMediaTime() }
     }
 

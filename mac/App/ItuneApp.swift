@@ -36,8 +36,13 @@ struct ItuneApp: App {
                 Button("Now Playing") { nav.toggleNowPlaying() }.keyboardShortcut("p", modifiers: [.command, .shift])
                 Button("Queue") { nav.toggleQueue() }.keyboardShortcut("u", modifiers: [.command, .option])
                 Button("Lyrics") { nav.toggleLyrics() }.keyboardShortcut("l", modifiers: [.command, .option])
-                Button("Ask Isa") { nav.go(.home); nav.focusIsa += 1 }.keyboardShortcut("k", modifiers: .command)
-                Button("Search") { nav.focusSearch += 1 }.keyboardShortcut("f", modifiers: .command)
+                Button("Ask Isa") { nav.toggleIsa() }.keyboardShortcut("k", modifiers: .command)
+                Button("Search") { nav.focusSearchField() }.keyboardShortcut("f", modifiers: .command)
+                Button("Go to Search") { nav.focusSearchField() }.keyboardShortcut("l", modifiers: .command)
+                Divider()
+                Button("Back") { nav.back() }.keyboardShortcut("[", modifiers: .command).disabled(!nav.canBack)
+                Button("Forward") { nav.forward() }.keyboardShortcut("]", modifiers: .command).disabled(!nav.canForward)
+                Button(nav.sidebarCollapsed ? "Show Sidebar" : "Collapse Sidebar") { nav.toggleSidebar() }.keyboardShortcut("s", modifiers: [.command, .control])
                 Button("Mini Player") { MiniPlayerPanel.shared.toggle() }.keyboardShortcut("m", modifiers: [.command, .option])
                 Divider()
                 Button("Account") { nav.sheet = .account }
@@ -66,13 +71,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CrashReporter.install()
         Theme.registerBundledFonts()
         MenuTracker.install()
+        LibraryStore.shared.startWatching()
         Launch.finishedAt = CACurrentMediaTime()
         DispatchQueue.global(qos: .utility).async { ArtDisk.trim() }
         // Esc closes Now Playing, then the queue (not while typing or a sheet is up)
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            // ↑ / ↓ move through the search dropdown
+            if e.keyCode == 125 || e.keyCode == 126 {
+                return MainActor.assumeIsolated { () -> NSEvent? in
+                    guard SearchModel.shared.dropdown, Nav.shared.sheet == nil else { return e }
+                    SearchModel.shared.move(e.keyCode == 125 ? 1 : -1)
+                    return nil
+                }
+            }
             guard e.keyCode == 53 else { return e }
             return MainActor.assumeIsolated { () -> NSEvent? in
                 let nav = Nav.shared
+                // Isa card first, then the search dropdown (both while typing in their fields)
+                if nav.sheet == nil && nav.isaOpen { nav.closeIsa(); return nil }
+                if nav.sheet == nil && SearchModel.shared.dropdown { SearchModel.shared.closeDropdown(); return nil }
                 guard nav.sheet == nil, nav.showNowPlaying || nav.queueOpen,
                       !(NSApp.keyWindow?.firstResponder is NSTextView) else { return e }
                 nav.closeTop()
@@ -140,6 +157,8 @@ enum Route: Hashable {
     case album(String), artist(String), playlist(String), isa(String), mix(String)
 }
 
+struct NavSnap: Equatable { let section: Section; let path: [Route] }
+
 struct CarouselTarget: Equatable { let shelf: String; let index: Int }
 
 /// Header shown at once when a tile is opened (before the page loads).
@@ -184,6 +203,13 @@ final class Nav: ObservableObject {
     @Published var queueWidth: Double = (UserDefaults.standard.object(forKey: "queueWidth") as? Double) ?? 320 { didSet { UserDefaults.standard.set(queueWidth, forKey: "queueWidth") } }
     @Published var focusIsa = 0
     @Published var focusSearch = 0
+    /// Isa Command card, centred over a blurred backdrop.
+    @Published var isaOpen = false
+    /// Narrow icon rail instead of the full sidebar (remembered).
+    @Published var sidebarCollapsed = UserDefaults.standard.bool(forKey: "sidebarCollapsed") { didSet { UserDefaults.standard.set(sidebarCollapsed, forKey: "sidebarCollapsed") } }
+    /// Back / forward history (section + that section's stack).
+    @Published private(set) var backStack: [NavSnap] = []
+    @Published private(set) var fwdStack: [NavSnap] = []
     /// Page scroll requests (anchor ids such as "shelf_1"), used by keyboard nav and the smoke test.
     @Published var scrollTarget: String?
     @Published var searchToken = 0
@@ -208,8 +234,39 @@ final class Nav: ObservableObject {
     /// Lyrics are "open" only while Now Playing shows them (the player-bar button reflects exactly this).
     var lyricsOpen: Bool { showNowPlaying && showLyrics }
 
+    // MARK: history
+    var snap: NavSnap { NavSnap(section: section, path: path) }
+    var canBack: Bool { !backStack.isEmpty }
+    var canForward: Bool { !fwdStack.isEmpty }
+    /// Call before a navigation change: the current place goes on the back stack, forward is cleared.
+    private func record() {
+        let s = snap
+        if backStack.last != s { backStack.append(s) }
+        if backStack.count > 60 { backStack.removeFirst(backStack.count - 60) }
+        fwdStack = []
+    }
+    func back() {
+        guard let s = backStack.popLast() else { return }
+        fwdStack.append(snap)
+        apply(s)
+    }
+    func forward() {
+        guard let s = fwdStack.popLast() else { return }
+        backStack.append(snap)
+        apply(s)
+    }
+    private func apply(_ s: NavSnap) {
+        Enter.navigatedAt = Date()
+        closeNowPlaying()
+        withAnimation(Motion.spring) {
+            stacks[s.section] = s.path
+            section = s.section
+        }
+    }
+
     func go(_ s: Section) {
         Enter.navigatedAt = Date()
+        if section != s || !(stacks[s] ?? []).isEmpty { record() }
         withAnimation(Motion.spring) {
             closeNowPlaying()
             if section == s { stacks[s] = [] } else { section = s }
@@ -218,13 +275,32 @@ final class Nav: ObservableObject {
     /// Sidebar playlist: Library section with that playlist on top.
     func openFromSidebar(playlist id: String) {
         Enter.navigatedAt = Date()
+        record()
         closeNowPlaying()
         section = .library
         stacks[.library] = [.playlist(id)]
     }
+    func toggleSidebar() { withAnimation(Motion.spring) { sidebarCollapsed.toggle() } }
+
+    // MARK: Isa card + search
+    func openIsa() {
+        closeNowPlaying()
+        SearchModel.shared.closeDropdown()
+        withAnimation(Motion.bouncy) { isaOpen = true }
+        focusIsa += 1
+    }
+    func closeIsa() { if isaOpen { withAnimation(Motion.spring) { isaOpen = false } } }
+    func toggleIsa() { isaOpen ? closeIsa() : openIsa() }
+    /// ⌘F / ⌘L: focus the top-bar search field.
+    func focusSearchField() {
+        closeIsa()
+        closeNowPlaying()
+        focusSearch += 1
+    }
     /// Navigation always happens in the main window: Now Playing collapses first (no overlay pushes).
     func push(_ r: Route) {
         Enter.navigatedAt = Date()
+        record()
         if showNowPlaying {
             withAnimation(Motion.spring) { showNowPlaying = false }
             Task { try? await Task.sleep(nanoseconds: 180_000_000); self.path.append(r) }
@@ -232,7 +308,7 @@ final class Nav: ObservableObject {
             path.append(r)
         }
     }
-    func pop() { _ = path.popLast() }
+    func pop() { guard !path.isEmpty else { return }; record(); _ = path.popLast() }
     func openNowPlaying() { guard Player.shared.current != nil else { return }; withAnimation(Motion.spring) { showNowPlaying = true } }
     func closeNowPlaying() { if showNowPlaying { withAnimation(Motion.spring) { showNowPlaying = false } } }
     func toggleNowPlaying() { showNowPlaying ? closeNowPlaying() : openNowPlaying() }
@@ -247,8 +323,8 @@ final class Nav: ObservableObject {
             openNowPlaying()
         }
     }
-    /// Esc: Now Playing first, then the queue.
-    func closeTop() { if showNowPlaying { closeNowPlaying() } else { closeQueue() } }
+    /// Esc: the Isa card, then Now Playing, then the queue.
+    func closeTop() { if isaOpen { closeIsa() } else if showNowPlaying { closeNowPlaying() } else { closeQueue() } }
 
     func show(_ m: String) {
         undoAction = nil
@@ -285,6 +361,9 @@ final class Nav: ObservableObject {
         withAnimation(Motion.spring) { snack = nil }
     }
 
+    /// An Undo window is open (its change is applied in the UI but not written yet).
+    var undoPending: Bool { pendingCommit != nil }
+
     func flushPending() { commitTask?.cancel(); pendingCommit?(); pendingCommit = nil }
 }
 
@@ -294,6 +373,13 @@ enum LayoutProbe {
     nonisolated(unsafe) static var detail: CGRect = .zero
     nonisolated(unsafe) static var queue: CGRect = .zero
     nonisolated(unsafe) static var lyricsButton: CGRect = .zero
+    nonisolated(unsafe) static var sidebar: CGRect = .zero
+    nonisolated(unsafe) static var toggle: CGRect = .zero
+    nonisolated(unsafe) static var topBar: CGRect = .zero
+    nonisolated(unsafe) static var searchGroup: CGRect = .zero
+    nonisolated(unsafe) static var searchPill: CGRect = .zero
+    nonisolated(unsafe) static var isaButton: CGRect = .zero
+    nonisolated(unsafe) static var isaCard: CGRect = .zero
 }
 
 struct FrameProbe: View {
@@ -304,154 +390,6 @@ struct FrameProbe: View {
                 .onAppear { set(g.frame(in: .global)) }
                 .onChange(of: g.frame(in: .global)) { _, f in set(f) }
         }
-    }
-}
-
-/// Apple Music layout: native NavigationSplitView sidebar (system sidebar glass); the detail column starts at
-/// the sidebar's trailing edge and clips its content. The queue is an inspector column when the window is wide
-/// (>= 1100 pt) and an overlay panel when narrower; the sidebar auto-collapses below 800 pt. The floating glass
-/// player bar sits over the bottom of the detail and every scroll view gets a bottom inset of its height.
-struct RootView: View {
-    @EnvironmentObject var theme: Theme
-    @EnvironmentObject var player: Player
-    @EnvironmentObject var nav: Nav
-
-    static let barHeight: CGFloat = 72
-    static let inspectorMinWidth: CGFloat = 1100
-    static let sidebarCollapseWidth: CGFloat = 800
-    @State private var split: NavigationSplitViewVisibility = .all
-    @State private var width: CGFloat = 1280
-
-    var body: some View {
-        let p = theme.p
-        let wide = width >= RootView.inspectorMinWidth
-        ZStack {
-            NavigationSplitView(columnVisibility: $split) {
-                Sidebar()
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 224, max: 280)
-            } detail: {
-                DetailArea(wide: wide)
-                    .inspector(isPresented: Binding(get: { nav.queueOpen && wide },
-                                                    set: { v in if !v && wide { nav.queueOpen = false } })) {
-                        QueueSidePanel()
-                            .background(FrameProbe { LayoutProbe.queue = $0 })
-                            .inspectorColumnWidth(min: 280, ideal: CGFloat(min(420, max(280, nav.queueWidth))), max: 420)
-                    }
-            }
-            .navigationSplitViewStyle(.balanced)
-
-            if nav.showNowPlaying && player.current != nil {
-                NowPlayingView()
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(3)
-            }
-        }
-        .background(GeometryReader { g in
-            Color.clear
-                .onAppear { width = g.size.width; adapt(g.size.width, initial: true) }
-                .onChange(of: g.size.width) { _, w in let old = width; width = w; adapt(w, from: old) }
-        })
-        .background(p.bg.ignoresSafeArea())
-        .animation(Motion.spring, value: player.current?.id)
-        .animation(Motion.spring, value: nav.showNowPlaying)
-        .animation(Motion.spring, value: nav.queueOpen)
-        .animation(.easeInOut(duration: 0.5), value: theme.themeId)
-        .onExitCommand { nav.closeTop() }
-        .sheet(item: Binding(get: { nav.updateInfo.map(UpdateBox.init) }, set: { nav.updateInfo = $0?.info })) { box in
-            UpdateSheet(info: box.info).environmentObject(theme)
-        }
-        .sheet(item: $nav.sheet) { kind in
-            Group {
-                switch kind {
-                case .account: AccountSheet()
-                case .newPlaylist(let tracks): NamePlaylistSheet(tracks: tracks, edit: nil)
-                case .rename(let p): NamePlaylistSheet(tracks: [], edit: p)
-                case .crash(let text): CrashSheet(text: text)
-                }
-            }
-            .environmentObject(theme).environmentObject(player).environmentObject(nav)
-            .environmentObject(LibraryStore.shared).environmentObject(AccountStore.shared).environmentObject(Prefs.shared)
-        }
-    }
-
-    /// Auto-collapse the sidebar when the window gets narrow (and bring it back when it widens again).
-    private func adapt(_ w: CGFloat, from old: CGFloat = 0, initial: Bool = false) {
-        let t = RootView.sidebarCollapseWidth
-        if (initial || old >= t) && w < t { withAnimation(Motion.spring) { split = .detailOnly } }
-        else if !initial && old < t && w >= t { withAnimation(Motion.spring) { split = .all } }
-    }
-}
-
-/// Detail column: the section stacks, the floating player bar, the narrow-window queue overlay and toasts.
-struct DetailArea: View {
-    @EnvironmentObject var theme: Theme
-    @EnvironmentObject var player: Player
-    @EnvironmentObject var nav: Nav
-    let wide: Bool
-    /// Sections whose stack stays alive while another section is shown (state + scroll survive).
-    private static let kept: [Section] = [.home, .search, .library]
-
-    var body: some View {
-        let bar = player.current != nil
-        ZStack(alignment: .bottom) {
-            ZStack {
-                ForEach(DetailArea.kept, id: \.self) { s in
-                    SectionStack(section: s)
-                        .opacity(nav.section == s ? 1 : 0)
-                        .allowsHitTesting(nav.section == s)
-                        .accessibilityHidden(nav.section != s)
-                }
-                if !DetailArea.kept.contains(nav.section) {
-                    SectionStack(section: nav.section).id(nav.section)
-                        .transition(.opacity)
-                }
-            }
-            .safeAreaPadding(.bottom, bar ? RootView.barHeight + 24 : 12)
-            .background(FrameProbe { LayoutProbe.detail = $0 })
-
-            if bar && !nav.showNowPlaying {
-                PlayerBar()
-                    .frame(height: RootView.barHeight)
-                    .frame(maxWidth: 1180)
-                    .padding(.horizontal, 14).padding(.bottom, 12)
-                    .background(FrameProbe { LayoutProbe.playerBar = $0 }.padding(.horizontal, 14).padding(.bottom, 12))
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(4)
-            }
-
-            if nav.queueOpen && !wide {
-                Color.black.opacity(0.28)
-                    .contentShape(Rectangle())
-                    .onTapGesture { nav.closeQueue() }
-                    .transition(.opacity)
-                    .zIndex(5)
-                    .accessibilityIdentifier("queue_scrim")
-                GeometryReader { g in
-                    HStack {
-                        Spacer(minLength: 0)
-                        QueueSidePanel()
-                            .frame(width: min(380, g.size.width - 40))
-                            .glassCard(18)
-                            .background(FrameProbe { LayoutProbe.queue = $0 })
-                            .padding(.top, 10).padding(.trailing, 10)
-                            .padding(.bottom, bar ? RootView.barHeight + 22 : 10)
-                    }
-                }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-                .zIndex(6)
-            }
-
-            if let s = nav.snack {
-                SnackView(snack: s)
-                    .padding(.bottom, bar && !nav.showNowPlaying ? RootView.barHeight + 28 : 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(7)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
-        .background(ArtBackdrop(strength: 0.5).ignoresSafeArea())
-        .toolbarBackground(.hidden, for: .windowToolbar)
     }
 }
 
@@ -535,124 +473,6 @@ struct SnackView: View {
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(Capsule().fill(p.txt))
         .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
-    }
-}
-
-enum SideItem: Hashable { case section(Section), playlist(String) }
-
-/// Native sidebar (List .sidebar: system glass + selection pill). Search field on top like Apple Music
-/// (⌘F focuses it; no separate Search row).
-struct Sidebar: View {
-    @EnvironmentObject var theme: Theme
-    @EnvironmentObject var nav: Nav
-    @EnvironmentObject var lib: LibraryStore
-    @EnvironmentObject var account: AccountStore
-    @State private var query = ""
-    @FocusState private var searchFocused: Bool
-
-    private var selection: Binding<SideItem?> {
-        Binding(get: {
-            if nav.section == .library, case .playlist(let id)? = nav.stacks[.library]?.first { return .playlist(id) }
-            return nav.section == .search ? nil : .section(nav.section)
-        }, set: { v in
-            switch v {
-            case .section(let s)?: nav.go(s)
-            case .playlist(let id)?: nav.openFromSidebar(playlist: id)
-            case nil: break
-            }
-        })
-    }
-
-    var body: some View {
-        let p = theme.p
-        List(selection: selection) {
-            SwiftUI.Section {
-                item("Home", "house", .home)
-                item("Stats", "chart.bar", .stats)
-            }
-            SwiftUI.Section {
-                item("Library", "books.vertical", .library)
-                item("Downloads", "arrow.down.circle", .downloads)
-                item("Import", "square.and.arrow.down", .importer)
-            } header: { header("Library") }
-            SwiftUI.Section {
-                Label { Text("Liked Songs").font(theme.ui(13, .medium)).lineLimit(1) } icon: { Image(systemName: "heart.fill") }
-                    .tag(SideItem.playlist("liked"))
-                ForEach(lib.visiblePlaylists, id: \.id) { pl in
-                    Label { Text(pl.title).font(theme.ui(13, .medium)).lineLimit(1) } icon: { Image(systemName: lib.pinned.contains(pl.id) ? "pin.fill" : "music.note.list") }
-                        .tag(SideItem.playlist(pl.id))
-                        .contextMenu { PlaylistMenuItems(p: pl) }
-                }
-            } header: {
-                HStack {
-                    header("Playlists")
-                    Spacer()
-                    Button { nav.sheet = .newPlaylist([]) } label: { Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(p.t2) }
-                        .buttonStyle(PressStyle()).help("New playlist").accessibilityLabel("New playlist")
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Spacer()
-                    Button { nav.sheet = .account } label: {
-                        ZStack {
-                            Circle().fill(p.surf3)
-                            if let a = account.info?.avatar, !a.isEmpty { ArtView(url: a, size: 24, circle: true) }
-                            else { Text(String((account.info?.name ?? "B").prefix(1)).uppercased()).font(theme.ui(11, .bold)).foregroundStyle(p.txt) }
-                        }.frame(width: 24, height: 24)
-                    }.buttonStyle(PressStyle()).help("Account").accessibilityLabel("Account")
-                }
-                .frame(height: 24)
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundStyle(p.t2)
-                    TextField("Search", text: $query).textFieldStyle(.plain).font(theme.ui(12.5)).focused($searchFocused)
-                        .onSubmit { submit() }
-                        .accessibilityIdentifier("sidebar_search")
-                    if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 11)).foregroundStyle(p.t2) }.buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 9).frame(height: 28)
-                .background(RoundedRectangle(cornerRadius: 8).fill(p.light ? Color.black.opacity(0.06) : Color.white.opacity(0.08)))
-            }
-            .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 6)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Button { nav.go(.settings) } label: {
-                Label { Text("Settings").font(theme.ui(13, nav.section == .settings ? .semibold : .medium)) } icon: { Image(systemName: "gearshape") }
-                    .foregroundStyle(nav.section == .settings ? p.txt : p.t2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(nav.section == .settings ? Color.primary.opacity(0.1) : .clear))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PressStyle(scale: 0.98))
-            .padding(.horizontal, 10).padding(.bottom, 10)
-            .accessibilityIdentifier("side_Settings")
-        }
-        .onChange(of: nav.focusSearch) { _, _ in searchFocused = true }
-    }
-
-    private func submit() {
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return }
-        SearchCache.pending = q
-        if nav.section != .search { nav.go(.search) } else { nav.stacks[.search] = [] }
-        nav.searchToken += 1
-    }
-
-    /// Apple sidebar section header, in a colour that reads at >= 4.5:1 on every theme.
-    private func header(_ t: String) -> some View {
-        Text(t).font(theme.ui(11, .semibold)).foregroundStyle(theme.p.t2)
-    }
-
-    private func item(_ title: String, _ icon: String, _ s: Section) -> some View {
-        Label { Text(title).font(theme.ui(13, .medium)) } icon: { Image(systemName: icon) }
-            .tag(SideItem.section(s))
-            .accessibilityIdentifier("side_\(title)")
     }
 }
 

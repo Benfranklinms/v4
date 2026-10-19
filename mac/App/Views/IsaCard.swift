@@ -50,6 +50,7 @@ final class IsaModel: ObservableObject {
 
     func play(shuffle: Bool) {
         guard let r = result else { return }
+        Nav.shared.closeIsa()
         if shuffle { Player.shared.playShuffled(r.tracks, source: "Isa · \(r.plan.title)") }
         else { Player.shared.setShuffle(false); Player.shared.play(r.tracks, index: 0, source: "Isa · \(r.plan.title)") }
     }
@@ -69,17 +70,33 @@ struct IsaCommandCard: View {
     @ObservedObject var m = IsaModel.shared
     @StateObject private var speech = SpeechInput()
     @FocusState private var focused: Bool
+    /// Centred pop-up (top-bar orb / ⌘K): no mood tiles, × closes, the field is focused on open.
+    let popup: Bool
+    let onClose: (() -> Void)?
+
+    init(popup: Bool = false, onClose: (() -> Void)? = nil) {
+        self.popup = popup
+        self.onClose = onClose
+    }
 
     var body: some View {
         let p = theme.p
-        let expanded = focused || m.phase != .idle
+        let expanded = focused || m.phase != .idle || popup
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 10) {
                     IsaOrb(active: m.phase == .thinking || speech.listening).frame(width: 26, height: 26)
                     Text("ISA").font(theme.num(11, .medium)).tracking(3).foregroundStyle(p.t2)
                     Spacer()
-                    if m.phase != .idle {
+                    if popup {
+                        Button { onClose?() } label: {
+                            Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(p.t2)
+                                .frame(width: 26, height: 26)
+                                .background(Circle().fill(Color.white.opacity(0.08)))
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(PressStyle(scale: 0.9)).help("Close (Esc)").accessibilityLabel("Close Isa").accessibilityIdentifier("isa_close")
+                    } else if m.phase != .idle {
                         IconButton("xmark", size: 10) { m.reset() }.foregroundStyle(p.t3).help("Clear")
                     }
                 }
@@ -144,17 +161,20 @@ struct IsaCommandCard: View {
             .scaleEffect(expanded && !Motion.reduce ? 1.0 : 0.995)
             .animation(Motion.bouncy, value: expanded)
             .onTapGesture { focused = true }
-            ScrollView(.horizontal) {
-                HStack(spacing: 14) {
-                    ForEach(MoodTile.Kind.allCases, id: \.self) { k in
-                        MoodTile(kind: k) { m.text = k.prompt; Task { await m.submit() } }
+            if !popup {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 14) {
+                        ForEach(MoodTile.Kind.allCases, id: \.self) { k in
+                            MoodTile(kind: k) { m.text = k.prompt; Task { await m.submit() } }
+                        }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .carousel()
             }
-            .carousel()
         }
         .onChange(of: nav.focusIsa) { _, _ in focused = true }
+        .onAppear { if popup { DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { focused = true } } }
         .accessibilityIdentifier("isa_card")
     }
 }
