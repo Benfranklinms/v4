@@ -130,7 +130,7 @@ fun TrackListPage(
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Rounded.PlayArrow, null, tint = c.onAccent, modifier = Modifier.size(28.dp)) }
                         Box(
-                            Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { tracks?.takeIf { it.isNotEmpty() }?.let { Playback.playShuffled(ctx, it, source) } ?: s.toast("Nothing to play yet") },
+                            Modifier.size(44.dp).glass(CircleShape, dark = 0.34f, sheen = 0.08f, rim = 0.65f).press { tracks?.takeIf { it.isNotEmpty() }?.let { Playback.playShuffled(ctx, it, source) } ?: s.toast("Nothing to play yet") },
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Rounded.Shuffle, null, tint = c.txt, modifier = Modifier.size(20.dp)) }
                     }
@@ -209,7 +209,7 @@ fun PlaylistScreen(s: AppState, id: String) {
                 s.snack = dev.benfranklin.itune.ui.Snack(if (now) "Saved to Library" else "Removed from Library", "Undo") { apply(!now) }
             }
             if (id != "liked" && p != null) {
-                Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { s.sheet = Sheet.PlaylistMenu(p) }.testTag("playlist_more"), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(44.dp).glass(CircleShape, dark = 0.34f, sheen = 0.08f, rim = 0.65f).press { s.sheet = Sheet.PlaylistMenu(p) }.testTag("playlist_more"), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.MoreHoriz, "More", tint = c.txt, modifier = Modifier.size(20.dp))
                 }
             }
@@ -226,7 +226,7 @@ fun MixScreen(s: AppState, title: String, tracks: List<Track>) {
 private fun SaveButton(saved: Boolean, onClick: () -> Unit) {
     val c = LocalColors.current
     val k by androidx.compose.animation.core.animateFloatAsState(if (saved) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "save")
-    Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press(onClick = onClick).testTag("save_button"), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(44.dp).glass(CircleShape, dark = 0.34f, sheen = 0.08f, rim = 0.65f).press(onClick = onClick).testTag("save_button"), contentAlignment = Alignment.Center) {
         Icon(
             if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, if (saved) "Remove from Library" else "Save to Library", tint = c.txt,
             modifier = Modifier.size(20.dp).graphicsLayer { val z = 1f + 0.18f * kotlin.math.sin(k * Math.PI.toFloat()); scaleX = z; scaleY = z },
@@ -319,7 +319,7 @@ fun DownloadsScreen(s: AppState) {
         TrackListPage(
             s, "Downloads", "${shown?.size ?: 0} songs · play offline", shown?.firstOrNull()?.thumb ?: "", shown, "Downloads",
             actions = {
-                if (!shown.isNullOrEmpty()) Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { selecting = true }.testTag("dl_select"), contentAlignment = Alignment.Center) {
+                if (!shown.isNullOrEmpty()) Box(Modifier.size(44.dp).glass(CircleShape, dark = 0.34f, sheen = 0.08f, rim = 0.65f).press { selecting = true }.testTag("dl_select"), contentAlignment = Alignment.Center) {
                     Icon(Icons.Rounded.Checklist, "Select", tint = c.txt, modifier = Modifier.size(20.dp))
                 }
             },

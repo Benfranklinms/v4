@@ -437,7 +437,7 @@ private fun UpdateSheet(s: AppState, info: dev.benfranklin.itune.core.UpdateInfo
         }
         error?.let { Text(it, style = T.ui(12.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(top = 6.dp)) }
         Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(c.surf4).press {
+            Box(Modifier.weight(1f).height(48.dp).glass(RoundedCornerShape(24.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).press {
                 App.prefs.skippedVersion.value = info.version
                 s.sheet = null
             }, contentAlignment = Alignment.Center) { Text("Later", style = T.ui(15.sp, FontWeight.SemiBold)) }

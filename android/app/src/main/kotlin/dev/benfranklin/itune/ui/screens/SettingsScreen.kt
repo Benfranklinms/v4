@@ -217,7 +217,7 @@ fun SettingsScreen(s: AppState) {
                     SRow(label, if (!ok && !testing && h != null) "Tries every way of reaching the music again" else null, 0, onClick = if (!ok && !testing) fix else null, lead = {
                         Box(Modifier.padding(end = 12.dp).size(9.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (ok && !testing) c.txt else c.t3))
                     }) {
-                        if (!ok && !testing && h != null) Box(Modifier.clip(RoundedCornerShape(14.dp)).background(c.surf3).press { fix() }.padding(horizontal = 12.dp, vertical = 6.dp).testTag("playback_fix")) {
+                        if (!ok && !testing && h != null) Box(Modifier.glass(RoundedCornerShape(14.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).press { fix() }.padding(horizontal = 12.dp, vertical = 6.dp).testTag("playback_fix")) {
                             Text("Fix", style = T.ui(12.sp, FontWeight.SemiBold))
                         }
                     }
@@ -320,7 +320,7 @@ fun SettingsScreen(s: AppState) {
                     }
                     AnimatedVisibility(keyEntry, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).background(c.surf3).padding(12.dp)) {
+                            Box(Modifier.weight(1f).glass(RoundedCornerShape(10.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).padding(12.dp)) {
                                 if (keyText.isEmpty()) Text("Paste key", style = T.ui(13.sp, FontWeight.Medium, c.t3))
                                 BasicTextField(keyText, { keyText = it }, singleLine = true, textStyle = T.num(13.sp), cursorBrush = SolidColor(c.txt), modifier = Modifier.fillMaxWidth())
                             }
@@ -348,7 +348,7 @@ fun SettingsScreen(s: AppState) {
                         }) {
                             Icon(Icons.Rounded.MoreVert, null, tint = c.t3, modifier = Modifier.size(36.dp).padding(8.dp).press { menu = true })
                         }
-                        DropdownMenu(menu, { menu = false }, modifier = Modifier.background(c.surf3)) {
+                        DropdownMenu(menu, { menu = false }, modifier = Modifier.background(if (c.light) androidx.compose.ui.graphics.Color(0xFFF2F2F2) else androidx.compose.ui.graphics.Color(0xFF161618)), shape = RoundedCornerShape(18.dp)) {
                             DropdownMenuItem(text = { Text(if (TokenStore.has()) "Replace access key" else "Set access key", style = T.ui(14.sp)) }, onClick = { menu = false; keyEntry = true })
                             if (TokenStore.has()) DropdownMenuItem(text = { Text("Remove access key", style = T.ui(14.sp)) }, onClick = { menu = false; TokenStore.set(null) })
                             DropdownMenuItem(text = { Text(if (fps) "Hide FPS overlay" else "Show FPS overlay", style = T.ui(14.sp)) }, onClick = { menu = false; FpsOverlay.enabled.value = !fps })

@@ -224,7 +224,7 @@ fun LibraryScreen(s: AppState) {
         // multi-select action bar
         AnimatedVisibility(selecting, modifier = Modifier.align(Alignment.BottomCenter), enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut(tween(120))) {
             Row(
-                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 160.dp).fillMaxWidth().height(56.dp).clip(RoundedCornerShape(28.dp)).background(c.surf3).padding(horizontal = 8.dp),
+                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 160.dp).fillMaxWidth().height(56.dp).glass(RoundedCornerShape(28.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -272,7 +272,7 @@ fun EmptyState(title: String, body: String, action: String, onAction: () -> Unit
 private fun Shortcut(icon: ImageVector, title: String, sub: String, i: Int, onClick: () -> Unit) {
     val c = LocalColors.current
     Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)).background(c.surf3), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(52.dp).glass(RoundedCornerShape(8.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = c.txt, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.padding(start = 14.dp)) {

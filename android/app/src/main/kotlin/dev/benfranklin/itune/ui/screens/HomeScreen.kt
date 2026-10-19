@@ -156,7 +156,7 @@ fun HomeScreen(s: AppState) {
                     Column(Modifier.fillMaxWidth().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(error ?: "", style = T.ui(13.sp, FontWeight.Medium, c.t3))
                         Row(
-                            Modifier.padding(top = 14.dp).height(40.dp).clip(RoundedCornerShape(20.dp)).background(c.surf3).press { scope.launch { error = null; load(true) } }.padding(horizontal = 18.dp).testTag("home_retry"),
+                            Modifier.padding(top = 14.dp).height(40.dp).glass(RoundedCornerShape(20.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).press { scope.launch { error = null; load(true) } }.padding(horizontal = 18.dp).testTag("home_retry"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Rounded.Refresh, null, tint = c.txt, modifier = Modifier.size(16.dp))
@@ -331,7 +331,7 @@ fun IsaPill(s: AppState, modifier: Modifier = Modifier) {
         }
     }
     Row(
-        modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(26.dp)).background(c.surf).border(0.6.dp, c.line3, RoundedCornerShape(26.dp)).padding(start = 18.dp, end = 7.dp),
+        modifier.fillMaxWidth().height(52.dp).glass(RoundedCornerShape(26.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).padding(start = 18.dp, end = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Rounded.AutoAwesome, null, tint = c.txt, modifier = Modifier.size(17.dp))

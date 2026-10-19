@@ -291,7 +291,7 @@ fun MoodGrid(onPick: (String) -> Unit) {
                 pair.forEachIndexed { k, m ->
                     val i = r * 2 + k
                     Box(
-                        Modifier.weight(1f).height(64.dp).enter(i).clip(RoundedCornerShape(14.dp)).background(c.surf)
+                        Modifier.weight(1f).height(64.dp).enter(i).glass(RoundedCornerShape(14.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f)
                             .border(0.5.dp, c.line, RoundedCornerShape(14.dp)).press(scaleTo = 0.96f) { onPick("$m music") }.testTag("mood_grid_$m"),
                     ) {
                         dev.benfranklin.itune.ui.screens.MoodArt(i % 4, Modifier.align(Alignment.CenterEnd).size(64.dp).graphicsLayer { alpha = 0.55f })

@@ -271,7 +271,7 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
                     is IsaState.Failed -> Row(Modifier.padding(top = 16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(st.message, style = T.ui(13.sp, FontWeight.Medium, c.t2), modifier = Modifier.weight(1f))
                         Row(
-                            Modifier.padding(start = 10.dp).height(36.dp).clip(RoundedCornerShape(18.dp)).background(c.surf3).press { run(st.prompt) }.padding(horizontal = 14.dp).testTag("isa_retry"),
+                            Modifier.padding(start = 10.dp).height(36.dp).glass(RoundedCornerShape(18.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).press { run(st.prompt) }.padding(horizontal = 14.dp).testTag("isa_retry"),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Rounded.Refresh, null, tint = c.txt, modifier = Modifier.size(16.dp))
@@ -383,7 +383,7 @@ internal fun PillButton(icon: androidx.compose.ui.graphics.vector.ImageVector, l
 @Composable
 fun MoodArt(kind: Int, modifier: Modifier) {
     val c = LocalColors.current
-    Canvas(modifier.clip(RoundedCornerShape(18.dp)).background(c.surf).border(0.6.dp, c.line2, RoundedCornerShape(18.dp))) {
+    Canvas(modifier.glass(RoundedCornerShape(18.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f)) {
         val w = size.width
         val h = size.height
         when (kind) {

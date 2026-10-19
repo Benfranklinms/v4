@@ -436,7 +436,7 @@ private fun Toast(s: AppState, chrome: ChromeState) {
     }
     LaunchedEffect(snack?.id) {
         if (snack != null) {
-            delay(5000)
+            delay(if (snack.action != null) 6500 else 4000)
             if (s.snack?.id == snack.id) s.snack = null
         }
     }

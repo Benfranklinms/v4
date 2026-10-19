@@ -373,7 +373,7 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
             if (reduce) list.scrollToItem((active - 1).coerceAtLeast(0)) else list.animateScrollToItem((active - 1).coerceAtLeast(0))
         }
     }
-    Column(modifier.fillMaxWidth().height(330.dp).clip(RoundedCornerShape(20.dp)).background(c.surf.copy(alpha = 0.85f)).border(0.5.dp, c.line2, RoundedCornerShape(20.dp)).padding(top = 16.dp)) {
+    Column(modifier.fillMaxWidth().height(330.dp).glass(RoundedCornerShape(20.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).padding(top = 16.dp)) {
         Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Lyrics", style = T.ui(14.sp, FontWeight.Bold), modifier = Modifier.weight(1f))
         }

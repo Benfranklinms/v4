@@ -1,5 +1,7 @@
 package dev.benfranklin.itune.ui.screens
 
+import dev.benfranklin.itune.ui.components.glass
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -115,7 +117,7 @@ fun ImportScreen(s: AppState) {
             }
             item {
                 Row(
-                    Modifier.padding(20.dp).fillMaxWidth().height(50.dp).clip(RoundedCornerShape(25.dp)).background(c.surf).border(0.6.dp, c.line3, RoundedCornerShape(25.dp)).padding(start = 16.dp, end = 6.dp),
+                    Modifier.padding(20.dp).fillMaxWidth().height(50.dp).glass(RoundedCornerShape(25.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).padding(start = 16.dp, end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.weight(1f)) {
@@ -199,7 +201,7 @@ fun ImportScreen(s: AppState) {
                             }
                         }
                         androidx.compose.animation.AnimatedVisibility(expanded == idx) {
-                            Column(Modifier.padding(start = 40.dp, end = 20.dp, bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(c.surf).padding(vertical = 6.dp)) {
+                            Column(Modifier.padding(start = 40.dp, end = 20.dp, bottom = 8.dp).glass(RoundedCornerShape(14.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).padding(vertical = 6.dp)) {
                                 val alts = (m.alternatives + more[idx].orEmpty()).distinctBy { it.id }.filter { it.id != pick?.id }
                                 if (alts.isEmpty()) Text("No other versions yet.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(12.dp))
                                 alts.take(8).forEach { a ->
@@ -295,7 +297,7 @@ fun IsaScreen(s: AppState, prompt: String) {
                                         Text(" Play", style = T.ui(15.sp, FontWeight.Bold, c.onAccent))
                                     }
                                 }
-                                Box(Modifier.height(46.dp).clip(RoundedCornerShape(23.dp)).background(c.surf3).press {
+                                Box(Modifier.height(46.dp).glass(RoundedCornerShape(23.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).press {
                                     res?.let { r -> dev.benfranklin.itune.data.Bg.run { App.core.createPlaylistNamed(plan.title, "Made with Isa", "", r.tracks); dev.benfranklin.itune.data.Library.refresh() }; s.toast("Saved to Library") }
                                 }.padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Text("Save", style = T.ui(15.sp, FontWeight.SemiBold)) }
                             }

@@ -91,7 +91,18 @@ scroll_up() { adb shell input swipe $(px 50) $(py 30) $(px 50) $(py 80) 300; sle
 tap_at() { adb shell input tap $(px $1) $(py $2); sleep 0.6; }
 # hide the soft keyboard if it is showing (BACK only when it is, so we never navigate by accident)
 hide_kb() { if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 0.8; fi; }
-home_tab() { id tab_Home; }
+# glass chrome: the bottom nav hides while scrolling down and Now Playing covers it. Close NP, then tap the
+# tab; if the nav is hidden, a small scroll up springs it back and we retry.
+close_np() { dump; if find_node resource-id np_close >/dev/null; then local xy; xy=$(find_node resource-id np_close); adb shell input tap $xy; sleep 1.2; fi; }
+tab() {
+  close_np
+  if wait_for resource-id "tab_$1" 3; then id "tab_$1"; return; fi
+  adb shell input swipe $(px 50) $(py 45) $(px 50) $(py 60) 250; sleep 1
+  if wait_for resource-id "tab_$1" 3; then id "tab_$1"; return; fi
+  scroll_up; scroll_up
+  id "tab_$1"
+}
+home_tab() { tab Home; scroll_up; scroll_up; }
 
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null
 sleep 12
@@ -141,7 +152,7 @@ id isa_mic 0 && back
 
 # ---------------------------------------------------------------- Library: create playlist
 log "== Library / playlists"
-id tab_Library
+tab Library
 shot library
 id lib_create
 id name_field
@@ -158,7 +169,7 @@ id lib_Albums; id lib_Artists; id lib_Playlists
 
 # ---------------------------------------------------------------- Search, play, add to playlist
 log "== Search"
-id tab_Search
+tab Search
 shot search-empty
 id search_field
 type_text "adele hello"
@@ -186,9 +197,10 @@ if id mini_player 0 12; then
   shot now-playing
   id np_lyrics; shot lyrics; id np_lyrics
   id np_like; id np_like
-  id np_speed; back
-  id np_sleep; txt "15m" 0
-  id np_sleep; txt "Turn off" 0
+  # speed + sleep live in the ... menu now
+  id np_more; tap text "Playback speed" 1 contains; shot speed; back
+  id np_more; txt "Sleep timer"; txt "15m" 0
+  id np_more; txt "Sleep timer"; txt "Turn off" 0
   id np_queue
   shot queue
   id queue_tab_1; shot queue-recent; id queue_tab_0
@@ -200,7 +212,7 @@ fi
 
 # ---------------------------------------------------------------- bookmark: save / unsave album + artist
 log "== Save to Library"
-id tab_Search
+tab Search
 id search_field
 clear_field
 type_text "adele 25"
@@ -214,29 +226,29 @@ if id search_album 1 30; then
   wait_for text "Saved to Library" 6 || { log "MISSING (required): Saved to Library toast"; FAILS=$((FAILS + 1)); }
   shot album-saved
   back
-  id tab_Library
+  tab Library
   id lib_Albums
   if id lib_album 1 10; then
     id save_button
-    wait_for text "Removed from Library" 6 || { log "MISSING (required): Removed from Library toast"; FAILS=$((FAILS + 1)); }
-    id snack_action          # Undo -> saved again
+    # the Undo snack shows ~6 s: tap it straight away (its presence proves the "Removed" snack)
+    id snack_action 1 6      # Undo -> saved again
     shot album-undo
     back
   fi
   id lib_Playlists
 fi
-id tab_Search
+tab Search
 id filter_Artists 0
 if id search_artist 0 15; then
   id save_button
   wait_for text "Saved to Library" 6 || { log "MISSING (required): artist Saved to Library toast"; FAILS=$((FAILS + 1)); }
   back
-  id tab_Library; id lib_Artists
+  tab Library; id lib_Artists
   wait_for resource-id lib_artist 8 || { log "MISSING (required): saved artist in Library"; FAILS=$((FAILS + 1)); }
   shot library-artists
   id lib_Playlists
 fi
-id tab_Search
+tab Search
 id filter_Playlists 0
 if id search_playlist 0 15; then
   id save_button 0
@@ -249,10 +261,11 @@ id filter_All 0
 log "== Downloads / Import"
 home_tab
 id home_settings
-for _ in 1 2 3 4; do dump; find_node resource-id "srow_Downloads" >/dev/null && break; scroll_down; done
+for _ in 1 2 3 4 5 6 7 8; do dump; find_node resource-id "srow_Downloads" >/dev/null && break; scroll_down; done
 id "srow_Downloads"
 shot downloads
 back
+for _ in 1 2 3 4; do dump; find_node resource-id "srow_Import playlists" >/dev/null && break; scroll_down; done
 id "srow_Import playlists"
 if id import_url 0; then
   type_text "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
@@ -266,7 +279,7 @@ back
 
 # ---------------------------------------------------------------- playlist rename / delete / undo
 log "== Playlist CRUD"
-id tab_Library
+tab Library
 long_press resource-id "pl_Smoke list"
 txt "Rename"
 id name_field
@@ -289,13 +302,15 @@ id "pl_Smoke list 2" 0 && { log "playlist still there after delete"; FAILS=$((FA
 
 # ---------------------------------------------------------------- Stats with zero/low data
 log "== Stats"
-id tab_Stats
+tab Stats
 shot stats-top
 for r in week month year all; do id "range_$r"; done
 scroll_down; scroll_down; scroll_up; scroll_up
 tap_at 28 45; tap_at 75 45; tap_at 50 70; sleep 1; crash_check "stats taps"
 shot stats
-txt "Your month"
+tab Stats                # a stray tap may have opened an artist: re-selecting the tab pops back to Stats
+for _ in 1 2 3; do scroll_up; done
+id stats_wrapped
 sleep 2
 tap_at 85 50; tap_at 85 50; tap_at 85 50; tap_at 10 50
 shot wrapped
@@ -309,8 +324,8 @@ shot account
 back
 id home_settings
 shot settings
-scroll_down
-txt "Diagnostics" 1 "" 6 || { scroll_down; txt "Diagnostics"; }
+for _ in 1 2 3 4 5 6; do dump; find_node resource-id "srow_Diagnostics" >/dev/null && break; scroll_down; done
+id "srow_Diagnostics"
 shot diagnostics
 back
 scroll_down; scroll_down
