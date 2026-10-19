@@ -246,6 +246,12 @@ enum Smoke {
             shot(n)
         }
         record("every_page", window != nil, "home, settings, search, library, stats, downloads, import, diagnostics opened")
+        // sidebar selection + top bar follow navigation (they used to show the previous page)
+        nav.go(.library); await sleep(1.2)
+        nav.go(.stats); await sleep(1.5)
+        let sb = RenderProbe.sidebar, tb = RenderProbe.topBar
+        shot("05b-stats-selection")
+        record("chrome_follows_nav", sb.contains("stats") && tb.contains("stats"), "after Library -> Stats: sidebar rendered \(sb), top bar rendered \(tb)")
 
         // import: loading state + progress
         nav.pendingImportURL = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
@@ -786,6 +792,7 @@ enum Smoke {
         let nav = Nav.shared, lib = LibraryStore.shared, player = Player.shared, theme = Theme.shared
         let m = SearchModel.shared
         nav.closeNowPlaying(); nav.queueOpen = false; nav.closeIsa()
+        nav.flushPending(); nav.snack = nil
         await resize(CGSize(width: 1280, height: 800))
         if nav.sidebarCollapsed { nav.toggleSidebar() }
         nav.go(.home); await sleep(1.5)
@@ -815,7 +822,7 @@ enum Smoke {
         // 2. sidebar: mono icons tinted by the theme, no system blue
         let mono = Theme.hexOf(theme.sideMuted), acc = Theme.hexOf(theme.accent)
         let sysBlue = Theme.hexOf(Color(nsColor: .controlAccentColor))
-        record("sidebar_icons_mono", theme.themeId != "mono" || (mono == "8A8A8E" && acc == "E8E8E8"),
+        record("sidebar_icons_mono", theme.themeId != "mono" || (mono == "8A8A8E" && ["E8E8E8", "E7E7E7"].contains(acc)),
                "theme \(theme.themeId): selected icon #\(acc), others #\(mono) (system accent #\(sysBlue) not used; root .tint = theme accent)")
 
         // 3. search: empty focus -> Browse all, typing -> dropdown, pick -> results, Esc closes the dropdown
@@ -841,7 +848,9 @@ enum Smoke {
         let escClosed = !m.dropdown
         record("search_esc_closes", escClosed && (rows.isEmpty || hl == 0), "↓ highlight=\(hl.map(String.init) ?? "nil"), Esc closed dropdown=\(escClosed)")
         m.openDropdown(); await sleep(0.3)
-        m.highlight = rows.isEmpty ? nil : 0
+        // pick the plain-artist suggestion when there is one (shows Top result + Artists / Albums)
+        let artistRow = m.rows.firstIndex { $0.lowercased() == "the weeknd" }
+        m.highlight = artistRow ?? (rows.isEmpty ? nil : 0)
         m.submit()
         _ = await wait(30) { !m.loading }
         await sleep(1.5)

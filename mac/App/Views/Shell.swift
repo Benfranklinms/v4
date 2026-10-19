@@ -48,6 +48,8 @@ struct RootView: View {
                 }
             }
             .background(ArtBackdrop(strength: 0.5).ignoresSafeArea())
+            // blurred while the Isa card is up (radius 0 = no filter otherwise)
+            .blur(radius: nav.isaOpen ? 18 : 0, opaque: true)
             .allowsHitTesting(!nav.isaOpen)
             .accessibilityHidden(nav.isaOpen)
 
@@ -189,6 +191,12 @@ struct DetailArea: View {
     }
 }
 
+/// What the sidebar / top bar bodies last rendered (smoke: they follow navigation).
+enum RenderProbe {
+    nonisolated(unsafe) static var sidebar = ""
+    nonisolated(unsafe) static var topBar = ""
+}
+
 // MARK: - Sidebar
 
 enum SideItem: Hashable { case section(Section), playlist(String) }
@@ -212,6 +220,7 @@ struct Sidebar: View {
     var body: some View {
         let p = theme.p
         let rail = nav.sidebarCollapsed
+        let _ = RenderProbe.sidebar = "\(selected.map { "\($0)" } ?? "none")"
         VStack(spacing: 0) {
             // traffic-light row; the toggle sits on the same centre line (moves to the top bar when collapsed)
             HStack {
@@ -382,6 +391,7 @@ struct TopBar: View {
 
     var body: some View {
         let p = theme.p
+        let _ = RenderProbe.topBar = "\(nav.section)"
         ZStack {
             WindowDragArea()
             HStack(spacing: 6) {
@@ -470,14 +480,7 @@ struct IsaOverlay: View {
     @State private var shown = false
     var body: some View {
         ZStack {
-            ZStack {
-                if GlassEnv.reduceTransparency {
-                    Color.black.opacity(0.62)
-                } else {
-                    Rectangle().fill(.ultraThinMaterial)
-                    Color.black.opacity(0.34)
-                }
-            }
+            Color.black.opacity(GlassEnv.reduceTransparency ? 0.6 : 0.4)
                 .opacity(shown ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { nav.closeIsa() }

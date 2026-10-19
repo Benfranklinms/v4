@@ -40,9 +40,10 @@ struct ItuneApp: App {
                 Button("Search") { nav.focusSearchField() }.keyboardShortcut("f", modifiers: .command)
                 Button("Go to Search") { nav.focusSearchField() }.keyboardShortcut("l", modifiers: .command)
                 Divider()
-                Button("Back") { nav.back() }.keyboardShortcut("[", modifiers: .command).disabled(!nav.canBack)
-                Button("Forward") { nav.forward() }.keyboardShortcut("]", modifiers: .command).disabled(!nav.canForward)
-                Button(nav.sidebarCollapsed ? "Show Sidebar" : "Collapse Sidebar") { nav.toggleSidebar() }.keyboardShortcut("s", modifiers: [.command, .control])
+                // (labels must not read Nav state: the scene body would re-render the window with stale values)
+                Button("Back") { nav.back() }.keyboardShortcut("[", modifiers: .command)
+                Button("Forward") { nav.forward() }.keyboardShortcut("]", modifiers: .command)
+                Button("Toggle Sidebar") { nav.toggleSidebar() }.keyboardShortcut("s", modifiers: [.command, .control])
                 Button("Mini Player") { MiniPlayerPanel.shared.toggle() }.keyboardShortcut("m", modifiers: [.command, .option])
                 Divider()
                 Button("Account") { nav.sheet = .account }
