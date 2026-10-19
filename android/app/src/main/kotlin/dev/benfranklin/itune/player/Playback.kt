@@ -138,6 +138,7 @@ object Playback {
                 _current.value = list[idx]
                 _position.value = saved.positionMs
                 _queue.value = q
+                android.util.Log.i(TAG, "restored idx=$idx/${list.size} id=${list[idx].id} pos=${saved.positionMs} title=${list[idx].title}")
             }
         }
     }
@@ -147,7 +148,63 @@ object Playback {
         val p = player ?: return
         if (p.mediaItemCount == 0) return
         val pos = p.currentPosition
-        onCore { Session.save(pos) }
+        val idx = p.currentMediaItemIndex
+        val curItem = p.currentMediaItem ?: return
+        val id = curItem.mediaId
+        val title = curItem.mediaMetadata.title?.toString().orEmpty()
+        val ids = playerIds(p)
+        onCore {
+            // the core saves ITS queue + index: make sure its current entry is the player's current item first
+            val ci = alignCore(idx, id)
+            Session.save(pos)
+            val q = App.core.queueState()
+            android.util.Log.i(TAG, "saved idx=$idx core=$ci/${q.tracks.size} id=$id pos=$pos title=$title")
+            if (q.tracks.map { it.id } != ids) {
+                android.util.Log.w(TAG, "queue mismatch: player ${ids.size} vs core ${q.tracks.size}; rebuilding the player around the current item")
+                onMain { reconcile(q) }
+            }
+        }
+    }
+
+    private fun playerIds(p: ExoPlayer): List<String> = (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId }
+
+    /** Index of [id] in [tracks] closest to [near] (the same song can be queued more than once), or -1. */
+    private fun nearest(tracks: List<Track>, id: String, near: Int): Int {
+        var best = -1
+        for (k in tracks.indices) if (tracks[k].id == id && (best < 0 || kotlin.math.abs(k - near) < kotlin.math.abs(best - near))) best = k
+        return best
+    }
+
+    /**
+     * Core thread only. Points the core's current index at the entry the player is on: [idx] when the core has the
+     * same song there, otherwise the nearest copy of [id]. Returns the core index used (-1 when the core lacks it).
+     */
+    private fun alignCore(idx: Int, id: String): Int {
+        val q = App.core.queueState()
+        val ci = if (q.tracks.getOrNull(idx)?.id == id) idx else nearest(q.tracks, id, if (q.index >= 0) q.index else idx)
+        if (ci >= 0 && ci != q.index) App.core.queueJump(ci)
+        return ci
+    }
+
+    /**
+     * Main thread. Makes the player's items match the core queue [q] without touching the item that is playing:
+     * everything after it and before it is replaced with the core's order around the core's copy of it.
+     * A no-op when both already match.
+     */
+    private fun reconcile(q: QueueState) {
+        val p = player ?: return
+        val id = p.currentMediaItem?.mediaId ?: return
+        val coreIds = q.tracks.map { it.id }
+        if (playerIds(p) == coreIds) return
+        val cur = p.currentMediaItemIndex
+        val ci = if (coreIds.getOrNull(q.index) == id) q.index else nearest(q.tracks, id, cur)
+        if (ci < 0) return
+        if (cur + 1 < p.mediaItemCount) p.removeMediaItems(cur + 1, p.mediaItemCount)
+        val tail = q.tracks.drop(ci + 1)
+        if (tail.isNotEmpty()) p.addMediaItems(tail.map(::item))
+        if (cur > 0) p.removeMediaItems(0, cur)
+        if (ci > 0) p.addMediaItems(0, q.tracks.take(ci).map(::item))
+        onCore { alignCore(ci, id) }
     }
 
     /** Media-resumption (system media controls after reboot / app killed): the saved session. Off-main. */
@@ -224,7 +281,8 @@ object Playback {
 
     fun toggle() {
         val p = player ?: return
-        if (p.isPlaying) p.pause() else {
+        // by intent, not by isPlaying: while a stream is loading / retrying isPlaying is false, and a tap must pause
+        if (p.playWhenReady && p.playbackState != Player.STATE_ENDED) p.pause() else {
             if (p.playbackState == Player.STATE_IDLE) p.prepare()
             p.play()
         }
@@ -282,11 +340,13 @@ object Playback {
         val p = player ?: return@ensure
         if (p.mediaItemCount == 0) return@ensure play(ctx, listOf(t), 0, "Queue")
         onCore {
+            val at = App.core.queueState().index + 1
             App.core.queuePlayNext(t)
             val q = App.core.queueState()
             onMain {
                 val pl = player ?: return@onMain
-                pl.addMediaItem((pl.currentMediaItemIndex + 1).coerceAtMost(pl.mediaItemCount), item(t))
+                pl.addMediaItem(at.coerceIn(0, pl.mediaItemCount), item(t))
+                reconcile(q)
                 _queue.value = q
             }
         }
@@ -296,12 +356,16 @@ object Playback {
         val p = player ?: return@ensure
         if (p.mediaItemCount == 0) return@ensure play(ctx, listOf(t), 0, "Queue")
         onCore {
+            // the core inserts before the autoplay tail (or at the end); the song may already be queued, so the
+            // position can't be looked up by id afterwards (that put the copy at the OLD entry and split the lists)
+            val q0 = App.core.queueState()
+            val at = if (q0.autoplayFrom >= 0) q0.autoplayFrom else q0.tracks.size
             App.core.queueAdd(t)
             val q = App.core.queueState()
             onMain {
                 val pl = player ?: return@onMain
-                val pos = q.tracks.indexOfFirst { it.id == t.id }.takeIf { it >= 0 } ?: pl.mediaItemCount
-                pl.addMediaItem(pos.coerceAtMost(pl.mediaItemCount), item(t))
+                pl.addMediaItem(at.coerceIn(0, pl.mediaItemCount), item(t))
+                reconcile(q)
                 _queue.value = q
             }
         }
@@ -316,20 +380,33 @@ object Playback {
             onMain {
                 val pl = player ?: return@onMain
                 if (index < pl.mediaItemCount && index != pl.currentMediaItemIndex) pl.removeMediaItem(index)
+                reconcile(q)
                 _queue.value = q
             }
         }
     }
 
-    fun move(from: Int, to: Int) {
-        val p = player ?: return
-        if (from !in 0 until p.mediaItemCount || to !in 0 until p.mediaItemCount) return
+    /**
+     * Reorder one queue entry. [id] is the dragged song: when the queue changed under the drag (a skip moved the
+     * current index), the move is re-anchored on that song so the right entry moves and the current one never does.
+     */
+    fun move(from: Int, to: Int, id: String? = null) {
+        if (player == null) return
         onCore {
-            App.core.queueMove(from, to)
+            val q0 = App.core.queueState()
+            val n = q0.tracks.size
+            var f = from
+            if (id != null && q0.tracks.getOrNull(from)?.id != id) f = nearest(q0.tracks, id, from)
+            if (f < 0 || f >= n || f == q0.index) return@onCore
+            val t = (f + (to - from)).coerceIn(0, n - 1)
+            if (t == f) return@onCore
+            App.core.queueMove(f, t)
             val q = App.core.queueState()
+            android.util.Log.i(TAG, "move $f -> $t (asked $from -> $to) id=${q0.tracks[f].id}")
             onMain {
                 val pl = player ?: return@onMain
-                if (from < pl.mediaItemCount && to < pl.mediaItemCount) pl.moveMediaItem(from, to)
+                if (f < pl.mediaItemCount && t < pl.mediaItemCount && pl.getMediaItemAt(f).mediaId == q0.tracks[f].id && f != pl.currentMediaItemIndex) pl.moveMediaItem(f, t)
+                reconcile(q)
                 _queue.value = q
             }
         }
@@ -358,13 +435,7 @@ object Playback {
     }
 
     /** Replace everything after the current item with the core's order (after shuffle toggles). */
-    private fun rebuildTail(q: QueueState) {
-        val p = player ?: return
-        val cur = p.currentMediaItemIndex
-        if (cur + 1 < p.mediaItemCount) p.removeMediaItems(cur + 1, p.mediaItemCount)
-        val tail = q.tracks.drop(q.index + 1)
-        if (tail.isNotEmpty()) p.addMediaItems(tail.map(::item))
-    }
+    private fun rebuildTail(q: QueueState) = reconcile(q)
 
     private fun publishQueue() {
         onCore { _queue.value = App.core.queueState() }
@@ -384,7 +455,8 @@ object Playback {
         withContext(Dispatchers.Main) {
             val p = player ?: return@withContext
             val have = p.mediaItemCount
-            if (q.tracks.size > have) p.addMediaItems(q.tracks.drop(have).map(::item))
+            if (q.tracks.size > have && playerIds(p) == q.tracks.take(have).map { it.id }) p.addMediaItems(q.tracks.drop(have).map(::item))
+            else reconcile(q)
             _queue.value = q
         }
     }
@@ -401,10 +473,13 @@ object Playback {
             }
             fadeIn = if (App.prefs.crossfadeSec.value > 0 && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) 0f else 1f
             val idx = p.currentMediaItemIndex
+            val mid = mediaItem?.mediaId
+            android.util.Log.i(TAG, "track idx=$idx id=$mid reason=$reason playWhenReady=${p.playWhenReady}")
             onCore {
-                App.core.queueJump(idx)
+                if (mid != null) alignCore(idx, mid) else App.core.queueJump(idx)
                 _queue.value = App.core.queueState()
             }
+            saveSession()
             val t = trackFor(mediaItem?.mediaId)
             _current.value = t
             _duration.value = (t?.durationS?.toLong() ?: 0L) * 1000
@@ -420,8 +495,13 @@ object Playback {
             }
         }
 
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            android.util.Log.i(TAG, "playWhenReady=$playWhenReady reason=$reason")
+            publishPlaying()
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            _playing.value = isPlaying
+            publishPlaying()
             if (!isPlaying) saveSession()
             lastTick = System.currentTimeMillis()
             NowPlayingWidget.refresh(App.instance)
@@ -429,6 +509,7 @@ object Playback {
 
         override fun onPlaybackStateChanged(state: Int) {
             _buffering.value = state == Player.STATE_BUFFERING
+            publishPlaying()
             if (state == Player.STATE_READY) {
                 _error.value = null
                 player?.duration?.takeIf { it > 0 }?.let { _duration.value = it }
@@ -483,6 +564,12 @@ object Playback {
                 }
             }
         }
+    }
+
+    /** Play/pause buttons follow the user's intent (Pause stays shown while a stream loads or retries). */
+    private fun publishPlaying() {
+        val p = player ?: return
+        _playing.value = p.playWhenReady && p.playbackState != Player.STATE_ENDED
     }
 
     private fun applyLoudness(id: String?) {
@@ -597,4 +684,5 @@ object Playback {
 
     @Suppress("unused")
     private const val UNSET = C.TIME_UNSET
+    private const val TAG = "itune-session"
 }

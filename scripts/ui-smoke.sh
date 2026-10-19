@@ -354,8 +354,14 @@ if id mini_player 0 12; then
   id np_more; txt "Sleep timer"; txt "Turn off" 0
   # pause first: on the CI runner every stream hits the bot check and a playing queue keeps auto-skipping,
   # which shifts "Next in queue" under the reorder check and changes the song before the session check
-  timeout 10 adb shell input keyevent KEYCODE_MEDIA_PAUSE; log "paused for the queue/session checks"
-  sleep 3
+  timeout 10 adb shell input keyevent KEYCODE_MEDIA_PAUSE; sleep 2
+  # the play button follows the play intent (Pause is shown while a stream loads/retries): if it still says
+  # Pause, the key didn't reach the player, so tap it
+  dump
+  if XY=$(find_node content-desc "Pause"); then adb shell input tap $XY; sleep 1.5; log "paused with the play button"; fi
+  dump; find_node content-desc "Pause" >/dev/null && log "WARN: still shows Pause after pausing" || log "paused for the queue/session checks"
+  timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep -E "playWhenReady=" | tail -n 3 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+  sleep 1
   id np_queue
   shot queue
   # drag-to-reorder: drag the first "Next in queue" row's handle below the second, then check the order
@@ -377,7 +383,10 @@ if id mini_player 0 12; then
     I0=-1; I1=-1
     for k in "${!QA[@]}"; do [ "${QA[$k]}" = "${QT[0]}" ] && [ $I0 -lt 0 ] && I0=$k; [ "${QA[$k]}" = "${QT[1]}" ] && [ $I1 -lt 0 ] && I1=$k; done
     if [ $I0 -ge 0 ] && [ $I1 -ge 0 ] && [ $I1 -lt $I0 ]; then log "queue reorder ok (${QT[0]} <-> ${QT[1]})"
-    else log "MISSING (required): queue reorder (before: ${QT[0]} | ${QT[1]}; after: ${QA[0]:-?} | ${QA[1]:-?})"; FAILS=$((FAILS + 1)); fi
+    else
+      log "MISSING (required): queue reorder (before: ${QT[0]} | ${QT[1]}; after: ${QA[0]:-?} | ${QA[1]:-?})"; FAILS=$((FAILS + 1))
+      timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep -E " move |track idx" | tail -n 6 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+    fi
   else
     log "MISSING (required): two Next in queue rows to reorder (${#QT[@]} found)"; FAILS=$((FAILS + 1)); shot missing-queue-rows
   fi
@@ -451,11 +460,20 @@ for n in r.iter('node'):
 PY
 )
 if [ -n "$BEFORE" ]; then
+  timeout 10 adb logcat -c >/dev/null 2>&1
   timeout 10 adb shell input keyevent KEYCODE_HOME; sleep 2
+  # the app logs every session save (each track change, pause, onStop) with the player's current title; if a
+  # stream error moved the player on between the screen read and the kill, the last save is the song it was on
+  SAVED=$(timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep " saved " | tail -n 1)
   timeout 15 adb shell am force-stop $PKG; sleep 2
+  LAST=$(echo "$SAVED" | sed -n 's/.* title=//p')
+  [ -n "$SAVED" ] && log "  last save: ${SAVED#*: }"
+  if [ -n "$LAST" ] && [ "$LAST" != "$BEFORE" ]; then log "WARN: the player moved on before the kill ($BEFORE -> $LAST); expecting $LAST"; BEFORE="$LAST"; fi
+  timeout 10 adb logcat -c >/dev/null 2>&1
   timeout 30 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null; sleep 6
   if wait_for text "$BEFORE" 15; then log "session restored: $BEFORE"; shot session-restored
   else log "MISSING (required): restored session ($BEFORE)"; FAILS=$((FAILS + 1)); shot missing-session; fi
+  timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep " restored " | tail -n 1 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
 else
   log "WARN: no mini player title to compare (stream unavailable?)"
 fi

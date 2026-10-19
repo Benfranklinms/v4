@@ -348,7 +348,8 @@ private class QueueReorder(
     /** Queue state the local order is waiting on after a commit (no resync back to the old order meanwhile). */
     var awaiting: Any? = null
     private var awaitingAt = 0L
-    var onCommit: (from: Int, to: Int) -> Unit = { _, _ -> }
+    /** Commit one move: queue indices plus the dragged track's id (the player re-checks it, in case the queue moved). */
+    var onCommit: (from: Int, to: Int, id: String) -> Unit = { _, _, _ -> }
     private var autoJob: kotlinx.coroutines.Job? = null
     private var settleJob: kotlinx.coroutines.Job? = null
 
@@ -444,7 +445,7 @@ private class QueueReorder(
         val to = entries.indexOfFirst { it.key == key }
         val from = fromIndex
         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-        if (from >= 0 && to >= 0 && from != to) onCommit(base + from, base + to)
+        if (from >= 0 && to >= 0 && from != to) onCommit(base + from, base + to, entries[to].track.id)
         settleJob = scope.launch {
             val cur = item("u:$key")
             if (cur != null && !reduce) {
@@ -531,7 +532,7 @@ private fun QueueSheet(s: AppState) {
     val ro = remember(list) { QueueReorder(list, scope, haptics, reduce, density).also { it.sync(st, userEntries, st.index + 1) } }
     // local order follows the queue, except mid-drag and while a dropped move is being committed
     LaunchedEffect(st, ro.dragKey) { ro.sync(st, userEntries, st.index + 1) }
-    ro.onCommit = { from, to -> ro.markCommitted(st); Playback.move(from, to) }
+    ro.onCommit = { from, to, id -> ro.markCommitted(st); Playback.move(from, to, id) }
     Column(Modifier.testTag("queue_sheet")) {
         // tabs: Queue | Recently played as a glass segmented control with a sliding lens
         androidx.compose.foundation.layout.BoxWithConstraints(
