@@ -75,11 +75,14 @@ class PlaybackService : MediaSessionService() {
 
         /** System "resume" (media resumption after the app was killed): hand back the saved session, paused. */
         override fun onPlaybackResumption(mediaSession: MediaSession, controller: MediaSession.ControllerInfo): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-            val saved = Playback.resumptionItems()
-                ?: return com.google.common.util.concurrent.Futures.immediateFailedFuture(UnsupportedOperationException("nothing to resume"))
-            return com.google.common.util.concurrent.Futures.immediateFuture(
-                MediaSession.MediaItemsWithStartPosition(saved.tracks.map { Playback.itemFor(it) }, saved.index, saved.positionMs),
-            )
+            // the core DB read runs off the main thread; nothing autoplays (the system asks to resume, paused)
+            val f = com.google.common.util.concurrent.SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            App.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val saved = runCatching { Playback.resumptionItems() }.getOrNull()
+                if (saved == null) f.setException(UnsupportedOperationException("nothing to resume"))
+                else f.set(MediaSession.MediaItemsWithStartPosition(saved.tracks.map { Playback.itemFor(it) }, saved.index, saved.positionMs))
+            }
+            return f
         }
 
         override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: androidx.media3.session.SessionCommand, args: android.os.Bundle): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.SessionResult> {

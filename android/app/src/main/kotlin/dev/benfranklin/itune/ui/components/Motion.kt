@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -47,8 +48,16 @@ fun systemReduceMotion(ctx: Context): Boolean =
 fun Modifier.press(haptic: Boolean = true, scaleTo: Float = 0.94f, onLongClick: (() -> Unit)? = null, onClick: () -> Unit): Modifier = composed {
     val src = remember { MutableInteractionSource() }
     val pressed by src.collectIsPressedAsState()
+    // a click always ends the pressed look, even if the release/cancel interaction never arrives (the button
+    // re-laid out or a sheet took the touch): no button stays shrunk / lit after toggling
+    var pressAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    var clickAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    LaunchedEffect(src) {
+        src.interactions.collect { if (it is androidx.compose.foundation.interaction.PressInteraction.Press) pressAt = System.nanoTime() }
+    }
     val reduce = LocalReduceMotion.current
-    val s by animateFloatAsState(if (pressed && !reduce) scaleTo else 1f, Springs.bouncy, label = "press")
+    val down = pressed && clickAt < pressAt
+    val s by animateFloatAsState(if (down && !reduce) scaleTo else 1f, Springs.bouncy, label = "press")
     val h = LocalHapticFeedback.current
     this
         .graphicsLayer { scaleX = s; scaleY = s }
@@ -57,6 +66,7 @@ fun Modifier.press(haptic: Boolean = true, scaleTo: Float = 0.94f, onLongClick: 
             indication = null,
             onLongClick = onLongClick?.let { lc -> { if (dev.benfranklin.itune.App.prefs.haptics.value) h.performHapticFeedback(HapticFeedbackType.LongPress); lc() } },
         ) {
+            clickAt = System.nanoTime()
             if (haptic && dev.benfranklin.itune.App.prefs.haptics.value) h.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         }

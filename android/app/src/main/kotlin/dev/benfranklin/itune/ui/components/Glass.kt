@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -139,11 +142,13 @@ fun GlassIconButton(
     onClick: () -> Unit,
 ) {
     val c = LocalColors.current
+    // the active look is driven only by [selected] and animates fully back to idle when it turns off
+    val k by androidx.compose.animation.core.animateFloatAsState(if (selected) 1f else 0f, androidx.compose.animation.core.tween(180), label = "sel")
     Box(
         modifier.size(size)
             .press(scaleTo = 0.9f, onClick = onClick)
-            .glass(CircleShape, dark = if (selected) 0.10f else 0.30f, backdrop = backdrop, sheen = if (selected) 0.22f else 0.10f, rim = 0.75f)
-            .then(if (selected) Modifier.background(c.txt.copy(alpha = 0.16f)) else Modifier)
+            .glass(CircleShape, dark = 0.30f - 0.20f * k, backdrop = backdrop, sheen = 0.10f + 0.12f * k, rim = 0.75f)
+            .then(if (k > 0.001f) Modifier.background(c.txt.copy(alpha = 0.16f * k), CircleShape) else Modifier)
             .semantics { contentDescription = desc }
             .then(if (tag != null) Modifier.testTag(tag) else Modifier),
         contentAlignment = Alignment.Center,
@@ -287,3 +292,14 @@ private fun Modifier.androidx_graphicsLayerScale(p: () -> Float): Modifier = thi
         scaleX = k; scaleY = k
     },
 )
+
+/**
+ * Bottom content padding for every scrolling page: the floating glass nav + mini player (when something is
+ * loaded) + the system navigation bar + breathing room, so the last row is never hidden under the player.
+ */
+@Composable
+fun bottomInset(extra: Dp = 24.dp): Dp {
+    val nav = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val playing = dev.benfranklin.itune.player.Playback.current.collectAsState().value != null
+    return nav + 8.dp + dev.benfranklin.itune.ui.NAV_H.dp + (if (playing) (dev.benfranklin.itune.ui.MINI_H + 10).dp else 0.dp) + extra
+}

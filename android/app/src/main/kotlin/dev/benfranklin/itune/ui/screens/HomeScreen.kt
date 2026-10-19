@@ -121,8 +121,18 @@ fun HomeScreen(s: AppState) {
         onRefresh = { scope.launch { refreshing = true; load(true); refreshing = false } },
         modifier = Modifier.fillMaxSize(),
     ) {
-    LazyColumn(Modifier.fillMaxSize().testTag("home_list"), contentPadding = PaddingValues(bottom = 170.dp)) {
-        item {
+    // scroll position survives back navigation and process death (saveable state). After process death the feed
+    // arrives a moment later, so re-apply the restored position once it is there.
+    val list = androidx.compose.foundation.lazy.rememberLazyListState()
+    val restoreTo = remember { intArrayOf(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset) }
+    LaunchedEffect(feed != null) {
+        if (feed != null && restoreTo[0] > 0 && list.firstVisibleItemIndex < restoreTo[0]) {
+            runCatching { list.scrollToItem(restoreTo[0], restoreTo[1]) }
+        }
+        if (feed != null) restoreTo[0] = 0
+    }
+    LazyColumn(Modifier.fillMaxSize().testTag("home_list"), state = list, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
+        item(key = "hdr") {
             Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 PulseMark(Modifier.size(22.dp))
                 Text("iTune", style = T.ui(17.sp, FontWeight.Bold), modifier = Modifier.padding(start = 9.dp).weight(1f))
@@ -134,13 +144,13 @@ fun HomeScreen(s: AppState) {
                 }
             }
         }
-        item {
+        item(key = "greet") {
             val greet = feed?.greeting ?: "Hello"
             RiseText("$greet, $name", T.ui(22.sp, FontWeight.Bold), Modifier.padding(start = 16.dp, top = 24.dp, end = 16.dp))
         }
-        item { IsaCommandCard(s, Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp)) }
+        item(key = "isa") { IsaCommandCard(s, Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp)) }
         resume?.let { r ->
-            item {
+            item(key = "resume") {
                 Spacer(Modifier.height(36.dp))
                 SectionTitle("Continue listening")
                 Row(
@@ -185,8 +195,8 @@ fun HomeScreen(s: AppState) {
             }
         } else {
             if (f.recent.isNotEmpty()) {
-                item { Spacer(Modifier.height(44.dp)); SectionTitle("Recently played") }
-                item {
+                item(key = "recentT") { Spacer(Modifier.height(44.dp)); SectionTitle("Recently played") }
+                item(key = "recent") {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                         itemsIndexed(f.recent.take(12), key = { i, t -> "r$i${t.id}" }) { i, t ->
                             Column(Modifier.width(160.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, f.recent, i, "Recently played") }) {
@@ -199,8 +209,8 @@ fun HomeScreen(s: AppState) {
                 }
             }
             if (f.mixes.isNotEmpty()) {
-                item { Spacer(Modifier.height(44.dp)); SectionTitle("Daily Mixes") }
-                item {
+                item(key = "mixesT") { Spacer(Modifier.height(44.dp)); SectionTitle("Daily Mixes") }
+                item(key = "mixes") {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                         itemsIndexed(f.mixes, key = { k, v -> "$k:" + v.hashCode() }) { i, m ->
                             Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f) { s.push(Dest.Mix(m.title, m.tracks)) }) {
@@ -221,12 +231,12 @@ fun HomeScreen(s: AppState) {
                 }
             }
             if (f.onRepeat.size >= 4) {
-                item { Spacer(Modifier.height(44.dp)); SectionTitle("On Repeat", action = "Play") { Playback.play(ctx, f.onRepeat, 0, "On Repeat") } }
-                item { TrackRail(s, f.onRepeat, "On Repeat") }
+                item(key = "repeatT") { Spacer(Modifier.height(44.dp)); SectionTitle("On Repeat", action = "Play") { Playback.play(ctx, f.onRepeat, 0, "On Repeat") } }
+                item(key = "repeat") { TrackRail(s, f.onRepeat, "On Repeat") }
             }
             if (f.discover.size >= 6) {
-                item { Spacer(Modifier.height(44.dp)); SectionTitle("Discover", action = "Play") { Playback.play(ctx, f.discover, 0, "Discover") } }
-                item { TrackRail(s, f.discover, "Discover") }
+                item(key = "discT") { Spacer(Modifier.height(44.dp)); SectionTitle("Discover", action = "Play") { Playback.play(ctx, f.discover, 0, "Discover") } }
+                item(key = "disc") { TrackRail(s, f.discover, "Discover") }
             }
             f.shelves.forEachIndexed { si, sh ->
                 item(key = "shelf$si") { Spacer(Modifier.height(44.dp)); SectionTitle(sh.title) }
@@ -261,7 +271,7 @@ fun HomeScreen(s: AppState) {
                 }
             }
             if (f.trending.isNotEmpty() && f.shelves.none { it.title.contains("chart", true) || it.title.contains("trending", true) }) {
-                item { Spacer(Modifier.height(44.dp)); SectionTitle("Trending"); Spacer(Modifier.height(6.dp)) }
+                item(key = "trendT") { Spacer(Modifier.height(44.dp)); SectionTitle("Trending"); Spacer(Modifier.height(6.dp)) }
                 itemsIndexed(f.trending.take(10), key = { k, v -> "$k:" + v.hashCode() }) { i, t ->
                     TrackRow(t, i, onClick = { Playback.play(ctx, f.trending, i, "Trending") }, onMore = { s.sheet = Sheet.TrackMenu(t) }, leadingNumber = i + 1)
                 }
@@ -273,9 +283,9 @@ fun HomeScreen(s: AppState) {
 
 private fun openHomeItem(s: AppState, ctx: android.content.Context, it: dev.benfranklin.itune.core.HomeItem, sh: dev.benfranklin.itune.core.HomeShelf) {
     when (it.kind) {
-        "album" -> s.push(Dest.Album(it.id))
+        "album" -> s.push(Dest.Album(it.id, dev.benfranklin.itune.ui.Peek(it.title, it.subtitle, it.thumb)))
         "artist" -> s.push(Dest.Artist(it.id))
-        "playlist" -> s.push(Dest.Playlist(it.id))
+        "playlist" -> s.push(Dest.Playlist(it.id, dev.benfranklin.itune.ui.Peek(it.title, it.subtitle, it.thumb)))
         else -> {
             val tracks = sh.items.mapNotNull { x -> x.track }
             val i = tracks.indexOfFirst { t -> t.id == it.id }.coerceAtLeast(0)

@@ -152,7 +152,7 @@ fun SettingsScreen(s: AppState) {
 
     Column(Modifier.fillMaxSize()) {
         BackBar(s, "Settings")
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
             item {
                 Group("You") {
                     val callName by p.callName.state.collectAsState()
@@ -414,7 +414,7 @@ fun AppearanceScreen(s: AppState) {
     }
     Column(Modifier.fillMaxSize()) {
         BackBar(s, "Appearance")
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
             item {
                 Group("Theme") {
                     var all by remember { mutableStateOf(false) }
@@ -551,7 +551,7 @@ fun DiagnosticsScreen(s: AppState) {
                 s.toast("Copied")
             }.testTag("diag_copy"))
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 170.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
             item { Text(text, style = T.num(11.5.sp, color = c.t2)) }
             item {
                 Text("Clear crash reports", style = T.ui(13.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.padding(top = 18.dp).press {

@@ -104,6 +104,8 @@ fun TrackListPage(
     actions: @Composable () -> Unit = {},
     playlistId: String? = null,
     albumMode: Boolean = false,
+    onNearEnd: (() -> Unit)? = null,
+    loadingMore: Boolean = false,
     extra: LazyListScope.() -> Unit = {},
 ) {
     val c = LocalColors.current
@@ -112,9 +114,14 @@ fun TrackListPage(
     val collapsed by remember { derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 420 } }
     val hiddenMap by dev.benfranklin.itune.ui.PendingRemovals.hidden.collectAsState()
     val hiddenRows = playlistId?.let { hiddenMap[it] }.orEmpty()
+    // paged playlists / mixes: ask for the next page when the user nears the end of what is loaded
+    if (onNearEnd != null) {
+        val near by remember { derivedStateOf { val li = list.layoutInfo; val last = li.visibleItemsInfo.lastOrNull()?.index ?: 0; li.totalItemsCount > 0 && last >= li.totalItemsCount - 12 } }
+        LaunchedEffect(near, tracks?.size) { if (near) onNearEnd() }
+    }
     Box(Modifier.fillMaxSize()) {
         Glow(c.glow, Modifier.fillMaxWidth().height(420.dp), alpha = 0.28f, centerY = 0.2f)
-        LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 170.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
             item {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     val off = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset else 0
@@ -151,6 +158,7 @@ fun TrackListPage(
                     }
                 }
             }
+            if (loadingMore) item(key = "more") { Box(Modifier.fillMaxWidth().padding(vertical = 18.dp).testTag("loading_more"), contentAlignment = Alignment.Center) { Text("Loading more…", style = T.ui(12.sp, FontWeight.Medium, c.t2)) } }
             extra()
         }
         val barA = androidx.compose.animation.core.animateFloatAsState(if (collapsed) 1f else 0f, dev.benfranklin.itune.ui.components.glassSpring(), label = "dbar")
@@ -162,16 +170,20 @@ fun TrackListPage(
 }
 
 @Composable
-fun AlbumScreen(s: AppState, id: String) {
-    var page by remember { mutableStateOf<dev.benfranklin.itune.core.AlbumPage?>(null) }
+fun AlbumScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek? = null) {
+    var page by remember(id) { mutableStateOf<dev.benfranklin.itune.core.AlbumPage?>(null) }
     var saved by remember { mutableStateOf(false) }
     LaunchedEffect(id) {
+        // last cached page at any age first (instant, no network), then revalidate
+        dev.benfranklin.itune.data.io { App.core.albumCached(id) }?.let { if (page == null) page = it }
         saved = dev.benfranklin.itune.data.io { App.core.isSaved("album", id) } ?: false
-        page = dev.benfranklin.itune.data.io { App.core.album(id) }
+        dev.benfranklin.itune.data.io { App.core.album(id) }?.let { page = it }
     }
     val a = page?.album
     TrackListPage(
-        s, a?.title ?: "", listOfNotNull(a?.artists, a?.year?.toString(), a?.kind).joinToString(" · "), a?.thumb ?: "", page?.tracks, a?.title ?: "Album",
+        s, a?.title ?: peek?.title ?: "",
+        if (a != null) listOfNotNull(a.artists, a.year?.toString(), a.kind).joinToString(" · ") else peek?.subtitle ?: "",
+        a?.thumb ?: peek?.art ?: "", page?.tracks, a?.title ?: peek?.title ?: "Album",
         albumMode = true,
         actions = {
             SaveButton(saved) {
@@ -186,19 +198,59 @@ fun AlbumScreen(s: AppState, id: String) {
 }
 
 @Composable
-fun PlaylistScreen(s: AppState, id: String) {
-    var page by remember { mutableStateOf<dev.benfranklin.itune.core.PlaylistPage?>(null) }
+fun PlaylistScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek? = null) {
+    var page by remember(id) { mutableStateOf<dev.benfranklin.itune.core.PlaylistPage?>(null) }
     val local = id.startsWith("local:") || id.startsWith("import:") || id.startsWith("isa:") || id == "liked"
     var saved by remember { mutableStateOf(false) }
+    var hasMore by remember(id) { mutableStateOf(false) }
+    var loadingMore by remember(id) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val changes by dev.benfranklin.itune.ui.PlaylistEdits.trackChanges.collectAsState()
     val libLists by dev.benfranklin.itune.data.Library.playlists.collectAsState()
     LaunchedEffect(id) { saved = dev.benfranklin.itune.data.io { App.core.isSaved("playlist", id) } ?: false }
-    LaunchedEffect(id, changes) { page = dev.benfranklin.itune.data.io { App.core.playlist(id) } }
+    LaunchedEffect(id, changes) {
+        if (!local && page == null) dev.benfranklin.itune.data.io { App.core.playlistCached(id) }?.let { if (page == null) page = it }
+        // remote playlists / mixes: the first page comes back at once, the rest pages in while scrolling
+        val fresh = dev.benfranklin.itune.data.io { App.core.playlist(id) }
+        if (fresh != null) {
+            val old = page
+            // keep rows already shown from the cache when the fresh first page is shorter (it is only page 1)
+            page = if (!local && old != null && old.playlist.id == fresh.playlist.id && old.tracks.size > fresh.tracks.size) {
+                val seen = fresh.tracks.mapTo(HashSet()) { it.id }
+                fresh.copy(tracks = fresh.tracks + old.tracks.filter { seen.add(it.id) })
+            } else fresh
+        }
+        hasMore = !local && (dev.benfranklin.itune.data.io { App.core.playlistHasMore(id) } ?: false)
+    }
+    fun loadMore() {
+        if (loadingMore || !hasMore) return
+        loadingMore = true
+        scope.launch {
+            val more = dev.benfranklin.itune.data.io { App.core.playlistMore(id, 100u) }
+            if (more != null) {
+                val cur = page
+                if (cur != null) {
+                    val seen = cur.tracks.mapTo(HashSet()) { it.id }
+                    val add = more.tracks.filter { seen.add(it.id) }
+                    if (add.isNotEmpty()) {
+                        page = cur.copy(tracks = cur.tracks + add)
+                        Playback.appendFromSource(cur.playlist.title, add)
+                    }
+                }
+                hasMore = !more.done
+            } else hasMore = false
+            loadingMore = false
+        }
+    }
     // reflect renames done from the menu without a reload
     val p = page?.playlist?.let { pp -> libLists?.firstOrNull { it.id == pp.id }?.let { l -> pp.copy(title = l.title, subtitle = l.subtitle) } ?: pp }
     TrackListPage(
-        s, p?.title ?: "", dev.benfranklin.itune.ui.components.withSongs(p?.subtitle, page?.tracks?.size), p?.thumb ?: "", page?.tracks, p?.title ?: "Playlist",
+        s, p?.title ?: peek?.title ?: "",
+        if (p != null) dev.benfranklin.itune.ui.components.withSongs(p.subtitle, page?.tracks?.size) else peek?.subtitle ?: "",
+        p?.thumb ?: peek?.art ?: "", page?.tracks, p?.title ?: peek?.title ?: "Playlist",
         playlistId = if (local && id != "liked") id else null,
+        onNearEnd = if (hasMore) ({ loadMore() }) else null,
+        loadingMore = loadingMore,
         actions = {
             val c = LocalColors.current
             if (!local) SaveButton(saved) {
@@ -241,8 +293,9 @@ fun ArtistScreen(s: AppState, id: String) {
     var page by remember { mutableStateOf<ArtistPage?>(null) }
     var saved by remember { mutableStateOf(false) }
     LaunchedEffect(id) {
+        dev.benfranklin.itune.data.io { App.core.artistCached(id) }?.let { if (page == null) page = it }
         saved = dev.benfranklin.itune.data.io { App.core.isSaved("artist", id) } ?: false
-        page = dev.benfranklin.itune.data.io { App.core.artist(id) }
+        dev.benfranklin.itune.data.io { App.core.artist(id) }?.let { page = it }
     }
     val a = page
     TrackListPage(
@@ -286,7 +339,7 @@ fun AlbumRow(s: AppState, albums: List<Album>) {
     val c = LocalColors.current
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         itemsIndexed(albums, key = { k, v -> "$k:" + v.hashCode() }) { i, a ->
-            Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }) {
+            Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id, dev.benfranklin.itune.ui.Peek(a.title, a.artists, a.thumb))) }) {
                 Artwork(a.thumb, 130.dp, 10.dp)
                 Text(a.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 Text(listOfNotNull(a.year?.toString(), a.kind).joinToString(" · "), style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1)
@@ -333,7 +386,7 @@ fun DownloadsScreen(s: AppState) {
                 dev.benfranklin.itune.ui.components.ChipButton(if (sel.size == shown?.size) "Clear" else "Select all") { sel = if (sel.size == shown?.size) emptySet() else shown.orEmpty().map { it.id }.toSet() }
                 dev.benfranklin.itune.ui.components.ChipButton("Remove", selected = sel.isNotEmpty(), modifier = Modifier.testTag("dl_remove")) { remove(sel) }
             }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
                 itemsIndexed(shown.orEmpty(), key = { _, t -> t.id }) { i, t ->
                     val on = t.id in sel
                     Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { sel = if (on) sel - t.id else sel + t.id }.padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {

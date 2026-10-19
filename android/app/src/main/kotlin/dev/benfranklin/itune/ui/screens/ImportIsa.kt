@@ -111,7 +111,7 @@ fun ImportScreen(s: AppState) {
     LaunchedEffect(Unit) { if (ImportLink.pending != null) { ImportLink.pending = null; run() } }
     Column(Modifier.fillMaxSize()) {
         BackBar(s, "Import playlists")
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
             item {
                 Text("Paste a public Spotify or Apple Music playlist link. You can check and swap any song before it's added.", style = T.ui(13.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(horizontal = 24.dp))
             }
@@ -266,7 +266,7 @@ fun IsaScreen(s: AppState, prompt: String) {
         Glow(c.glow, Modifier.fillMaxWidth().height(380.dp), alpha = 0.22f + 0.15f * pulse, centerY = 0.15f)
         Column(Modifier.fillMaxSize()) {
             BackBar(s, "")
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
                 item {
                     Row(Modifier.padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.AutoAwesome, null, tint = c.txt, modifier = Modifier.size(16.dp))

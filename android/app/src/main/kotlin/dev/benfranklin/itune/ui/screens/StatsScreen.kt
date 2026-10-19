@@ -79,7 +79,7 @@ fun StatsScreen(s: AppState) {
     val grow = remember(range) { Animatable(if (reduce) 1f else 0f) }
     LaunchedEffect(st) { if (st != null && !reduce) { grow.snapTo(0f); grow.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 120f)) } }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp, start = 16.dp, end = 16.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset(), start = 16.dp, end = 16.dp)) {
         item {
             Row(Modifier.statusBarsPadding().padding(top = 22.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 RiseText("Stats", T.ui(22.sp, FontWeight.Bold), Modifier.weight(1f))

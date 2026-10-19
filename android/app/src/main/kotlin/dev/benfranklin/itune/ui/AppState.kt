@@ -18,10 +18,14 @@ import kotlinx.coroutines.launch
 
 enum class Tab(val label: String) { Home("Home"), Search("Search"), Library("Library"), Stats("Stats") }
 
+/** Title / subtitle / art of a tapped tile (header placeholder for album and playlist pages). */
+data class Peek(val title: String, val subtitle: String = "", val art: String = "")
+
 sealed interface Dest {
-    data class Album(val id: String) : Dest
+    /** [peek] = what the tapped tile already shows, so the header draws instantly while the page loads. */
+    data class Album(val id: String, val peek: Peek? = null) : Dest
     data class Artist(val id: String) : Dest
-    data class Playlist(val id: String) : Dest
+    data class Playlist(val id: String, val peek: Peek? = null) : Dest
     data class Isa(val prompt: String) : Dest
     data object Settings : Dest
     data object Appearance : Dest

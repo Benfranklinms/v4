@@ -173,7 +173,7 @@ fun SearchScreen(s: AppState) {
                 }
             } else {
                 val r = res
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
                     if (loading) item { Shimmers() }
                     if (r == null && !loading && failed && submitted.isNotBlank()) {
                         item {
@@ -248,7 +248,7 @@ fun SearchScreen(s: AppState) {
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     itemsIndexed(r.albums, key = { k, v -> "$k:" + v.hashCode() }) { i, a ->
-                                        Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("search_album")) {
+                                        Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id, dev.benfranklin.itune.ui.Peek(a.title, a.artists, a.thumb))) }.testTag("search_album")) {
                                             Artwork(a.thumb, 130.dp, 10.dp)
                                             Text(a.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                                             Text(listOfNotNull(a.artists, a.year?.toString()).joinToString(" · "), style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -260,7 +260,7 @@ fun SearchScreen(s: AppState) {
                         if (r.playlists.isNotEmpty() && (filter == "All" || filter == "Playlists")) {
                             item { Spacer(Modifier.height(22.dp)); SectionTitle("Playlists"); Spacer(Modifier.height(6.dp)) }
                             itemsIndexed(r.playlists, key = { k, v -> "$k:" + v.hashCode() }) { i, p ->
-                                Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }.testTag("search_playlist").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id, dev.benfranklin.itune.ui.Peek(p.title, p.subtitle, p.thumb))) }.testTag("search_playlist").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Artwork(p.thumb, 46.dp, 7.dp)
                                     Column(Modifier.padding(start = 14.dp)) {
                                         Text(p.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -286,10 +286,11 @@ private val MOODS = listOf(
 fun MoodGrid(onPick: (String) -> Unit) {
     val c = LocalColors.current
     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        MOODS.chunked(2).forEachIndexed { r, pair ->
+        val n = ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32) / 170).coerceIn(2, 6)
+        MOODS.chunked(n).forEachIndexed { r, pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 pair.forEachIndexed { k, m ->
-                    val i = r * 2 + k
+                    val i = r * n + k
                     Box(
                         Modifier.weight(1f).height(64.dp).enter(i).glass(RoundedCornerShape(14.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f)
                             .border(0.5.dp, c.line, RoundedCornerShape(14.dp)).press(scaleTo = 0.96f) { onPick("$m music") }.testTag("mood_grid_$m"),
@@ -298,6 +299,7 @@ fun MoodGrid(onPick: (String) -> Unit) {
                         Text(m, style = T.ui(14.5.sp, FontWeight.Bold), modifier = Modifier.align(Alignment.CenterStart).padding(start = 14.dp))
                     }
                 }
+                repeat(n - pair.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }

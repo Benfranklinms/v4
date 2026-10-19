@@ -38,7 +38,7 @@ object Playback {
     var player: ExoPlayer? = null
         private set
     private val main = Handler(Looper.getMainLooper())
-    private val tracks = HashMap<String, Track>()
+    private val tracks = java.util.concurrent.ConcurrentHashMap<String, Track>()
     private var controller: MediaController? = null
     private val pending = ArrayList<() -> Unit>()
 
@@ -115,35 +115,43 @@ object Playback {
         flush()
     }
 
-    /** Relaunch: put the last session back into the player PAUSED at its position (mini player shows it). */
+    /**
+     * Relaunch: put the last session back into the player PAUSED at its position (mini player shows it).
+     * The core restores it from its DB on the core thread (no network, nothing plays); the stream is only
+     * resolved when the user presses Play.
+     */
     private fun restoreSaved(p: ExoPlayer) {
         if (p.mediaItemCount > 0) return
-        val saved = Session.load(App.instance) ?: return
-        p.setMediaItems(saved.tracks.map(::item), saved.index, saved.positionMs)
-        p.playWhenReady = false
-        p.prepare()
-        _current.value = saved.tracks[saved.index]
-        _position.value = saved.positionMs
         onCore {
-            App.core.queueSet(saved.tracks, saved.index, saved.source)
+            val saved = Session.restore(App.instance) ?: return@onCore
+            if (!saved.fromCore) App.core.queueSet(saved.tracks, saved.index, saved.source)
             val q = App.core.queueState()
-            onMain { _queue.value = q }
+            val list = q.tracks.ifEmpty { saved.tracks }
+            val idx = if (q.tracks.isNotEmpty()) q.index.coerceIn(0, list.lastIndex) else saved.index
+            onMain {
+                val pl = player ?: return@onMain
+                if (pl.mediaItemCount > 0) return@onMain   // the user started something meanwhile
+                pl.setMediaItems(list.map(::item), idx, saved.positionMs)
+                pl.repeatMode = repeatOf(q.repeat.toInt())
+                pl.playWhenReady = false
+                pl.prepare()
+                _current.value = list[idx]
+                _position.value = saved.positionMs
+                _queue.value = q
+            }
         }
     }
 
-    /** Persist queue + index + position (pause, onStop, service destroy, every 5 s while playing). */
+    /** Persist the session in the core (pause, track change, onStop, service destroy, every 5 s while playing). */
     fun saveSession() {
         val p = player ?: return
-        val q = _queue.value
-        val list = q?.tracks?.takeIf { it.isNotEmpty() } ?: (0 until p.mediaItemCount).mapNotNull { trackFor(p.getMediaItemAt(it).mediaId) }
-        if (list.isEmpty()) return
-        val curId = p.currentMediaItem?.mediaId
-        val idx = list.indexOfFirst { it.id == curId }.takeIf { it >= 0 } ?: p.currentMediaItemIndex.coerceIn(0, list.lastIndex)
-        Session.save(App.instance, list, idx, p.currentPosition, q?.sourceTitle ?: "")
+        if (p.mediaItemCount == 0) return
+        val pos = p.currentPosition
+        onCore { Session.save(pos) }
     }
 
-    /** Media-resumption (system media controls after reboot / app killed): the saved session. */
-    fun resumptionItems(): Session.Saved? = Session.load(App.instance)
+    /** Media-resumption (system media controls after reboot / app killed): the saved session. Off-main. */
+    fun resumptionItems(): Session.Saved? = Session.restore(App.instance)
 
     internal fun detach() {
         saveSession()
@@ -203,6 +211,7 @@ object Playback {
                 p.prepare()
                 p.play()
                 _queue.value = q
+                saveSession()
             }
         }
     }
@@ -321,6 +330,28 @@ object Playback {
             onMain {
                 val pl = player ?: return@onMain
                 if (from < pl.mediaItemCount && to < pl.mediaItemCount) pl.moveMediaItem(from, to)
+                _queue.value = q
+            }
+        }
+    }
+
+    /**
+     * More tracks of a paged playlist arrived: when that playlist is what's playing, append them to the queue
+     * (before any autoplay tail, de-duplicated by id) so Play/Shuffle could start before every page was loaded.
+     */
+    fun appendFromSource(source: String, more: List<Track>) {
+        if (more.isEmpty() || player == null) return
+        onCore {
+            val q0 = App.core.queueState()
+            if (q0.sourceTitle != source || q0.tracks.isEmpty()) return@onCore
+            val have = q0.tracks.mapTo(HashSet()) { it.id }
+            val add = more.filter { have.add(it.id) }
+            if (add.isEmpty()) return@onCore
+            add.forEach { App.core.queueAdd(it) }
+            val q = App.core.queueState()
+            onMain {
+                if (player == null) return@onMain
+                rebuildTail(q)
                 _queue.value = q
             }
         }

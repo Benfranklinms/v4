@@ -107,9 +107,18 @@ fun LibraryScreen(s: AppState) {
         sorted.sortedByDescending { it.id in pinned }
     }
 
+    // adaptive grid: 2 columns on phones, more on tablets / unfolded foldables
+    val cols = ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32) / 168).coerceIn(2, 6)
+    // scroll position survives back navigation and process death; re-applied once the list has loaded
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val restoreTo = remember { intArrayOf(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+    LaunchedEffect(playlists != null) {
+        if (playlists != null && restoreTo[0] > 0 && listState.firstVisibleItemIndex < restoreTo[0]) runCatching { listState.scrollToItem(restoreTo[0], restoreTo[1]) }
+        if (playlists != null) restoreTo[0] = 0
+    }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().testTag("library_list"), contentPadding = PaddingValues(bottom = 170.dp)) {
-            item {
+        LazyColumn(Modifier.fillMaxSize().testTag("library_list"), state = listState, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
+            item(key = "hdr") {
                 Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 12.dp, top = 22.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     RiseText(if (selecting) "${selected.size} selected" else "Library", T.ui(22.sp, FontWeight.Bold), Modifier.weight(1f))
                     if (selecting) {
@@ -120,7 +129,7 @@ fun LibraryScreen(s: AppState) {
                     }
                 }
             }
-            item {
+            item(key = "chips") {
                 Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     LazyRow(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         itemsIndexed(listOf("Playlists", "Albums", "Artists")) { i, f -> ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("lib_$f")) { filter = f; selecting = false; selected = emptySet() } }
@@ -138,7 +147,7 @@ fun LibraryScreen(s: AppState) {
                 }
             }
             if (!selecting) {
-                item {
+                item(key = "shortcuts") {
                     Column(Modifier.padding(top = 10.dp)) {
                         Shortcut(Icons.Rounded.Favorite, "Liked Songs", "$liked songs", 0) { s.push(Dest.Playlist("liked")) }
                         Shortcut(Icons.Rounded.DownloadDone, "Downloads", "$downloads songs · offline", 1) { s.push(Dest.Downloads) }
@@ -153,10 +162,10 @@ fun LibraryScreen(s: AppState) {
                         EmptyState("No playlists yet", "Create one, or bring yours over from Spotify or Apple Music.", "New playlist") { s.sheet = Sheet.NamePlaylist() }
                     }
                     else if (grid && !selecting) {
-                        items(lists.chunked(2), key = { row -> row.joinToString { it.id } }) { row ->
+                        items(lists.chunked(cols), key = { row -> row.joinToString { it.id } }) { row ->
                             Row(Modifier.animateItem().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 row.forEach { p ->
-                                    Column(Modifier.weight(1f).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }) {
+                                    Column(Modifier.weight(1f).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id, dev.benfranklin.itune.ui.Peek(p.title, p.subtitle, p.thumb))) }) {
                                         Box {
                                             Artwork(p.thumb, 1.dp, 12.dp, modifier = Modifier.fillMaxWidth().aspectRatio(1f))
                                             if (p.id in pinned) Icon(Icons.Rounded.PushPin, "Pinned", tint = c.txt, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(16.dp))
@@ -165,7 +174,7 @@ fun LibraryScreen(s: AppState) {
                                         Text(p.trackCount?.let { "$it songs" } ?: p.subtitle, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1)
                                     }
                                 }
-                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
                     } else {
@@ -174,7 +183,7 @@ fun LibraryScreen(s: AppState) {
                             Row(
                                 Modifier.fillMaxWidth().animateItem()
                                     .press(scaleTo = 0.98f, onLongClick = { if (selecting) selected = selected + p.id else s.sheet = Sheet.PlaylistMenu(p) }) {
-                                        if (selecting) selected = if (on) selected - p.id else selected + p.id else s.push(Dest.Playlist(p.id))
+                                        if (selecting) selected = if (on) selected - p.id else selected + p.id else s.push(Dest.Playlist(p.id, dev.benfranklin.itune.ui.Peek(p.title, p.subtitle, p.thumb)))
                                     }
                                     .padding(horizontal = 16.dp, vertical = 7.dp).testTag("pl_${p.title}"),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -201,7 +210,7 @@ fun LibraryScreen(s: AppState) {
                 "Albums" -> {
                     if (albums.isEmpty()) item { EmptyState("No saved albums", "Long-press an album and choose Save to Library.", "Search") { s.select(dev.benfranklin.itune.ui.Tab.Search) } }
                     items(albums, key = { it.id }) { a ->
-                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("lib_album").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id, dev.benfranklin.itune.ui.Peek(a.title, a.artists, a.thumb))) }.testTag("lib_album").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Artwork(a.thumb, 52.dp, 8.dp)
                             Column(Modifier.padding(start = 14.dp)) {
                                 Text(a.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
