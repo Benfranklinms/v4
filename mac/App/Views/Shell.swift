@@ -92,6 +92,7 @@ struct RootView: View {
             }
             .environmentObject(theme).environmentObject(player).environmentObject(nav)
             .environmentObject(LibraryStore.shared).environmentObject(AccountStore.shared).environmentObject(Prefs.shared)
+            .tint(theme.accent)
         }
     }
 
