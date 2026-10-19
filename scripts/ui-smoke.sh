@@ -349,7 +349,22 @@ fi
 log "== Scroll restore"
 home_tab
 for _ in 1 2 3; do scroll_down; done
-for _ in 1 2 3 4 5 6 7 8; do dump; find_node resource-id shelf_item >/dev/null && break; scroll_down; done
+# a card fully inside the content band (not clipped under the status bar / top bar or behind the mini player + nav)
+shelf_in_band() {
+  python3 - "$O/ui.xml" "$SH" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(1)
+H = int(sys.argv[2])
+for n in r.iter('node'):
+    if n.get('resource-id','').split('/')[-1] != 'shelf_item': continue
+    m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+    if len(m) == 4 and m[1] > 0.12 * H and m[3] < 0.86 * H and m[2] > m[0]:
+        print((m[0] + m[2]) // 2, (m[1] + m[3]) // 2); sys.exit(0)
+sys.exit(1)
+PY
+}
+for _ in 1 2 3 4 5 6 7 8; do dump; shelf_in_band >/dev/null && break; scroll_down; done
 dump; cp "$O/ui.xml" "$O/ui-before-push.xml"
 # a text in the middle of the screen (not the top bar / mini player), so the check proves the list position
 FIRST=$(python3 - "$O/ui.xml" "$SH" <<'PY'
@@ -366,8 +381,9 @@ PY
 log "scroll anchor: $FIRST"
 if [ -z "$FIRST" ]; then
   log "MISSING (required): no anchor text for the scroll check"; FAILS=$((FAILS + 1))
-elif id shelf_item 0 5; then
-  sleep 2; dump; find_node resource-id back >/dev/null && log "opened page from shelf (header drawn)"
+elif SXY=$(shelf_in_band); then
+  adb shell input tap $SXY; sleep 2; crash_check "tap shelf_item"; log "tap shelf_item ok"
+  dump; find_node resource-id back >/dev/null && log "opened page from shelf (header drawn)" || log "WARN: page header not seen after the shelf tap"
   back; sleep 1.5
   if wait_for text "$FIRST" 5; then log "home scroll kept ($FIRST)"; shot scroll-kept; else log "MISSING (required): home scroll position after back ($FIRST)"; FAILS=$((FAILS + 1)); shot missing-scroll; fi
 else
