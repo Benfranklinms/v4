@@ -1,4 +1,7 @@
 package dev.benfranklin.itune.ui.screens
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.graphics.graphicsLayer
 import dev.benfranklin.itune.ui.components.glass
 
@@ -150,6 +153,20 @@ fun SettingsScreen(s: AppState) {
     Column(Modifier.fillMaxSize()) {
         BackBar(s, "Settings")
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+            item {
+                Group("You") {
+                    val callName by p.callName.state.collectAsState()
+                    var draft by remember { mutableStateOf(callName) }
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text("What should I call you?", style = T.ui(14.5.sp, FontWeight.SemiBold))
+                        Text("Used in the Home greeting. Leave empty to use your account name.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(bottom = 10.dp))
+                        dev.benfranklin.itune.ui.Field(draft, { draft = it.take(30); p.callName.value = draft.trim() }, App.prefs.userName.value, Modifier.testTag("call_name_field"), onDone = {
+                            p.callName.value = draft.trim()
+                            dev.benfranklin.itune.ui.hideKeyboardHint()
+                        })
+                    }
+                }
+            }
             item {
                 Group("Account") {
                     SRow(
@@ -364,6 +381,7 @@ fun SettingsScreen(s: AppState) {
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 fun AppearanceScreen(s: AppState) {
     val c = LocalColors.current
     val ctx = LocalContext.current
@@ -399,8 +417,15 @@ fun AppearanceScreen(s: AppState) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
             item {
                 Group("Theme") {
-                    LazyRow(contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        itemsIndexed(Palettes.all, key = { _, pl -> pl.id }) { i, pl ->
+                    var all by remember { mutableStateOf(false) }
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val perRow = ((maxWidth - 24.dp + 10.dp) / 74.dp).toInt().coerceAtLeast(3)
+                    val shown = if (all) Palettes.all else Palettes.all.take(perRow)
+                    androidx.compose.foundation.layout.FlowRow(
+                        Modifier.fillMaxWidth().animateContentSize(androidx.compose.animation.core.spring(dampingRatio = 0.8f, stiffness = 380f)).padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = perRow,
+                    ) {
+                        shown.forEachIndexed { i, pl ->
                             val sel = pl.id == theme
                             val k by androidx.compose.animation.core.animateFloatAsState(if (sel) 1.06f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 420f), label = "themesel")
                             Column(Modifier.enter(i, 20).graphicsLayer { scaleX = k; scaleY = k }.press { p.theme.value = pl.id }.testTag("theme_${pl.id}"), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -416,9 +441,14 @@ fun AppearanceScreen(s: AppState) {
                                         Box(Modifier.size(14.dp).clip(CircleShape).background(if (pl.id == "adaptive") c.glow else pl.acc))
                                     }
                                 }
-                                Text(pl.name, style = T.ui(11.sp, if (sel) FontWeight.Bold else FontWeight.Medium, if (sel) c.txt else c.t3), modifier = Modifier.padding(top = 6.dp))
+                                Text(pl.name, style = T.ui(11.sp, if (sel) FontWeight.Bold else FontWeight.Medium, if (sel) c.txt else c.t3), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(64.dp).padding(top = 6.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                             }
                         }
+                    }
+                    }
+                    if (Palettes.all.size > 3) SRow(if (all) "Show fewer" else "See all themes", null, 0, onClick = { all = !all }) {
+                        val r by androidx.compose.animation.core.animateFloatAsState(if (all) 180f else 0f, androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 400f), label = "seeall")
+                        Icon(Icons.Rounded.ExpandMore, null, tint = c.t2, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = r })
                     }
                     SRow("Follow system", "Switch between a dark and a light theme with the system", 1) { Toggle(follow) { p.followSystem.value = it } }
                     SRow("Pure black", "True black background for dark themes", 2) { Toggle(black) { p.pureBlack.value = it } }

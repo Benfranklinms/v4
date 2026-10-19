@@ -175,7 +175,7 @@ internal fun PlaylistMenu(s: AppState, p: Playlist) {
             Artwork(p.thumb, 52.dp, 8.dp)
             Column(Modifier.padding(start = 14.dp)) {
                 Text(p.title, style = T.ui(15.sp, FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull(p.subtitle, p.trackCount?.let { "$it songs" }).joinToString(" · "), style = T.ui(12.5.sp, FontWeight.Medium, c.t2), maxLines = 1)
+                Text(dev.benfranklin.itune.ui.components.withSongs(p.subtitle, p.trackCount?.toInt()), style = T.ui(12.5.sp, FontWeight.Medium, c.t2), maxLines = 1)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -417,3 +417,7 @@ internal fun SleepTimerSheet(s: AppState) {
         }
     }
 }
+
+
+/** Marker for Settings text fields: the IME closes itself on Done (ImeAction.Done). */
+internal fun hideKeyboardHint() {}

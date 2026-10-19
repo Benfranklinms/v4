@@ -73,6 +73,15 @@ class PlaybackService : MediaSessionService() {
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(cmds).build()
         }
 
+        /** System "resume" (media resumption after the app was killed): hand back the saved session, paused. */
+        override fun onPlaybackResumption(mediaSession: MediaSession, controller: MediaSession.ControllerInfo): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val saved = Playback.resumptionItems()
+                ?: return com.google.common.util.concurrent.Futures.immediateFailedFuture(UnsupportedOperationException("nothing to resume"))
+            return com.google.common.util.concurrent.Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(saved.tracks.map { Playback.itemFor(it) }, saved.index, saved.positionMs),
+            )
+        }
+
         override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: androidx.media3.session.SessionCommand, args: android.os.Bundle): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.SessionResult> {
             if (customCommand.customAction == likeCmd.customAction) {
                 val id = session.player.currentMediaItem?.mediaId
@@ -104,6 +113,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         likeJob?.cancel()
+        Playback.saveSession()
         Playback.detach()
         session?.run {
             player.release()

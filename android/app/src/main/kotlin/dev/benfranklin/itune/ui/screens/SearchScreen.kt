@@ -155,7 +155,7 @@ fun SearchScreen(s: AppState) {
         }
         if (res != null && sugg.isEmpty()) {
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                itemsIndexed(listOf("All", "Songs", "Albums", "Artists", "Playlists", "Videos")) { i, f ->
+                itemsIndexed(listOf("All", "Songs", "Albums", "Artists", "Playlists", "Videos"), key = { k, v -> "$k:" + v.hashCode() }) { i, f ->
                     ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("filter_$f")) { filter = f }
                 }
             }
@@ -209,7 +209,7 @@ fun SearchScreen(s: AppState) {
                             item { Spacer(Modifier.height(18.dp)); SectionTitle("Recently played") }
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
-                                    itemsIndexed(recentPlays) { i, t ->
+                                    itemsIndexed(recentPlays, key = { k, v -> "$k:" + v.hashCode() }) { i, t ->
                                         Column(Modifier.width(96.dp).enter(i).press(scaleTo = 0.96f) { Playback.play(ctx, recentPlays, i, "Recently played") }) {
                                             Artwork(t.thumb, 96.dp, 10.dp)
                                             Text(t.title, style = T.ui(12.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
@@ -227,7 +227,7 @@ fun SearchScreen(s: AppState) {
                             item { SectionTitle("Artists"); Spacer(Modifier.height(10.dp)) }
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    itemsIndexed(r.artists) { i, a ->
+                                    itemsIndexed(r.artists, key = { k, v -> "$k:" + v.hashCode() }) { i, a ->
                                         Column(Modifier.width(84.dp).enter(i).press { s.push(Dest.Artist(a.id)) }.testTag("search_artist"), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Artwork(a.thumb, 76.dp, circle = true)
                                             Text(a.name, style = T.ui(12.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
@@ -239,7 +239,7 @@ fun SearchScreen(s: AppState) {
                         val showTracks = r.tracks.filter { if (filter == "Videos") it.albumId == null else true }
                         if (showTracks.isNotEmpty() && (filter == "All" || filter == "Songs" || filter == "Videos")) {
                             item { Spacer(Modifier.height(22.dp)); SectionTitle("Songs"); Spacer(Modifier.height(6.dp)) }
-                            itemsIndexed(if (filter == "All") showTracks.take(8) else showTracks) { i, t ->
+                            itemsIndexed(if (filter == "All") showTracks.take(8) else showTracks, key = { k, v -> "$k:" + v.hashCode() }) { i, t ->
                                 SwipeTrackRow(s, t) { TrackRow(t, i, onClick = { Playback.play(ctx, showTracks, i, "Search · ${submitted}") }, onMore = { s.sheet = Sheet.TrackMenu(t) }, trailing = fmtDur(t.durationS.toInt())) }
                             }
                         }
@@ -247,7 +247,7 @@ fun SearchScreen(s: AppState) {
                             item { Spacer(Modifier.height(22.dp)); SectionTitle("Albums"); Spacer(Modifier.height(10.dp)) }
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    itemsIndexed(r.albums) { i, a ->
+                                    itemsIndexed(r.albums, key = { k, v -> "$k:" + v.hashCode() }) { i, a ->
                                         Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("search_album")) {
                                             Artwork(a.thumb, 130.dp, 10.dp)
                                             Text(a.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
@@ -259,7 +259,7 @@ fun SearchScreen(s: AppState) {
                         }
                         if (r.playlists.isNotEmpty() && (filter == "All" || filter == "Playlists")) {
                             item { Spacer(Modifier.height(22.dp)); SectionTitle("Playlists"); Spacer(Modifier.height(6.dp)) }
-                            itemsIndexed(r.playlists) { i, p ->
+                            itemsIndexed(r.playlists, key = { k, v -> "$k:" + v.hashCode() }) { i, p ->
                                 Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }.testTag("search_playlist").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Artwork(p.thumb, 46.dp, 7.dp)
                                     Column(Modifier.padding(start = 14.dp)) {

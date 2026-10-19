@@ -52,5 +52,7 @@ class Prefs(ctx: Context) {
     val updateNeedsKey = bool("update_needs_key", false)
     val signedIn = bool("signed_in", false)
     val userName = str("user_name", "Ben")
+    /** "What should I call you?" (Settings). Empty = use the signed-in account's first name. */
+    val callName = str("call_name", "")
     val localFiles = bool("local_files", false)
 }

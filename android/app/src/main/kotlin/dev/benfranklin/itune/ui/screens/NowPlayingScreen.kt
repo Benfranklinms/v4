@@ -207,9 +207,9 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                         }
                     }
                     // title / artist · album
-                    Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 30.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 30.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         AnimatedContent(tr.title, transitionSpec = { (fadeIn(tween(260)) + androidx.compose.animation.slideInVertically { it / 3 }) togetherWith fadeOut(tween(160)) }, label = "t") { title ->
-                            Text(title, style = T.ui(22.sp, FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.sharedBounds(rememberSharedContentState("title"), scope))
+                            Text(title, style = T.ui(22.sp, FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.sharedBounds(rememberSharedContentState("title"), scope))
                         }
                         Text(
                             listOfNotNull(tr.artists.split(",")[0], tr.album).joinToString(" · "), style = T.ui(13.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -278,7 +278,39 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                             }
                         }
                     }
-                    Spacer(Modifier.height(24.dp))
+                    // scroll on: lyrics, then up next (the art can also flip to lyrics with the quote button)
+                    if (!showLyrics) LyricsCard(tr, Modifier.padding(horizontal = 16.dp, vertical = 8.dp).testTag("np_lyrics_inline"))
+                    UpNext(s, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    Spacer(Modifier.height(32.dp))
+                }
+            }
+        }
+    }
+}
+
+/** The next few songs, inline under the controls; "See queue" opens the full sheet. */
+@Composable
+private fun UpNext(s: AppState, modifier: Modifier) {
+    val c = LocalColors.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val q by Playback.queue.collectAsState()
+    val st = q ?: return
+    val next = st.tracks.drop(st.index + 1).take(6)
+    if (next.isEmpty()) return
+    Column(modifier.fillMaxWidth().glass(RoundedCornerShape(20.dp), dark = 0.40f, sheen = 0.06f, rim = 0.55f).padding(vertical = 10.dp).testTag("np_upnext")) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Up next", style = T.ui(14.sp, FontWeight.Bold), modifier = Modifier.weight(1f))
+            Text("See queue", style = T.ui(12.5.sp, FontWeight.SemiBold, c.t2), maxLines = 1, modifier = Modifier.press { s.sheet = Sheet.Queue }.padding(6.dp))
+        }
+        next.forEachIndexed { i, t ->
+            Row(
+                Modifier.fillMaxWidth().press(scaleTo = 0.98f) { Playback.play(ctx, st.tracks, st.index + 1 + i, st.sourceTitle ?: "") }.padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                dev.benfranklin.itune.ui.components.Artwork(t.thumb, 40.dp, 6.dp)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(t.title, style = T.ui(14.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

@@ -110,11 +110,43 @@ object Playback {
     internal fun attach(p: ExoPlayer) {
         player = p
         p.addListener(listener)
+        restoreSaved(p)
         startTicker()
         flush()
     }
 
+    /** Relaunch: put the last session back into the player PAUSED at its position (mini player shows it). */
+    private fun restoreSaved(p: ExoPlayer) {
+        if (p.mediaItemCount > 0) return
+        val saved = Session.load(App.instance) ?: return
+        p.setMediaItems(saved.tracks.map(::item), saved.index, saved.positionMs)
+        p.playWhenReady = false
+        p.prepare()
+        _current.value = saved.tracks[saved.index]
+        _position.value = saved.positionMs
+        onCore {
+            App.core.queueSet(saved.tracks, saved.index, saved.source)
+            val q = App.core.queueState()
+            onMain { _queue.value = q }
+        }
+    }
+
+    /** Persist queue + index + position (pause, onStop, service destroy, every 5 s while playing). */
+    fun saveSession() {
+        val p = player ?: return
+        val q = _queue.value
+        val list = q?.tracks?.takeIf { it.isNotEmpty() } ?: (0 until p.mediaItemCount).mapNotNull { trackFor(p.getMediaItemAt(it).mediaId) }
+        if (list.isEmpty()) return
+        val curId = p.currentMediaItem?.mediaId
+        val idx = list.indexOfFirst { it.id == curId }.takeIf { it >= 0 } ?: p.currentMediaItemIndex.coerceIn(0, list.lastIndex)
+        Session.save(App.instance, list, idx, p.currentPosition, q?.sourceTitle ?: "")
+    }
+
+    /** Media-resumption (system media controls after reboot / app killed): the saved session. */
+    fun resumptionItems(): Session.Saved? = Session.load(App.instance)
+
     internal fun detach() {
+        saveSession()
         finishPlay(false)
         player?.removeListener(listener)
         player = null
@@ -151,6 +183,7 @@ object Playback {
     }
 
     fun trackFor(id: String?): Track? = id?.let { tracks[it] }
+    internal fun itemFor(t: Track): MediaItem = item(t)
 
     // ------------------------------------------------------------------ commands
     fun play(ctx: Context, list: List<Track>, index: Int, source: String) = play(ctx, list, index, source, 0L)
@@ -358,6 +391,7 @@ object Playback {
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _playing.value = isPlaying
+            if (!isPlaying) saveSession()
             lastTick = System.currentTimeMillis()
             NowPlayingWidget.refresh(App.instance)
         }
@@ -465,6 +499,7 @@ object Playback {
         val now = System.currentTimeMillis()
         if (now - lastResumeSave < 5_000) return
         lastResumeSave = now
+        saveSession()
         val t = _current.value ?: return
         if (t.id.startsWith("local:")) return
         Resume.save(t, p.currentPosition, p.duration)

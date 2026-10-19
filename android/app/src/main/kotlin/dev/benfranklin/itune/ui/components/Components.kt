@@ -56,10 +56,14 @@ import dev.benfranklin.itune.ui.theme.T
 fun Artwork(url: String?, size: Dp, radius: Dp = 8.dp, modifier: Modifier = Modifier, circle: Boolean = false) {
     val c = LocalColors.current
     val shape = if (circle) CircleShape else RoundedCornerShape(radius)
+    val px = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }.coerceIn(48, 1080)
+    val ctx = LocalContext.current
+    // decode at the drawn size (not the 544-1200 px source) and remember the request: smooth long lists
+    val req = androidx.compose.runtime.remember(url, px) { ImageRequest.Builder(ctx).data(url).size(px, px).crossfade(200).build() }
     Box(modifier.size(size).clip(shape).background(c.surf3)) {
         if (!url.isNullOrEmpty()) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(url).crossfade(260).build(),
+                model = req,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -200,3 +204,12 @@ fun fmtTime(ms: Long): String {
 }
 
 fun fmtDur(sec: Int): String = if (sec <= 0) "" else "%d:%02d".format(sec / 60, sec % 60)
+
+
+/** "Subtitle · N songs" without saying the count twice ("0 songs · 0 songs"). */
+fun withSongs(subtitle: String?, count: Int?): String {
+    val sub = subtitle?.trim().orEmpty()
+    val cnt = count?.let { if (it == 1) "1 song" else "$it songs" }
+    val hasCount = Regex("""\b\d+\s+songs?\b""", RegexOption.IGNORE_CASE).containsMatchIn(sub)
+    return listOf(sub, if (hasCount) null else cnt).filter { !it.isNullOrBlank() }.distinct().joinToString(" · ")
+}

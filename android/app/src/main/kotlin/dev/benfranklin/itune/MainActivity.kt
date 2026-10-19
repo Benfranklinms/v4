@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         state.flushPending()
+        dev.benfranklin.itune.player.Playback.saveSession()
         super.onStop()
     }
 

@@ -54,15 +54,44 @@ fun colorsOf(p: Palette, glow: Color): ItuneColors {
     val accentTheme = p.id in setOf("nightgreen", "nightred", "daylight", "adaptive") || p.light && p.acc != p.txt
     val accentUi = when {
         p.id == "adaptive" && glow == dev.benfranklin.itune.ui.NoTrackGlow -> p.acc
-        p.id == "adaptive" -> lift(glow, p.light)
-        accentTheme -> p.acc
+        p.id == "adaptive" -> ensureContrast(lift(glow, p.light), p.bg)
+        accentTheme -> ensureContrast(p.acc, p.bg)
         else -> p.acc
     }
-    val onAccent = if (accentUi.luminance() > 0.5f) p.bg.takeIf { !p.light } ?: Color(0xFF0A0A0A) else Color.White
+    // glyph on the accent: whichever of near-black / white reads better
+    val onAccent = if (contrast(accentUi, Color(0xFF09090A)) >= contrast(accentUi, Color.White)) Color(0xFF09090A) else Color.White
     return ItuneColors(p.bg, p.side, p.surf, p.surf2, p.surf3, p.surf4, p.line, p.line2, p.line3, p.txt, p.acc, p.t2, p.t3, p.t4, p.light, glow, accentUi, onAccent)
 }
 
 private fun Color.luminance(): Float = 0.2126f * red + 0.7152f * green + 0.0722f * blue
+
+private fun lin(v: Float) = if (v <= 0.03928f) v / 12.92f else Math.pow(((v + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
+private fun relLum(c: Color) = 0.2126f * lin(c.red) + 0.7152f * lin(c.green) + 0.0722f * lin(c.blue)
+
+/** WCAG contrast ratio between two colours (1..21). */
+fun contrast(a: Color, b: Color): Float {
+    val la = relLum(a); val lb = relLum(b)
+    return (maxOf(la, lb) + 0.05f) / (minOf(la, lb) + 0.05f)
+}
+
+/**
+ * Album-art accents must stay readable on the real background (>= 4.5:1 for text, icons and buttons):
+ * on dark backgrounds raise brightness and pull saturation down until it passes; on light ones darken.
+ */
+fun ensureContrast(c: Color, bg: Color, min: Float = 4.5f): Color {
+    if (contrast(c, bg) >= min) return c
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(android.graphics.Color.argb(255, (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt()), hsv)
+    val darkBg = relLum(bg) < 0.4f
+    var out = c
+    for (step in 1..24) {
+        if (darkBg) { hsv[2] = (hsv[2] + 0.04f).coerceAtMost(1f); hsv[1] = (hsv[1] - 0.035f).coerceAtLeast(0f) }
+        else { hsv[2] = (hsv[2] - 0.04f).coerceAtLeast(0f); hsv[1] = (hsv[1] - 0.02f).coerceAtLeast(0f) }
+        out = Color(android.graphics.Color.HSVToColor(hsv))
+        if (contrast(out, bg) >= min) return out
+    }
+    return if (darkBg) Color(0xFFE8E8E8) else Color(0xFF09090A)
+}
 
 /** Make an album colour usable as an accent: brighten on dark themes, darken on light ones. */
 fun lift(c: Color, light: Boolean): Color {

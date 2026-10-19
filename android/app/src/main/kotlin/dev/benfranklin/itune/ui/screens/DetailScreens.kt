@@ -197,7 +197,7 @@ fun PlaylistScreen(s: AppState, id: String) {
     // reflect renames done from the menu without a reload
     val p = page?.playlist?.let { pp -> libLists?.firstOrNull { it.id == pp.id }?.let { l -> pp.copy(title = l.title, subtitle = l.subtitle) } ?: pp }
     TrackListPage(
-        s, p?.title ?: "", listOfNotNull(p?.subtitle, page?.tracks?.size?.let { "$it songs" }).joinToString(" · "), p?.thumb ?: "", page?.tracks, p?.title ?: "Playlist",
+        s, p?.title ?: "", dev.benfranklin.itune.ui.components.withSongs(p?.subtitle, page?.tracks?.size), p?.thumb ?: "", page?.tracks, p?.title ?: "Playlist",
         playlistId = if (local && id != "liked") id else null,
         actions = {
             val c = LocalColors.current
@@ -265,7 +265,7 @@ fun ArtistScreen(s: AppState, id: String) {
             item { Spacer(Modifier.height(24.dp)); SectionTitle("Fans also like"); Spacer(Modifier.height(10.dp)) }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    itemsIndexed(a.similar) { i, x ->
+                    itemsIndexed(a.similar, key = { k, v -> "$k:" + v.hashCode() }) { i, x ->
                         Column(Modifier.width(84.dp).enter(i).press { s.push(Dest.Artist(x.id)) }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Artwork(x.thumb, 76.dp, circle = true)
                             Text(x.name, style = T.ui(12.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
@@ -285,7 +285,7 @@ fun ArtistScreen(s: AppState, id: String) {
 fun AlbumRow(s: AppState, albums: List<Album>) {
     val c = LocalColors.current
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        itemsIndexed(albums) { i, a ->
+        itemsIndexed(albums, key = { k, v -> "$k:" + v.hashCode() }) { i, a ->
             Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }) {
                 Artwork(a.thumb, 130.dp, 10.dp)
                 Text(a.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))

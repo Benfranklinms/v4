@@ -191,7 +191,7 @@ fun LibraryScreen(s: AppState) {
                                         if (p.id in pinned) Icon(Icons.Rounded.PushPin, "Pinned", tint = c.t2, modifier = Modifier.padding(end = 4.dp).size(13.dp))
                                         Text(p.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
-                                    Text(listOfNotNull(p.subtitle, p.trackCount?.let { "$it songs" }).joinToString(" · "), style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1)
+                                    Text(dev.benfranklin.itune.ui.components.withSongs(p.subtitle, p.trackCount?.toInt()), style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1)
                                 }
                                 if (!selecting) Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t3, modifier = Modifier.size(32.dp).padding(5.dp).press { s.sheet = Sheet.PlaylistMenu(p) })
                             }

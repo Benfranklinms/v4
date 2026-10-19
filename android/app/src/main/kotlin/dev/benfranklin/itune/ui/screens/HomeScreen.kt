@@ -100,7 +100,16 @@ fun HomeScreen(s: AppState) {
         loading = false
     }
     LaunchedEffect(Unit) { load(false) }
-    val name by App.prefs.userName.state.collectAsState()
+    LaunchedEffect(feed) {
+        val f = feed ?: return@LaunchedEffect
+        val loader = coil.Coil.imageLoader(ctx)
+        val px = (138 * ctx.resources.displayMetrics.density).toInt()
+        val urls = (f.shelves.firstOrNull()?.let { sh -> sh.items.map { it.thumb } }.orEmpty() + f.mixes.map { it.thumb }).filter { it.isNotEmpty() }.take(12)
+        urls.forEach { u -> loader.enqueue(coil.request.ImageRequest.Builder(ctx).data(u).size(px, px).build()) }
+    }
+    val acctName by App.prefs.userName.state.collectAsState()
+    val callName by App.prefs.callName.state.collectAsState()
+    val name = callName.trim().ifEmpty { acctName }
     val account by dev.benfranklin.itune.data.Account.info.collectAsState()
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
@@ -188,7 +197,7 @@ fun HomeScreen(s: AppState) {
                 item { Spacer(Modifier.height(44.dp)); SectionTitle("Daily Mixes") }
                 item {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
-                        itemsIndexed(f.mixes) { i, m ->
+                        itemsIndexed(f.mixes, key = { k, v -> "$k:" + v.hashCode() }) { i, m ->
                             Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f) { s.push(Dest.Mix(m.title, m.tracks)) }) {
                                 Box {
                                     Artwork(m.thumb, 150.dp, 16.dp)
@@ -221,7 +230,7 @@ fun HomeScreen(s: AppState) {
                     item(key = "shelfc$si") {
                         // Quick-picks style: columns of 4 rows, swiped sideways
                         LazyRow(contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                            itemsIndexed(tracks.chunked(4)) { ci, col ->
+                            itemsIndexed(tracks.chunked(4), key = { k, v -> "$k:" + v.hashCode() }) { ci, col ->
                                 Column(Modifier.width(300.dp)) {
                                     col.forEachIndexed { k, t ->
                                         val idx = ci * 4 + k
@@ -234,9 +243,9 @@ fun HomeScreen(s: AppState) {
                 } else {
                     item(key = "shelfc$si") {
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
-                            itemsIndexed(sh.items) { i, it ->
+                            itemsIndexed(sh.items, key = { k, v -> "$k:" + v.hashCode() }) { i, it ->
                                 val circle = it.kind == "artist"
-                                Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { homeItemMenu(s, it) }) { openHomeItem(s, ctx, it, sh) }) {
+                                Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { homeItemMenu(s, it) }) { openHomeItem(s, ctx, it, sh) }.testTag("shelf_item")) {
                                     Artwork(it.thumb, 150.dp, 16.dp, circle = circle)
                                     Text(it.title, style = T.ui(13.5.sp, FontWeight.SemiBold), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 9.dp))
                                     Text(it.subtitle, style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -248,7 +257,7 @@ fun HomeScreen(s: AppState) {
             }
             if (f.trending.isNotEmpty() && f.shelves.none { it.title.contains("chart", true) || it.title.contains("trending", true) }) {
                 item { Spacer(Modifier.height(44.dp)); SectionTitle("Trending"); Spacer(Modifier.height(6.dp)) }
-                itemsIndexed(f.trending.take(10)) { i, t ->
+                itemsIndexed(f.trending.take(10), key = { k, v -> "$k:" + v.hashCode() }) { i, t ->
                     TrackRow(t, i, onClick = { Playback.play(ctx, f.trending, i, "Trending") }, onMore = { s.sheet = Sheet.TrackMenu(t) }, leadingNumber = i + 1)
                 }
             }
@@ -283,7 +292,7 @@ private fun TrackRail(s: AppState, tracks: List<dev.benfranklin.itune.core.Track
     val c = LocalColors.current
     val ctx = LocalContext.current
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
-        itemsIndexed(tracks.take(20)) { i, t ->
+        itemsIndexed(tracks.take(20), key = { k, v -> "$k:" + v.hashCode() }) { i, t ->
             Column(Modifier.width(124.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, tracks, i, source) }) {
                 Artwork(t.thumb, 124.dp, 10.dp)
                 Text(t.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))

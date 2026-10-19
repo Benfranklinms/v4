@@ -124,7 +124,7 @@ fun SheetHost(s: AppState) {
                     .testTag("sheet"),
             ) {
                 Box(
-                    Modifier.fillMaxWidth().height(30.dp).pointerInput(Unit) {
+                    Modifier.fillMaxWidth().height(40.dp).pointerInput(Unit) {
                         detectVerticalDragGestures(
                             onDragEnd = {
                                 if (drag.value > 160f) s.sheet = null
@@ -134,8 +134,20 @@ fun SheetHost(s: AppState) {
                         ) { _, d -> dragScope.launch { drag.snapTo((drag.value + d).coerceAtLeast(0f)) } }
                     },
                     contentAlignment = Alignment.Center,
-                ) { Box(Modifier.size(36.dp, 4.5.dp).clip(RoundedCornerShape(2.25.dp)).background(c.t3)) }
-                AnimatedContent(current.value, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "sheet") { sh ->
+                ) {
+                    Box(Modifier.size(36.dp, 4.5.dp).clip(RoundedCornerShape(2.25.dp)).background(c.t3))
+                    val cur = current.value
+                    if (cur == Sheet.Queue || cur == Sheet.Account) {
+                        dev.benfranklin.itune.ui.components.GlassIconButton(
+                            Icons.Rounded.Close, "Close", size = 30.dp, iconSize = 16.dp, tag = "sheet_close",
+                            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 14.dp),
+                        ) { s.sheet = null }
+                    }
+                }
+                AnimatedContent(
+                    current.value, modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter,
+                    transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "sheet",
+                ) { sh ->
                     when (sh) {
                         is Sheet.TrackMenu -> TrackMenu(s, sh.track, sh.playlistId, sh.position, sh.nowPlaying, sh.queueIndex)
                         Sheet.Queue -> QueueSheet(s)
@@ -160,7 +172,7 @@ internal fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Un
     val c = LocalColors.current
     Row(Modifier.fillMaxWidth().enter(i, 25).press(scaleTo = 0.98f, onClick = onClick).padding(horizontal = 24.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = c.txt, modifier = Modifier.size(20.dp))
-        Text(label, style = T.ui(15.sp, FontWeight.SemiBold), modifier = Modifier.padding(start = 18.dp))
+        Text(label, style = T.ui(15.sp, FontWeight.SemiBold), maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 18.dp))
     }
 }
 

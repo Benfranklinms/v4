@@ -186,6 +186,7 @@ private fun CompositionLocalProviderHaze(h: HazeState, ch: ChromeState, content:
 private fun Content(s: AppState) {
     val key: Any = s.stack.lastOrNull() ?: s.tab
     val reduce = LocalReduceMotion.current
+    val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     AnimatedContent(
         targetState = key,
         transitionSpec = {
@@ -202,6 +203,8 @@ private fun Content(s: AppState) {
         },
         label = "content",
     ) { k ->
+        // each tab / page keeps its rememberSaveable state (LazyListState of the column and every row)
+        holder.SaveableStateProvider(stateKey(k)) {
         Box(Modifier.fillMaxSize()) {
             when (k) {
                 Tab.Home -> HomeScreen(s)
@@ -222,7 +225,17 @@ private fun Content(s: AppState) {
                 Dest.Diagnostics -> DiagnosticsScreen(s)
             }
         }
+        }
     }
+}
+
+private fun stateKey(k: Any): String = when (k) {
+    is Tab -> "tab:" + k.name
+    is Dest.Album -> "album:" + k.id
+    is Dest.Artist -> "artist:" + k.id
+    is Dest.Playlist -> "playlist:" + k.id
+    is Dest.Mix -> "mix:" + k.title
+    else -> k::class.java.simpleName
 }
 
 /** A soft progressive blur under the status bar once content scrolls beneath it (never a hard clip). */
@@ -254,7 +267,9 @@ private fun TopGlassBar(s: AppState, chrome: ChromeState) {
     val v = animateFloatAsState(if (show) 1f else 0f, glassSpring(reduce), label = "topbar")
     if (!onTab) return
     val account by dev.benfranklin.itune.data.Account.info.collectAsState()
-    val name by App.prefs.userName.state.collectAsState()
+    val acctName by App.prefs.userName.state.collectAsState()
+    val callName by App.prefs.callName.state.collectAsState()
+    val name = callName.trim().ifEmpty { acctName }
     Box(
         Modifier.fillMaxWidth()
             .graphicsLayer { translationY = -size.height * (1f - v.value) * 1.1f; alpha = (v.value * 1.4f).coerceIn(0f, 1f) }
@@ -357,7 +372,7 @@ private fun MiniPlayer(s: AppState, shared: SharedTransitionScope, scope: Animat
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
                         tr.title, style = T.ui(14.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.sharedBounds(rememberSharedContentState("title"), scope),
+                        modifier = Modifier.sharedBounds(rememberSharedContentState("title"), scope).testTag("mini_title"),
                     )
                     Text(tr.artists, style = T.ui(12.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

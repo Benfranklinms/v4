@@ -137,6 +137,12 @@ for i in $(seq 1 25); do
   scroll_down
 done
 log "home shelves visible: $SHELVES"
+# frame stats while flinging Home (emulator renders in software, so recorded, not gated)
+gfx() { timeout 20 adb shell dumpsys gfxinfo $PKG > "$O/gfx-$1.txt" 2>&1; log "gfx $1: $(grep -E 'Total frames rendered|Janky frames:' "$O/gfx-$1.txt" | tr -s ' ' | tr '\n' ' ')"; }
+timeout 10 adb shell dumpsys gfxinfo $PKG reset >/dev/null 2>&1
+for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 80) $(px 50) $(py 20) 150; sleep 0.4; done
+for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 20) $(px 50) $(py 80) 150; sleep 0.4; done
+gfx home
 [ $SHELVES = 1 ] || log "WARN: no home shelves seen (emulator network?)"
 shot home-scrolled
 for _ in 1 2 3 4; do scroll_up; done
@@ -196,7 +202,7 @@ if wait_for resource-id track_row 30; then
   id track_more
   txt "Add to playlist"
   txt "Smoke list"
-  sleep 1
+  wait_for text "Added to Smoke list" 5 && log "add to playlist ok" || { log "MISSING (required): Added to Smoke list toast"; FAILS=$((FAILS + 1)); }
   # play the first song
   id track_row
   sleep 6
@@ -218,10 +224,55 @@ if id mini_player 0 12; then
   id np_queue
   shot queue
   id queue_tab_1; shot queue-recent; id queue_tab_0
-  back
+  id sheet_close            # obvious close on the queue sheet
+  # Now Playing scrolls on to lyrics + up next
+  scroll_down; scroll_down; shot np-scrolled
+  dump; find_node resource-id np_upnext >/dev/null && log "np up next visible" || log "WARN: up next not visible after scrolling NP"
+  scroll_up; scroll_up
   back
 else
   log "WARN: mini player not shown (stream unavailable on the emulator?)"
+fi
+
+# ---------------------------------------------------------------- session restore: force-stop + relaunch keeps the song
+log "== Session restore"
+dump
+BEFORE=$(python3 - "$O/ui.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(0)
+for n in r.iter('node'):
+    if n.get('resource-id','').endswith('mini_title'): print(n.get('text','')); break
+PY
+)
+if [ -n "$BEFORE" ]; then
+  timeout 10 adb shell input keyevent KEYCODE_HOME; sleep 2
+  timeout 15 adb shell am force-stop $PKG; sleep 2
+  timeout 30 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null; sleep 6
+  if wait_for text "$BEFORE" 15; then log "session restored: $BEFORE"; shot session-restored
+  else log "MISSING (required): restored session ($BEFORE)"; FAILS=$((FAILS + 1)); shot missing-session; fi
+else
+  log "WARN: no mini player title to compare (stream unavailable?)"
+fi
+
+# ---------------------------------------------------------------- scroll position kept across push/pop
+log "== Scroll restore"
+home_tab
+for _ in 1 2 3; do scroll_down; done
+dump; cp "$O/ui.xml" "$O/ui-before-push.xml"
+FIRST=$(python3 - "$O/ui.xml" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+r = ET.parse(sys.argv[1]).getroot()
+for n in r.iter('node'):
+    t = n.get('text','')
+    if t and len(t) > 3: print(t); break
+PY
+)
+if id shelf_item 0 5 || id home_card 0 3; then
+  sleep 2; back; sleep 1.5
+  if wait_for text "$FIRST" 5; then log "home scroll kept ($FIRST)"; else log "MISSING (required): home scroll position after back ($FIRST)"; FAILS=$((FAILS + 1)); shot missing-scroll; fi
+else
+  log "WARN: no tappable home card to test scroll restore"
 fi
 
 # ---------------------------------------------------------------- bookmark: save / unsave album + artist
@@ -344,6 +395,26 @@ shot diagnostics
 back
 scroll_down; scroll_down
 back
+
+# ---------------------------------------------------------------- name + font scale 1.3 audit
+log "== Name / font scale"
+home_tab
+id home_settings
+for _ in 1 2 3; do scroll_up; done
+if id call_name_field 0; then
+  clear_field; type_text "Smokey"; hide_kb; back
+  home_tab
+  wait_for text "Smokey" 6 contains && log "greeting uses call name" || { log "MISSING (required): greeting with call name"; FAILS=$((FAILS + 1)); }
+  id home_settings; for _ in 1 2 3; do scroll_up; done; id call_name_field; clear_field; hide_kb; back
+fi
+home_tab
+timeout 10 adb shell settings put system font_scale 1.3; sleep 3
+id home_avatar; shot account-font130; back
+id home_settings; shot settings-font130
+for _ in 1 2 3 4; do dump; find_node resource-id "srow_Theme, text and fonts" >/dev/null && break; scroll_down; done
+id "srow_Theme, text and fonts" 0 && { shot appearance-font130; id "srow_See all themes" 0 && shot appearance-all; back; }
+back
+timeout 10 adb shell settings put system font_scale 1.0; sleep 2
 
 # ---------------------------------------------------------------- random poking at the end
 log "== monkey"
