@@ -222,14 +222,51 @@ pub fn score(src: &ImportedTrack, t: &Track) -> u32 {
     s.round().clamp(0.0, 100.0) as u32
 }
 
-pub async fn match_all(yt: Arc<Yt>, tracks: Vec<ImportedTrack>) -> Vec<ImportMatch> {
+/// Shared import progress / cancel flag.
+#[derive(Default)]
+pub struct Progress {
+    inner: std::sync::Mutex<ImportProgress>,
+    cancel: std::sync::atomic::AtomicBool,
+}
+
+impl Progress {
+    pub fn start(&self, total: u32) {
+        self.cancel.store(false, std::sync::atomic::Ordering::SeqCst);
+        *self.inner.lock().unwrap_or_else(|p| p.into_inner()) = ImportProgress { running: true, done: 0, total, current: String::new() };
+    }
+    pub fn step(&self, current: &str) {
+        let mut g = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        g.done += 1;
+        g.current = current.to_string();
+    }
+    pub fn cancelled(&self) -> bool {
+        self.cancel.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    pub fn cancel(&self) {
+        self.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    /// Ends the run; returns whether it was cancelled.
+    pub fn finish(&self) -> bool {
+        self.inner.lock().unwrap_or_else(|p| p.into_inner()).running = false;
+        self.cancelled()
+    }
+    pub fn snapshot(&self) -> ImportProgress {
+        self.inner.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+}
+
+pub async fn match_all(yt: Arc<Yt>, tracks: Vec<ImportedTrack>, progress: Option<Arc<Progress>>) -> Vec<ImportMatch> {
     let sem = Arc::new(tokio::sync::Semaphore::new(6));
     let mut set = tokio::task::JoinSet::new();
     for (i, src) in tracks.into_iter().enumerate() {
         let yt = yt.clone();
         let sem = sem.clone();
+        let prog = progress.clone();
         set.spawn(async move {
             let _p = sem.acquire().await;
+            if prog.as_ref().map(|p| p.cancelled()).unwrap_or(false) {
+                return (i, ImportMatch { source: src, matched: None, confidence: 0, status: "missing".into(), alternatives: vec![] });
+            }
             let q = format!("{} {}", src.title, src.artists.split(',').next().unwrap_or(""));
             // songs filter first; fall back to a title-only query when nothing scores well
             let mut cands: Vec<(u32, Track)> = yt.search_tracks(&q).await.unwrap_or_default().into_iter().take(10).map(|t| (score(&src, &t), t)).collect();
@@ -246,6 +283,9 @@ pub async fn match_all(yt: Arc<Yt>, tracks: Vec<ImportedTrack>) -> Vec<ImportMat
             let confidence = cands.first().map(|c| c.0).unwrap_or(0);
             let matched = cands.first().map(|c| c.1.clone());
             let alternatives: Vec<Track> = cands.iter().skip(1).take(5).map(|c| c.1.clone()).collect();
+            if let Some(p) = &prog {
+                p.step(&format!("{} · {}", src.title, src.artists));
+            }
             let status = if confidence >= 75 { "matched" } else if confidence >= 45 { "review" } else { "missing" };
             (i, ImportMatch { source: src, matched: if confidence >= 45 { matched } else { None }, confidence, status: status.into(), alternatives })
         });

@@ -115,7 +115,7 @@ pub struct HomeFeed {
     pub discover: Vec<Track>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct HomeShelf {
     pub title: String,
     /// "songs" (list of tracks, e.g. Quick picks) or "cards" (albums / playlists / artists / videos)
@@ -123,7 +123,7 @@ pub struct HomeShelf {
     pub items: Vec<HomeItem>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct HomeItem {
     /// "song", "video", "album", "playlist", "artist"
     pub kind: String,
@@ -213,7 +213,7 @@ pub struct StatsSummary {
     pub streak_week: Vec<bool>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct QueueState {
     pub tracks: Vec<Track>,
     pub index: i32,
@@ -253,7 +253,7 @@ pub struct ImportResult {
     pub matches: Vec<ImportMatch>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct IsaPlan {
     pub title: String,
     pub moods: Vec<String>,
@@ -297,7 +297,7 @@ pub struct UpdateInfo {
     pub published_at: String,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct LibraryCounts {
     pub liked: u32,
     pub playlists: u32,
@@ -307,7 +307,7 @@ pub struct LibraryCounts {
     pub local: u32,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct StreamingHealth {
     pub working_client: String,
     pub last_error: String,
@@ -324,4 +324,13 @@ pub struct StreamingHealth {
 pub struct SyncResult {
     pub liked: u32,
     pub playlists: u32,
+}
+
+/// Live progress of a playlist import (matching runs in the core; UIs poll this).
+#[derive(Debug, Clone, Default, uniffi::Record)]
+pub struct ImportProgress {
+    pub running: bool,
+    pub done: u32,
+    pub total: u32,
+    pub current: String,
 }

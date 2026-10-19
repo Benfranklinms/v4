@@ -46,9 +46,10 @@ pub struct Core {
     streams: Mutex<HashMap<String, StreamInfo>>,
     progress: Arc<Mutex<HashMap<String, f32>>>,
     lastfm: Mutex<Option<lastfm::Keys>>,
+    import: Arc<import::Progress>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Default, uniffi::Record)]
 pub struct LastfmState {
     /// Keys were provided at build time (feature visible).
     pub available: bool,
@@ -110,6 +111,12 @@ impl Core {
     }
 }
 
+/// FFI panic guard for infallible exports: a panic returns the type's default instead of aborting the app
+/// (UniFFI turns panics in `Result` exports into errors on its own).
+fn guard<T: Default>(f: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_default()
+}
+
 fn io(e: std::io::Error) -> CoreError {
     CoreError::Storage { msg: e.to_string() }
 }
@@ -132,6 +139,7 @@ impl Core {
             streams: Mutex::new(HashMap::new()),
             progress: Arc::new(Mutex::new(HashMap::new())),
             lastfm: Mutex::new(None),
+            import: Arc::new(import::Progress::default()),
         }))
     }
 
@@ -213,7 +221,13 @@ impl Core {
             tokio::time::timeout(std::time::Duration::from_secs(15), self.yt.home_shelves(2, cookie.as_deref())),
             tokio::time::timeout(std::time::Duration::from_secs(15), self.yt.charts())
         );
-        let shelves = shelves.ok().and_then(|r| r.ok()).unwrap_or_default();
+        let mut shelves = shelves.ok().and_then(|r| r.ok()).unwrap_or_default();
+        // Never an empty Home: keep the last good shelves and serve them when YouTube Music can't be reached.
+        if shelves.is_empty() {
+            shelves = self.db.kv_get("home_shelves").and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+        } else if let Ok(j) = serde_json::to_string(&shelves) {
+            let _ = self.db.kv_set("home_shelves", &j);
+        }
         let mut trending = trending.ok().and_then(|r| r.ok()).unwrap_or_default();
         if trending.is_empty() {
             // charts unavailable: use the songs of the home shelves as the trending/seed pool
@@ -332,18 +346,20 @@ impl Core {
         Ok(s)
     }
     pub fn streaming_health(&self) -> StreamingHealth {
-        let h = self.yt.health.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        StreamingHealth {
-            working_client: h.last_client,
-            last_error: h.last_error,
-            last_ok_at: h.last_ok_at,
-            last_error_at: h.last_error_at,
-            failures: h.failures,
-            clients: yt::client_keys(),
-            signed_in: h.signed_in,
-            cache_bytes: cache::size(&self.cache_dir()),
-            cache_limit_mb: self.cache_limit_mb(),
-        }
+        guard(move || {
+            let h = self.yt.health.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            StreamingHealth {
+                working_client: h.last_client,
+                last_error: h.last_error,
+                last_ok_at: h.last_ok_at,
+                last_error_at: h.last_error_at,
+                failures: h.failures,
+                clients: yt::client_keys(),
+                signed_in: h.signed_in,
+                cache_bytes: cache::size(&self.cache_dir()),
+                cache_limit_mb: self.cache_limit_mb(),
+            }
+        })
     }
     /// "Retry" in Settings › Streaming health: forget cached URLs and test a known track.
     pub async fn streaming_selftest(&self) -> Result<StreamingHealth, CoreError> {
@@ -363,11 +379,15 @@ impl Core {
         Ok(())
     }
     pub fn cache_limit_mb(&self) -> u32 {
-        self.db.kv_get("cache_limit_mb").and_then(|v| v.parse().ok()).unwrap_or(256)
+        guard(move || {
+            self.db.kv_get("cache_limit_mb").and_then(|v| v.parse().ok()).unwrap_or(256)
+        })
     }
     /// Cached copy of a streamed track, if present (touches it for LRU).
     pub fn cached_path(&self, id: String) -> Option<String> {
-        cache::get(&self.cache_dir(), &sanitize(&id))
+        guard(move || {
+            cache::get(&self.cache_dir(), &sanitize(&id))
+        })
     }
     /// Pre-cache a track (next 2-3 in the queue). Returns the file path.
     pub async fn prefetch(&self, track: Track) -> Result<String, CoreError> {
@@ -402,7 +422,9 @@ impl Core {
         Ok(path)
     }
     pub fn clear_cache(&self) {
-        let _ = std::fs::remove_dir_all(self.cache_dir());
+        guard(move || {
+            let _ = std::fs::remove_dir_all(self.cache_dir());
+        })
     }
 
     // ------------------------------------------------------------------ optional sign-in (cookie)
@@ -423,7 +445,9 @@ impl Core {
         Ok(())
     }
     pub fn is_signed_in(&self) -> bool {
-        self.db.kv_get("signed_in").as_deref() == Some("1")
+        guard(move || {
+            self.db.kv_get("signed_in").as_deref() == Some("1")
+        })
     }
     /// Pull liked songs and saved playlists from the signed-in account into the local library.
     pub async fn sync_library(&self) -> Result<SyncResult, CoreError> {
@@ -447,64 +471,98 @@ impl Core {
     }
     /// Feed a stream resolved elsewhere (e.g. the Android NewPipe fallback) into the cache.
     pub fn put_stream(&self, id: String, info: StreamInfo) {
-        self.streams.lock().unwrap_or_else(|p| p.into_inner()).insert(id, info);
+        guard(move || {
+            self.streams.lock().unwrap_or_else(|p| p.into_inner()).insert(id, info);
+        })
     }
     pub fn invalidate_stream(&self, id: String) {
-        self.streams.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+        guard(move || {
+            self.streams.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
+        })
     }
     /// Local file path when the track is downloaded.
     pub fn offline_path(&self, id: String) -> Option<String> {
-        self.db.download_path(&id).filter(|p| std::path::Path::new(p).exists())
+        guard(move || {
+            self.db.download_path(&id).filter(|p| std::path::Path::new(p).exists())
+        })
     }
 
     // ------------------------------------------------------------------ queue
     pub fn queue_state(&self) -> QueueState {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).state()
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).state()
+        })
     }
     pub fn queue_set(&self, tracks: Vec<Track>, start: i32, source: String) -> Option<Track> {
-        let mut q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
-        q.set(tracks, start, source);
-        q.current()
+        guard(move || {
+            let mut q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+            q.set(tracks, start, source);
+            q.current()
+        })
     }
     pub fn queue_current(&self) -> Option<Track> {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).current()
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).current()
+        })
     }
     pub fn queue_next(&self, user: bool) -> Option<Track> {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).next(user)
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).next(user)
+        })
     }
     pub fn queue_prev(&self) -> Option<Track> {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).prev()
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).prev()
+        })
     }
     pub fn queue_peek_next(&self) -> Option<Track> {
-        let q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
-        if q.repeat == 2 {
-            return q.current();
-        }
-        q.tracks.get((q.index + 1) as usize).cloned().or_else(|| if q.repeat == 1 { q.tracks.first().cloned() } else { None })
+        guard(move || {
+            let q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+            if q.repeat == 2 {
+                return q.current();
+            }
+            q.tracks.get((q.index + 1) as usize).cloned().or_else(|| if q.repeat == 1 { q.tracks.first().cloned() } else { None })
+        })
     }
     pub fn queue_jump(&self, index: i32) -> Option<Track> {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).jump(index)
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).jump(index)
+        })
     }
     pub fn queue_play_next(&self, track: Track) {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).play_next(track)
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).play_next(track)
+        })
     }
     pub fn queue_add(&self, track: Track) {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).add(track)
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).add(track)
+        })
     }
     pub fn queue_remove(&self, index: i32) {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).remove(index)
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).remove(index)
+        })
     }
     pub fn queue_move(&self, from: i32, to: i32) {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).move_item(from, to)
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).move_item(from, to)
+        })
     }
     pub fn set_shuffle(&self, on: bool) {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).set_shuffle(on)
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).set_shuffle(on)
+        })
     }
     pub fn cycle_repeat(&self) -> u8 {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).cycle_repeat()
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).cycle_repeat()
+        })
     }
     pub fn set_autoplay(&self, on: bool) {
-        self.queue.lock().unwrap_or_else(|p| p.into_inner()).autoplay = on
+        guard(move || {
+            self.queue.lock().unwrap_or_else(|p| p.into_inner()).autoplay = on
+        })
     }
     /// Infinite autoplay: when few tracks remain, extend with YT Music radio reranked by the user's stats.
     /// Returns how many tracks were appended.
@@ -543,17 +601,21 @@ impl Core {
     // ------------------------------------------------------------------ last.fm (optional)
     /// Build-time keys (empty = feature hidden).
     pub fn lastfm_configure(&self, api_key: String, api_secret: String) {
-        let k = api_key.trim().to_string();
-        let s = api_secret.trim().to_string();
-        *self.lastfm.lock().unwrap_or_else(|p| p.into_inner()) = if k.is_empty() || s.is_empty() { None } else { Some(lastfm::Keys { key: k, secret: s }) };
+        guard(move || {
+            let k = api_key.trim().to_string();
+            let s = api_secret.trim().to_string();
+            *self.lastfm.lock().unwrap_or_else(|p| p.into_inner()) = if k.is_empty() || s.is_empty() { None } else { Some(lastfm::Keys { key: k, secret: s }) };
+        })
     }
     pub fn lastfm_state(&self) -> LastfmState {
-        LastfmState {
-            available: self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some(),
-            enabled: self.lastfm_on(),
-            username: self.db.kv_get("lastfm_user").unwrap_or_default(),
-            pending: lastfm::pending(&self.db),
-        }
+        guard(move || {
+            LastfmState {
+                available: self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some(),
+                enabled: self.lastfm_on(),
+                username: self.db.kv_get("lastfm_user").unwrap_or_default(),
+                pending: lastfm::pending(&self.db),
+            }
+        })
     }
     /// Step 1: returns the approval URL to open in the browser.
     pub async fn lastfm_begin_auth(&self) -> Result<LastfmAuth, CoreError> {
@@ -617,7 +679,9 @@ impl Core {
         self.db.set_liked(&track, liked)
     }
     pub fn is_liked(&self, id: String) -> bool {
-        self.db.is_liked(&id)
+        guard(move || {
+            self.db.is_liked(&id)
+        })
     }
     pub fn liked(&self) -> Result<Vec<Track>, CoreError> {
         self.db.liked()
@@ -674,7 +738,9 @@ impl Core {
         self.db.add_search(q)
     }
     pub fn recent_searches(&self, limit: u32) -> Vec<String> {
-        self.db.searches(limit)
+        guard(move || {
+            self.db.searches(limit)
+        })
     }
     pub fn remove_recent_search(&self, query: String) -> Result<(), CoreError> {
         self.db.remove_search(Some(&query))
@@ -717,7 +783,9 @@ impl Core {
         self.db.set_saved("playlist", &playlist.id, if saved { serde_json::to_string(&playlist).ok() } else { None })
     }
     pub fn is_saved(&self, kind: String, id: String) -> bool {
-        self.db.is_saved(&kind, &id)
+        guard(move || {
+            self.db.is_saved(&kind, &id)
+        })
     }
     pub fn saved_albums(&self) -> Result<Vec<Album>, CoreError> {
         self.db.saved("album")
@@ -729,7 +797,9 @@ impl Core {
         self.db.saved("playlist")
     }
     pub fn library_counts(&self) -> LibraryCounts {
-        self.db.counts()
+        guard(move || {
+            self.db.counts()
+        })
     }
     /// Local audio files found by the platform (MediaStore / chosen folder). Ids are `local:<uri>`.
     pub fn set_local_tracks(&self, tracks: Vec<Track>) -> Result<(), CoreError> {
@@ -744,7 +814,9 @@ impl Core {
         self.db.downloads()
     }
     pub fn download_progress(&self, id: String) -> Option<f32> {
-        self.progress.lock().unwrap_or_else(|p| p.into_inner()).get(&id).copied()
+        guard(move || {
+            self.progress.lock().unwrap_or_else(|p| p.into_inner()).get(&id).copied()
+        })
     }
     pub async fn download(&self, track: Track) -> Result<DownloadItem, CoreError> {
         if let Some(p) = self.offline_path(track.id.clone()) {
@@ -787,7 +859,9 @@ impl Core {
         self.remove_downloads(ids)
     }
     pub fn is_downloaded(&self, id: String) -> bool {
-        self.db.download_path(&id).is_some()
+        guard(move || {
+            self.db.download_path(&id).is_some()
+        })
     }
 
     // ------------------------------------------------------------------ lyrics
@@ -812,8 +886,21 @@ impl Core {
         if p.tracks.is_empty() {
             return Err(CoreError::Invalid { msg: "No tracks found: is the playlist public?".into() });
         }
-        let matches = import::match_all(self.yt.clone(), p.tracks).await;
+        self.import.start(p.tracks.len() as u32);
+        let matches = import::match_all(self.yt.clone(), p.tracks, Some(self.import.clone())).await;
+        let cancelled = self.import.finish();
+        if cancelled {
+            return Err(CoreError::Invalid { msg: "Import cancelled".into() });
+        }
         Ok(ImportResult { name: p.name, service: p.service, cover: p.cover, matches })
+    }
+    /// Progress of the running import (done / total / current track).
+    pub fn import_progress(&self) -> ImportProgress {
+        guard(|| self.import.snapshot())
+    }
+    /// Stop the running import; `import_playlist` then returns "Import cancelled".
+    pub fn import_cancel(&self) {
+        guard(|| self.import.cancel())
     }
     /// Save the matched tracks of an import as a library playlist.
     pub fn save_import(&self, name: String, service: String, cover: String, tracks: Vec<Track>) -> Result<Playlist, CoreError> {
@@ -826,7 +913,9 @@ impl Core {
 
     // ------------------------------------------------------------------ Isa
     pub fn isa_plan(&self, prompt: String) -> IsaPlan {
-        isa::plan(&prompt)
+        guard(move || {
+            isa::plan(&prompt)
+        })
     }
     pub async fn isa(&self, prompt: String) -> Result<IsaResult, CoreError> {
         let plan = isa::plan(&prompt);
@@ -890,53 +979,59 @@ impl Core {
     }
     /// Live prompt suggestions for the Isa card while typing (local, instant).
     pub fn isa_suggestions(&self, text: String) -> Vec<String> {
-        let all = [
-            "late night drive, synthwave", "focus, no vocals", "rainy evening, lo-fi", "gym hype, hip hop",
-            "Malayalam melodies", "90s Bollywood classics", "chill acoustic morning", "sad songs to cry to",
-            "party bangers", "study with piano", "road trip singalongs", "indie for a sunny day",
-            "deep house for work", "Tamil hits", "throwback 2000s pop", "calm sleep music",
-        ];
-        let q = text.trim().to_lowercase();
-        let mut v: Vec<String> = Vec::new();
-        if !q.is_empty() {
-            for a in all.iter() {
-                if a.contains(&q) || q.split_whitespace().any(|w| w.len() > 2 && a.contains(w)) {
-                    v.push(a.to_string());
+        guard(move || {
+            let all = [
+                "late night drive, synthwave", "focus, no vocals", "rainy evening, lo-fi", "gym hype, hip hop",
+                "Malayalam melodies", "90s Bollywood classics", "chill acoustic morning", "sad songs to cry to",
+                "party bangers", "study with piano", "road trip singalongs", "indie for a sunny day",
+                "deep house for work", "Tamil hits", "throwback 2000s pop", "calm sleep music",
+            ];
+            let q = text.trim().to_lowercase();
+            let mut v: Vec<String> = Vec::new();
+            if !q.is_empty() {
+                for a in all.iter() {
+                    if a.contains(&q) || q.split_whitespace().any(|w| w.len() > 2 && a.contains(w)) {
+                        v.push(a.to_string());
+                    }
+                }
+                let top = self.db.affinity();
+                let mut artists: Vec<(&String, &u32)> = top.plays.iter().collect();
+                artists.sort_by(|a, b| b.1.cmp(a.1));
+                for (a, _) in artists.into_iter().take(30) {
+                    if a.contains(&q) {
+                        v.insert(0, format!("songs like {a}"));
+                    }
                 }
             }
-            let top = self.db.affinity();
-            let mut artists: Vec<(&String, &u32)> = top.plays.iter().collect();
-            artists.sort_by(|a, b| b.1.cmp(a.1));
-            for (a, _) in artists.into_iter().take(30) {
-                if a.contains(&q) {
-                    v.insert(0, format!("songs like {a}"));
-                }
-            }
-        }
-        v.truncate(5);
-        v
+            v.truncate(5);
+            v
+        })
     }
     /// One line on why a track is playing (for "Ask Isa · Why this song?").
     pub fn isa_why(&self, track: Track) -> String {
-        let aff = self.db.affinity();
-        let artist = track.main_artist();
-        let plays = aff.plays.get(&artist.to_lowercase()).copied().unwrap_or(0);
-        let tplays = aff.track_plays.get(&track.id).copied().unwrap_or(0);
-        let g = isa::genre_of(&track.title, &track.artists, track.album.as_deref().unwrap_or(""));
-        if tplays >= 3 {
-            format!("You've played this {tplays} times. It's one of your regulars.")
-        } else if plays >= 5 {
-            format!("You keep coming back to {artist} ({plays} plays), so it's ranked higher in your radio.")
-        } else if g != "Other" {
-            format!("It fits the {g} you've been listening to, and it's popular with people who play similar songs.")
-        } else {
-            "It's on the radio for the song you started, and you haven't skipped this artist.".into()
-        }
+        guard(move || {
+            let aff = self.db.affinity();
+            let artist = track.main_artist();
+            let plays = aff.plays.get(&artist.to_lowercase()).copied().unwrap_or(0);
+            let tplays = aff.track_plays.get(&track.id).copied().unwrap_or(0);
+            let g = isa::genre_of(&track.title, &track.artists, track.album.as_deref().unwrap_or(""));
+            if tplays >= 3 {
+                format!("You've played this {tplays} times. It's one of your regulars.")
+            } else if plays >= 5 {
+                format!("You keep coming back to {artist} ({plays} plays), so it's ranked higher in your radio.")
+            } else if g != "Other" {
+                format!("It fits the {g} you've been listening to, and it's popular with people who play similar songs.")
+            } else {
+                "It's on the radio for the song you started, and you haven't skipped this artist.".into()
+            }
+        })
     }
 
     // ------------------------------------------------------------------ settings kv
     pub fn get_setting(&self, key: String) -> Option<String> {
-        self.db.kv_get(&format!("set:{key}"))
+        guard(move || {
+            self.db.kv_get(&format!("set:{key}"))
+        })
     }
     pub fn set_setting(&self, key: String, value: String) -> Result<(), CoreError> {
         self.db.kv_set(&format!("set:{key}"), &value)

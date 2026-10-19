@@ -915,6 +915,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -986,10 +990,14 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_home(`ptr`: Pointer,`tzOffsetMin`: Int,
     ): Long
+    fun uniffi_itune_core_fn_method_core_import_cancel(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_itune_core_fn_method_core_import_candidates(`ptr`: Pointer,`source`: RustBuffer.ByValue,`query`: RustBuffer.ByValue,
     ): Long
     fun uniffi_itune_core_fn_method_core_import_playlist(`ptr`: Pointer,`url`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_itune_core_fn_method_core_import_progress(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_invalidate_stream(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_is_downloaded(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1290,9 +1298,13 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_home(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_import_cancel(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_import_candidates(
     ): Short
     fun uniffi_itune_core_checksum_method_core_import_playlist(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_import_progress(
     ): Short
     fun uniffi_itune_core_checksum_method_core_invalidate_stream(
     ): Short
@@ -1524,10 +1536,16 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_home() != 21267.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_import_cancel() != 36519.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_import_candidates() != 36241.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_import_playlist() != 3119.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_import_progress() != 15413.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_invalidate_stream() != 57497.toShort()) {
@@ -2307,11 +2325,21 @@ public interface CoreInterface {
     suspend fun `home`(`tzOffsetMin`: kotlin.Int): HomeFeed
     
     /**
+     * Stop the running import; `import_playlist` then returns "Import cancelled".
+     */
+    fun `importCancel`()
+    
+    /**
      * Search candidates for swapping an import match (songs filter, scored best first).
      */
     suspend fun `importCandidates`(`source`: ImportedTrack, `query`: kotlin.String): List<Track>
     
     suspend fun `importPlaylist`(`url`: kotlin.String): ImportResult
+    
+    /**
+     * Progress of the running import (done / total / current track).
+     */
+    fun `importProgress`(): ImportProgress
     
     fun `invalidateStream`(`id`: kotlin.String)
     
@@ -2985,6 +3013,20 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
 
     
     /**
+     * Stop the running import; `import_playlist` then returns "Import cancelled".
+     */override fun `importCancel`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_import_cancel(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    /**
      * Search candidates for swapping an import match (songs filter, scored best first).
      */
     @Throws(CoreException::class)
@@ -3027,6 +3069,21 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
         CoreException.ErrorHandler,
     )
     }
+
+    
+    /**
+     * Progress of the running import (done / total / current track).
+     */override fun `importProgress`(): ImportProgress {
+            return FfiConverterTypeImportProgress.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_import_progress(
+        it, _status)
+}
+    }
+    )
+    }
+    
 
     override fun `invalidateStream`(`id`: kotlin.String)
         = 
@@ -4628,6 +4685,49 @@ public object FfiConverterTypeImportMatch: FfiConverterRustBuffer<ImportMatch> {
             FfiConverterUInt.write(value.`confidence`, buf)
             FfiConverterString.write(value.`status`, buf)
             FfiConverterSequenceTypeTrack.write(value.`alternatives`, buf)
+    }
+}
+
+
+
+/**
+ * Live progress of a playlist import (matching runs in the core; UIs poll this).
+ */
+data class ImportProgress (
+    var `running`: kotlin.Boolean, 
+    var `done`: kotlin.UInt, 
+    var `total`: kotlin.UInt, 
+    var `current`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeImportProgress: FfiConverterRustBuffer<ImportProgress> {
+    override fun read(buf: ByteBuffer): ImportProgress {
+        return ImportProgress(
+            FfiConverterBoolean.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ImportProgress) = (
+            FfiConverterBoolean.allocationSize(value.`running`) +
+            FfiConverterUInt.allocationSize(value.`done`) +
+            FfiConverterUInt.allocationSize(value.`total`) +
+            FfiConverterString.allocationSize(value.`current`)
+    )
+
+    override fun write(value: ImportProgress, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`running`, buf)
+            FfiConverterUInt.write(value.`done`, buf)
+            FfiConverterUInt.write(value.`total`, buf)
+            FfiConverterString.write(value.`current`, buf)
     }
 }
 

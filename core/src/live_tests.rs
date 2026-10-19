@@ -117,3 +117,17 @@ async fn offline_core_flow() {
     assert_eq!(first.unwrap().id, "a");
     assert_eq!(c.library_counts().liked, 1);
 }
+
+#[tokio::test]
+async fn live_home() {
+    if !live() {
+        return;
+    }
+    let c = core();
+    let h = c.home(330).await.unwrap();
+    println!("home: {} shelves, {} mixes, {} trending", h.shelves.len(), h.mixes.len(), h.trending.len());
+    for s in &h.shelves {
+        println!("  shelf {} [{}] {}", s.title, s.layout, s.items.len());
+    }
+    assert!(!h.shelves.is_empty() || !h.trending.is_empty(), "home feed empty");
+}
