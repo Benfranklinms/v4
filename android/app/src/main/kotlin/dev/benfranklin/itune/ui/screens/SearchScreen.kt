@@ -53,9 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Arrangement
 import dev.benfranklin.itune.ui.components.SwipeTrackRow
 import androidx.compose.runtime.produceState
 import androidx.compose.material.icons.rounded.History

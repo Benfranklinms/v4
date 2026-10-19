@@ -51,7 +51,7 @@ sealed interface Sheet {
 /** Glow with nothing playing: neutral mono, so Adaptive looks like Pure Mono until a track plays. */
 val NoTrackGlow = Color(0xFF8A8A8C)
 
-data class Snack(val msg: String, val action: String? = null, val onAction: (() -> Unit)? = null, val id: Long = System.nanoTime())
+data class Snack(val msg: String, val action: String? = null, val id: Long = System.nanoTime(), val onAction: (() -> Unit)? = null)
 
 /** UI navigation state (single root; transitions are driven from here). */
 class AppState {

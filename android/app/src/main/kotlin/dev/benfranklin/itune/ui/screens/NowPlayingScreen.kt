@@ -94,12 +94,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.ui.platform.testTag
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import dev.benfranklin.itune.core.Lyrics
 import dev.benfranklin.itune.core.Track
 import dev.benfranklin.itune.player.Playback
