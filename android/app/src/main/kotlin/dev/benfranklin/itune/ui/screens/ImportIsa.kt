@@ -161,7 +161,7 @@ fun ImportScreen(s: AppState) {
                 val review = r.matches.count { it.status == "review" }
                 val missing = r.matches.count { it.status == "missing" }
                 item {
-                    Row(Modifier.padding(horizontal = 20.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Artwork(r.cover, 56.dp, 8.dp)
                         Column(Modifier.padding(start = 14.dp).weight(1f)) {
                             Text(r.name, style = T.ui(16.sp, FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -183,7 +183,7 @@ fun ImportScreen(s: AppState) {
                     val inc = idx in included.value
                     val pick = overrides[idx] ?: m.matched
                     Column(Modifier.animateItem()) {
-                        Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.99f) { expanded = if (expanded == idx) null else idx }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.99f) { expanded = if (expanded == idx) null else idx }.padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Artwork(pick?.thumb, 42.dp, 6.dp)
                             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                                 Text(m.source.title, style = T.ui(14.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)

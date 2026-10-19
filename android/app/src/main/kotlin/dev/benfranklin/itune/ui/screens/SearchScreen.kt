@@ -1,5 +1,7 @@
 package dev.benfranklin.itune.ui.screens
 
+import dev.benfranklin.itune.ui.components.glass
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -126,9 +128,18 @@ fun SearchScreen(s: AppState) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        RiseText("Search", T.ui(22.sp, FontWeight.Bold), Modifier.statusBarsPadding().padding(start = 20.dp, top = 22.dp))
+        // header collapses while scrolling down (the field stays), springs back on scroll up
+        val chromeHidden = dev.benfranklin.itune.ui.components.LocalChrome.current?.hidden == true
+        Spacer(Modifier.statusBarsPadding())
+        androidx.compose.animation.AnimatedVisibility(
+            !chromeHidden,
+            enter = androidx.compose.animation.expandVertically(dev.benfranklin.itune.ui.components.glassSpring()) + fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically(dev.benfranklin.itune.ui.components.glassSpring()) + fadeOut(),
+        ) {
+            RiseText("Search", T.ui(22.sp, FontWeight.Bold), Modifier.padding(start = 16.dp, top = 22.dp))
+        }
         Row(
-            Modifier.padding(20.dp, 14.dp).fillMaxWidth().height(48.dp).clip(RoundedCornerShape(24.dp)).background(c.surf).border(0.6.dp, c.line3, RoundedCornerShape(24.dp)).padding(horizontal = 16.dp),
+            Modifier.padding(16.dp, 14.dp).fillMaxWidth().height(48.dp).glass(RoundedCornerShape(24.dp), dark = 0.40f, sheen = 0.07f, rim = 0.65f).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Rounded.Search, null, tint = c.t2, modifier = Modifier.size(18.dp))
@@ -143,7 +154,7 @@ fun SearchScreen(s: AppState) {
             if (q.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = c.t3, modifier = Modifier.size(20.dp).press { q = ""; sugg = emptyList(); submitted = ""; res = null; SearchCache.query = ""; SearchCache.results = null })
         }
         if (res != null && sugg.isEmpty()) {
-            LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 itemsIndexed(listOf("All", "Songs", "Albums", "Artists", "Playlists", "Videos")) { i, f ->
                     ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("filter_$f")) { filter = f }
                 }
@@ -175,7 +186,7 @@ fun SearchScreen(s: AppState) {
                     if (r == null && !loading && !failed) {
                         if (recents.isNotEmpty()) {
                             item {
-                                Row(Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text("Recent searches", style = T.ui(16.sp, FontWeight.Bold), modifier = Modifier.weight(1f))
                                     Text("Clear all", style = T.ui(12.5.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.press {
                                         val old = recents
@@ -184,7 +195,7 @@ fun SearchScreen(s: AppState) {
                                 }
                             }
                             itemsIndexed(recents, key = { _, x -> "rs_$x" }) { i, x ->
-                                Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { go(x) }.padding(horizontal = 20.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { go(x) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Rounded.History, null, tint = c.t3, modifier = Modifier.size(18.dp))
                                     Text(x, style = T.ui(14.sp, FontWeight.Medium), modifier = Modifier.weight(1f).padding(start = 14.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Icon(Icons.Rounded.Close, "Remove", tint = c.t4, modifier = Modifier.size(32.dp).padding(8.dp).press {
@@ -197,7 +208,7 @@ fun SearchScreen(s: AppState) {
                         if (recentPlays.isNotEmpty()) {
                             item { Spacer(Modifier.height(18.dp)); SectionTitle("Recently played") }
                             item {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
+                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
                                     itemsIndexed(recentPlays) { i, t ->
                                         Column(Modifier.width(96.dp).enter(i).press(scaleTo = 0.96f) { Playback.play(ctx, recentPlays, i, "Recently played") }) {
                                             Artwork(t.thumb, 96.dp, 10.dp)
@@ -211,11 +222,11 @@ fun SearchScreen(s: AppState) {
                         item { MoodGrid { go(it) } }
                     }
                     if (r != null && !loading) {
-                        r.correctedQuery?.let { cq -> item { Text("Showing results for \"$cq\"", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 20.dp)) } }
+                        r.correctedQuery?.let { cq -> item { Text("Showing results for \"$cq\"", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 16.dp)) } }
                         if (r.artists.isNotEmpty() && (filter == "All" || filter == "Artists")) {
                             item { SectionTitle("Artists"); Spacer(Modifier.height(10.dp)) }
                             item {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     itemsIndexed(r.artists) { i, a ->
                                         Column(Modifier.width(84.dp).enter(i).press { s.push(Dest.Artist(a.id)) }.testTag("search_artist"), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Artwork(a.thumb, 76.dp, circle = true)
@@ -235,7 +246,7 @@ fun SearchScreen(s: AppState) {
                         if (r.albums.isNotEmpty() && (filter == "All" || filter == "Albums")) {
                             item { Spacer(Modifier.height(22.dp)); SectionTitle("Albums"); Spacer(Modifier.height(10.dp)) }
                             item {
-                                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     itemsIndexed(r.albums) { i, a ->
                                         Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("search_album")) {
                                             Artwork(a.thumb, 130.dp, 10.dp)
@@ -249,7 +260,7 @@ fun SearchScreen(s: AppState) {
                         if (r.playlists.isNotEmpty() && (filter == "All" || filter == "Playlists")) {
                             item { Spacer(Modifier.height(22.dp)); SectionTitle("Playlists"); Spacer(Modifier.height(6.dp)) }
                             itemsIndexed(r.playlists) { i, p ->
-                                Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }.testTag("search_playlist").padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }.testTag("search_playlist").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Artwork(p.thumb, 46.dp, 7.dp)
                                     Column(Modifier.padding(start = 14.dp)) {
                                         Text(p.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -274,7 +285,7 @@ private val MOODS = listOf(
 @Composable
 fun MoodGrid(onPick: (String) -> Unit) {
     val c = LocalColors.current
-    Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         MOODS.chunked(2).forEachIndexed { r, pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 pair.forEachIndexed { k, m ->

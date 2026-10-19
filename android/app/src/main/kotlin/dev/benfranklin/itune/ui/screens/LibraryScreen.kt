@@ -1,4 +1,5 @@
 package dev.benfranklin.itune.ui.screens
+import dev.benfranklin.itune.ui.components.glass
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -109,7 +110,7 @@ fun LibraryScreen(s: AppState) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().testTag("library_list"), contentPadding = PaddingValues(bottom = 170.dp)) {
             item {
-                Row(Modifier.statusBarsPadding().padding(start = 20.dp, end = 12.dp, top = 22.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 12.dp, top = 22.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     RiseText(if (selecting) "${selected.size} selected" else "Library", T.ui(22.sp, FontWeight.Bold), Modifier.weight(1f))
                     if (selecting) {
                         Icon(Icons.Rounded.Close, "Done", tint = c.t2, modifier = Modifier.size(44.dp).padding(10.dp).press { selecting = false; selected = emptySet() }.testTag("select_done"))
@@ -121,7 +122,7 @@ fun LibraryScreen(s: AppState) {
             }
             item {
                 Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    LazyRow(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         itemsIndexed(listOf("Playlists", "Albums", "Artists")) { i, f -> ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("lib_$f")) { filter = f; selecting = false; selected = emptySet() } }
                     }
                     if (filter == "Playlists") {
@@ -153,7 +154,7 @@ fun LibraryScreen(s: AppState) {
                     }
                     else if (grid && !selecting) {
                         items(lists.chunked(2), key = { row -> row.joinToString { it.id } }) { row ->
-                            Row(Modifier.animateItem().padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(Modifier.animateItem().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                 row.forEach { p ->
                                     Column(Modifier.weight(1f).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }) {
                                         Box {
@@ -175,7 +176,7 @@ fun LibraryScreen(s: AppState) {
                                     .press(scaleTo = 0.98f, onLongClick = { if (selecting) selected = selected + p.id else s.sheet = Sheet.PlaylistMenu(p) }) {
                                         if (selecting) selected = if (on) selected - p.id else selected + p.id else s.push(Dest.Playlist(p.id))
                                     }
-                                    .padding(horizontal = 20.dp, vertical = 7.dp).testTag("pl_${p.title}"),
+                                    .padding(horizontal = 16.dp, vertical = 7.dp).testTag("pl_${p.title}"),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (selecting) {
@@ -200,7 +201,7 @@ fun LibraryScreen(s: AppState) {
                 "Albums" -> {
                     if (albums.isEmpty()) item { EmptyState("No saved albums", "Long-press an album and choose Save to Library.", "Search") { s.select(dev.benfranklin.itune.ui.Tab.Search) } }
                     items(albums, key = { it.id }) { a ->
-                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("lib_album").padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("lib_album").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Artwork(a.thumb, 52.dp, 8.dp)
                             Column(Modifier.padding(start = 14.dp)) {
                                 Text(a.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -212,7 +213,7 @@ fun LibraryScreen(s: AppState) {
                 else -> {
                     if (artists.isEmpty()) item { EmptyState("No artists yet", "Follow artists from their page to see them here.", "Search") { s.select(dev.benfranklin.itune.ui.Tab.Search) } }
                     items(artists, key = { it.id }) { a ->
-                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { s.push(Dest.Artist(a.id)) }.testTag("lib_artist").padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { s.push(Dest.Artist(a.id)) }.testTag("lib_artist").padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Artwork(a.thumb, 52.dp, circle = true)
                             Text(a.name, style = T.ui(14.5.sp, FontWeight.SemiBold), modifier = Modifier.padding(start = 14.dp))
                         }
@@ -261,7 +262,7 @@ fun EmptyState(title: String, body: String, action: String, onAction: () -> Unit
     Column(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(title, style = T.ui(16.sp, FontWeight.Bold))
         Text(body, style = T.ui(13.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 6.dp))
-        Box(Modifier.padding(top = 14.dp).height(40.dp).clip(RoundedCornerShape(20.dp)).background(c.surf3).press(onClick = onAction).padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.padding(top = 14.dp).height(40.dp).press(onClick = onAction).glass(RoundedCornerShape(20.dp), dark = 0.3f, sheen = 0.1f, rim = 0.7f).padding(horizontal = 18.dp).testTag("empty_action"), contentAlignment = Alignment.Center) {
             Text(action, style = T.ui(13.5.sp, FontWeight.SemiBold))
         }
     }
@@ -270,7 +271,7 @@ fun EmptyState(title: String, body: String, action: String, onAction: () -> Unit
 @Composable
 private fun Shortcut(icon: ImageVector, title: String, sub: String, i: Int, onClick: () -> Unit) {
     val c = LocalColors.current
-    Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onClick = onClick).padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(52.dp).clip(RoundedCornerShape(8.dp)).background(c.surf3), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = c.txt, modifier = Modifier.size(22.dp))
         }

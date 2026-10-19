@@ -34,7 +34,7 @@ sealed interface Dest {
 }
 
 sealed interface Sheet {
-    data class TrackMenu(val track: Track, val queueIndex: Int? = null, val playlistId: String? = null, val position: Int? = null) : Sheet
+    data class TrackMenu(val track: Track, val queueIndex: Int? = null, val playlistId: String? = null, val position: Int? = null, val nowPlaying: Boolean = false) : Sheet
     data object Queue : Sheet
     data class Update(val info: UpdateInfo) : Sheet
     data class AddToPlaylist(val track: Track) : Sheet
@@ -58,6 +58,8 @@ class AppState {
     val stack = mutableStateListOf<Dest>()
     var nowPlaying by mutableStateOf(false)
     var sheet by mutableStateOf<Sheet?>(null)
+    /** Last session's crash report, shown once in a glass dialog. */
+    var crashReport by mutableStateOf<String?>(null)
     var glow by mutableStateOf(NoTrackGlow)
     var toast by mutableStateOf<String?>(null)
     var snack by mutableStateOf<Snack?>(null)

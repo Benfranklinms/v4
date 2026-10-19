@@ -76,6 +76,7 @@ import dev.benfranklin.itune.ui.components.TrackRow
 import dev.benfranklin.itune.ui.components.enter
 import dev.benfranklin.itune.ui.components.fmtDur
 import dev.benfranklin.itune.ui.components.press
+import dev.benfranklin.itune.ui.components.glass
 import dev.benfranklin.itune.ui.theme.LocalColors
 import dev.benfranklin.itune.ui.theme.T
 import kotlinx.coroutines.launch
@@ -84,7 +85,7 @@ import kotlinx.coroutines.launch
 fun BackBar(s: AppState, title: String = "", trailing: @Composable () -> Unit = {}) {
     val c = LocalColors.current
     Row(Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Rounded.ArrowBack, null, tint = c.txt, modifier = Modifier.size(44.dp).padding(10.dp).press { s.pop() })
+        dev.benfranklin.itune.ui.components.GlassIconButton(Icons.Rounded.ArrowBack, "Back", modifier = Modifier.padding(start = 8.dp, end = 10.dp), size = 36.dp, iconSize = 20.dp, tag = "back") { s.pop() }
         Text(title, style = T.ui(15.sp, FontWeight.Bold), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         trailing()
     }
@@ -152,7 +153,9 @@ fun TrackListPage(
             }
             extra()
         }
-        Box(Modifier.fillMaxWidth().background(if (collapsed) c.bg.copy(alpha = 0.92f) else c.bg.copy(alpha = 0f))) {
+        val barA = androidx.compose.animation.core.animateFloatAsState(if (collapsed) 1f else 0f, dev.benfranklin.itune.ui.components.glassSpring(), label = "dbar")
+        Box(Modifier.fillMaxWidth()) {
+            Box(Modifier.matchParentSize().graphicsLayer { alpha = barA.value }.glass(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), dark = 0.62f, sheen = 0.04f, rim = 0.5f))
             BackBar(s, if (collapsed) title else "")
         }
     }
@@ -261,7 +264,7 @@ fun ArtistScreen(s: AppState, id: String) {
         if (a != null && a.similar.isNotEmpty()) {
             item { Spacer(Modifier.height(24.dp)); SectionTitle("Fans also like"); Spacer(Modifier.height(10.dp)) }
             item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     itemsIndexed(a.similar) { i, x ->
                         Column(Modifier.width(84.dp).enter(i).press { s.push(Dest.Artist(x.id)) }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Artwork(x.thumb, 76.dp, circle = true)
@@ -281,7 +284,7 @@ fun ArtistScreen(s: AppState, id: String) {
 @Composable
 fun AlbumRow(s: AppState, albums: List<Album>) {
     val c = LocalColors.current
-    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         itemsIndexed(albums) { i, a ->
             Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }) {
                 Artwork(a.thumb, 130.dp, 10.dp)
@@ -326,14 +329,14 @@ fun DownloadsScreen(s: AppState) {
             BackBar(s, "${sel.size} selected") {
                 Text("Cancel", style = T.ui(13.5.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.padding(end = 10.dp).press { selecting = false; sel = emptySet() })
             }
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 dev.benfranklin.itune.ui.components.ChipButton(if (sel.size == shown?.size) "Clear" else "Select all") { sel = if (sel.size == shown?.size) emptySet() else shown.orEmpty().map { it.id }.toSet() }
                 dev.benfranklin.itune.ui.components.ChipButton("Remove", selected = sel.isNotEmpty(), modifier = Modifier.testTag("dl_remove")) { remove(sel) }
             }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
                 itemsIndexed(shown.orEmpty(), key = { _, t -> t.id }) { i, t ->
                     val on = t.id in sel
-                    Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { sel = if (on) sel - t.id else sel + t.id }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { sel = if (on) sel - t.id else sel + t.id }.padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.padding(end = 12.dp).size(22.dp).clip(CircleShape).background(if (on) c.txt else c.surf3), contentAlignment = Alignment.Center) {
                             if (on) Icon(Icons.Rounded.Check, null, tint = c.bg, modifier = Modifier.size(14.dp))
                         }

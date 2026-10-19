@@ -114,7 +114,7 @@ fun Glow(color: Color, modifier: Modifier = Modifier, alpha: Float = 0.55f, cent
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.Bottom) {
+    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.Bottom) {
         RiseText(text, T.ui(18.sp, FontWeight.Bold), Modifier.weight(1f))
         if (action != null) Text(action, style = T.ui(12.5.sp, FontWeight.SemiBold, LocalColors.current.t3), modifier = Modifier.press { onAction?.invoke() })
     }
@@ -133,7 +133,7 @@ fun TrackRow(
 ) {
     val c = LocalColors.current
     Row(
-        Modifier.fillMaxWidth().enter(index).press(onLongClick = onMore, scaleTo = 0.98f) { onClick() }.testTag("track_row").padding(horizontal = 20.dp, vertical = 7.dp),
+        Modifier.fillMaxWidth().enter(index).press(onLongClick = onMore, scaleTo = 0.98f) { onClick() }.testTag("track_row").padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leadingNumber != null) {
@@ -157,10 +157,9 @@ fun ChipButton(label: String, icon: ImageVector? = null, modifier: Modifier = Mo
     Row(
         modifier
             .height(32.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (selected) c.surf4 else c.surf2)
-            .border(0.6.dp, c.line3, RoundedCornerShape(16.dp))
             .press(onClick = onClick)
+            .glass(RoundedCornerShape(16.dp), dark = if (selected) 0.06f else 0.34f, sheen = if (selected) 0.18f else 0.06f, rim = if (selected) 0.85f else 0.5f)
+            .then(if (selected) Modifier.background(c.txt.copy(alpha = 0.12f)) else Modifier)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -174,7 +173,7 @@ fun ChipButton(label: String, icon: ImageVector? = null, modifier: Modifier = Mo
 fun Card(modifier: Modifier = Modifier, padding: PaddingValues = PaddingValues(16.dp), content: @Composable BoxScope.() -> Unit) {
     val c = LocalColors.current
     Box(
-        modifier.clip(RoundedCornerShape(18.dp)).background(c.surf).border(0.5.dp, c.line, RoundedCornerShape(18.dp)).padding(padding),
+        modifier.glass(RoundedCornerShape(22.dp), dark = 0.42f, sheen = 0.06f, rim = 0.55f).padding(padding),
         content = content,
     )
 }
@@ -185,12 +184,12 @@ fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
     val x by animateFloatAsState(if (on) 1f else 0f, spring(dampingRatio = 0.7f, stiffness = 500f), label = "tg")
     Box(
         Modifier.size(46.dp, 28.dp).clip(RoundedCornerShape(14.dp))
-            .background(androidx.compose.ui.graphics.lerp(c.surf4, c.accentUi, x))
+            .background(androidx.compose.ui.graphics.lerp(c.surf4, c.acc, x))
             .press { onChange(!on) },
     ) {
         Box(
             Modifier.padding(3.dp).size(22.dp).graphicsLayer { translationX = x * 18.dp.toPx() }
-                .clip(CircleShape).background(if (on) c.onAccent else c.t2),
+                .clip(CircleShape).background(if (on) c.bg else c.t2),
         )
     }
 }

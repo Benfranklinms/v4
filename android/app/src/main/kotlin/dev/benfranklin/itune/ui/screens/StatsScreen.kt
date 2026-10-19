@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.benfranklin.itune.ui.components.glass
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,11 +79,11 @@ fun StatsScreen(s: AppState) {
     val grow = remember(range) { Animatable(if (reduce) 1f else 0f) }
     LaunchedEffect(st) { if (st != null && !reduce) { grow.snapTo(0f); grow.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 120f)) } }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp, start = 20.dp, end = 20.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp, start = 16.dp, end = 16.dp)) {
         item {
             Row(Modifier.statusBarsPadding().padding(top = 22.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 RiseText("Stats", T.ui(22.sp, FontWeight.Bold), Modifier.weight(1f))
-                Box(Modifier.clip(RoundedCornerShape(16.dp)).background(c.surf3).press { s.push(Dest.Wrapped) }.padding(horizontal = 14.dp, vertical = 7.dp)) {
+                Box(Modifier.press { s.push(Dest.Wrapped) }.glass(RoundedCornerShape(16.dp), dark = 0.30f, sheen = 0.10f, rim = 0.7f).testTag("stats_wrapped").padding(horizontal = 14.dp, vertical = 7.dp)) {
                     Text("Your month", style = T.ui(12.5.sp, FontWeight.SemiBold))
                 }
             }
@@ -92,11 +94,11 @@ fun StatsScreen(s: AppState) {
             val idx = opts.indexOfFirst { it.first == range }
             val pill = remember { Animatable(idx.toFloat()) }
             LaunchedEffect(idx) { pill.animateTo(idx.toFloat(), spring(dampingRatio = 0.75f, stiffness = 500f)) }
-            Box(Modifier.padding(top = 16.dp).fillMaxWidth().height(36.dp).clip(RoundedCornerShape(18.dp)).background(c.surf2)) {
+            Box(Modifier.padding(top = 16.dp).fillMaxWidth().height(36.dp).glass(RoundedCornerShape(18.dp), dark = 0.40f, sheen = 0.05f, rim = 0.5f)) {
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(2.dp)) {
                     val w = maxWidth / opts.size
                     // offset (not padding): the spring overshoots below 0, and negative padding crashes
-                    Box(Modifier.offset(x = w * pill.value.coerceIn(-0.2f, opts.size - 0.8f)).width(w).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(c.surf4))
+                    Box(Modifier.graphicsLayer { translationX = w.toPx() * pill.value.coerceIn(-0.2f, opts.size - 0.8f) }.width(w).fillMaxHeight().glass(RoundedCornerShape(16.dp), dark = 0.06f, sheen = 0.20f, rim = 0.85f).background(c.txt.copy(alpha = 0.10f)))
                     Row(Modifier.fillMaxSize()) {
                         opts.forEach { (k, l) ->
                             Box(Modifier.weight(1f).fillMaxSize().press { range = k }.testTag("range_$k"), contentAlignment = Alignment.Center) {

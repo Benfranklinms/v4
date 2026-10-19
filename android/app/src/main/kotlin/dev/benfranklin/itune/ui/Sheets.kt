@@ -1,8 +1,12 @@
 package dev.benfranklin.itune.ui
 
+import dev.benfranklin.itune.ui.components.glass
+import androidx.compose.ui.platform.testTag
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -20,6 +24,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -43,6 +49,8 @@ import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.RemoveCircleOutline
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -69,7 +77,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
-import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.lazy.items
 import dev.benfranklin.itune.core.Track
 import dev.benfranklin.itune.player.Playback
@@ -98,7 +105,10 @@ fun SheetHost(s: AppState) {
     if (scrim > 0.01f) {
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim / 0.55f }.background(Color.Black.copy(alpha = 0.55f)).plainClick { s.sheet = null })
     }
-    var drag by remember { mutableFloatStateOf(0f) }
+    val drag = remember { androidx.compose.animation.core.Animatable(0f) }
+    val dragScope = rememberCoroutineScope()
+    val reduceM = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
+    LaunchedEffect(open) { if (open) drag.snapTo(0f) }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         AnimatedVisibility(
             visible = open,
@@ -108,19 +118,26 @@ fun SheetHost(s: AppState) {
             val current = remember { mutableStateOf(s.sheet) }
             if (s.sheet != null) current.value = s.sheet
             Column(
-                Modifier.fillMaxWidth().graphicsLayer { translationY = drag }
-                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)).background(c.surf2)
-                    .navigationBarsPadding().padding(bottom = 12.dp),
+                Modifier.fillMaxWidth().graphicsLayer { translationY = drag.value }
+                    .glass(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp), dark = 0.72f, sheen = 0.06f, rim = 0.65f)
+                    .navigationBarsPadding().padding(bottom = 12.dp)
+                    .testTag("sheet"),
             ) {
                 Box(
-                    Modifier.fillMaxWidth().height(28.dp).pointerInput(Unit) {
-                        detectVerticalDragGestures(onDragEnd = { if (drag > 160f) s.sheet = null; drag = 0f }, onDragCancel = { drag = 0f }) { _, d -> drag = (drag + d).coerceAtLeast(0f) }
+                    Modifier.fillMaxWidth().height(30.dp).pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (drag.value > 160f) s.sheet = null
+                                else dragScope.launch { drag.animateTo(0f, dev.benfranklin.itune.ui.components.glassSpring(reduceM)) }
+                            },
+                            onDragCancel = { dragScope.launch { drag.animateTo(0f, dev.benfranklin.itune.ui.components.glassSpring(reduceM)) } },
+                        ) { _, d -> dragScope.launch { drag.snapTo((drag.value + d).coerceAtLeast(0f)) } }
                     },
                     contentAlignment = Alignment.Center,
-                ) { Box(Modifier.size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(c.surf4)) }
+                ) { Box(Modifier.size(36.dp, 4.5.dp).clip(RoundedCornerShape(2.25.dp)).background(c.t3)) }
                 AnimatedContent(current.value, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "sheet") { sh ->
                     when (sh) {
-                        is Sheet.TrackMenu -> TrackMenu(s, sh.track, sh.playlistId, sh.position)
+                        is Sheet.TrackMenu -> TrackMenu(s, sh.track, sh.playlistId, sh.position, sh.nowPlaying, sh.queueIndex)
                         Sheet.Queue -> QueueSheet(s)
                         is Sheet.Update -> UpdateSheet(s, sh.info)
                         is Sheet.AddToPlaylist -> AddToPlaylist(s, sh.track)
@@ -148,7 +165,7 @@ internal fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Un
 }
 
 @Composable
-private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, position: Int? = null) {
+private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, position: Int? = null, fromNowPlaying: Boolean = false, queueIndex: Int? = null) {
     val ctx = LocalContext.current
     val c = LocalColors.current
     val scope = rememberCoroutineScope()
@@ -163,8 +180,14 @@ private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, positio
             }
         }
         Spacer(Modifier.height(6.dp))
-        MenuRow(Icons.Rounded.PlaylistPlay, "Play next", 0) { Playback.playNext(ctx, t); s.sheet = null; s.toast("Playing next") }
-        MenuRow(Icons.Rounded.QueueMusic, "Add to queue", 1) { Playback.addToQueue(ctx, t); s.sheet = null; s.toast("Added to queue") }
+        if (fromNowPlaying) {
+            val sp by Playback.speed.collectAsState()
+            MenuRow(Icons.Rounded.Speed, "Playback speed · ${if (sp == 1f) "1×" else "%.2g×".format(sp)}", 0) { s.sheet = Sheet.Speed }
+            MenuRow(Icons.Rounded.Bedtime, "Sleep timer", 0) { s.sheet = Sheet.SleepTimer }
+        }
+        if (queueIndex != null) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove from queue", 0) { Playback.remove(queueIndex); s.sheet = null }
+        if (!fromNowPlaying) MenuRow(Icons.Rounded.PlaylistPlay, "Play next", 0) { Playback.playNext(ctx, t); s.sheet = null; s.toast("Playing next") }
+        if (!fromNowPlaying) MenuRow(Icons.Rounded.QueueMusic, "Add to queue", 1) { Playback.addToQueue(ctx, t); s.sheet = null; s.toast("Added to queue") }
         MenuRow(if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (liked) "Remove from Liked" else "Like", 2) {
             val now = dev.benfranklin.itune.data.Likes.toggle(t)
             s.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
@@ -238,90 +261,143 @@ private fun QueueSheet(s: AppState) {
     val ctx = LocalContext.current
     val q by Playback.queue.collectAsState()
     val st = q ?: return
+    val reduce = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
     var tab by remember { mutableStateOf(0) }
     var recent by remember { mutableStateOf<List<Track>>(emptyList()) }
     LaunchedEffect(Unit) { recent = dev.benfranklin.itune.data.io { App.core.recent(40u) }.orEmpty() }
     val list = rememberLazyListState()
     var ap by remember { mutableStateOf(App.prefs.autoplay.value) }
+    val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
+    val lens = androidx.compose.animation.core.animateFloatAsState(tab.toFloat(), dev.benfranklin.itune.ui.components.glassSpring(reduce), label = "qlens")
     Column(Modifier.testTag("queue_sheet")) {
-        // tabs with a mono underline indicator
-        Row(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            listOf("Queue", "Recently played").forEachIndexed { i, l ->
-                Column(Modifier.padding(end = 22.dp).press { tab = i }.testTag("queue_tab_$i"), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(l, style = T.ui(16.sp, FontWeight.Bold, if (tab == i) c.txt else c.t3))
-                    Box(Modifier.padding(top = 6.dp).height(2.dp).width(if (tab == i) 28.dp else 0.dp).clip(RoundedCornerShape(1.dp)).background(c.txt))
+        // tabs: Queue | Recently played with a sliding mono underline
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            val half = maxWidth / 2
+            Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf("Queue", "Recently played").forEachIndexed { i, l ->
+                    Box(Modifier.weight(1f).fillMaxHeight().press(scaleTo = 0.96f) { tab = i }.testTag("queue_tab_$i"), contentAlignment = Alignment.Center) {
+                        Text(l, style = T.ui(15.sp, if (tab == i) FontWeight.Bold else FontWeight.SemiBold, if (tab == i) c.txt else c.t3))
+                    }
                 }
             }
-            Spacer(Modifier.weight(1f))
-            if (tab == 0) Text("Save", style = T.ui(12.5.sp, FontWeight.SemiBold, c.txt), modifier = Modifier.padding(end = 4.dp).press { s.sheet = Sheet.NamePlaylist(st.tracks) }.testTag("queue_save"))
+            Box(Modifier.padding(top = 40.dp).fillMaxWidth().height(0.6.dp).background(c.line3))
+            Box(
+                Modifier.padding(top = 39.dp).width(half).height(3.dp).graphicsLayer { translationX = lens.value * half.toPx() },
+                contentAlignment = Alignment.Center,
+            ) { Box(Modifier.width(56.dp).height(3.dp).clip(RoundedCornerShape(1.5.dp)).background(c.acc)) }
         }
+        Spacer(Modifier.height(8.dp))
         if (tab == 1) {
-            LazyColumn(Modifier.heightIn(max = 520.dp)) {
+            LazyColumn(Modifier.heightIn(max = 540.dp)) {
                 if (recent.isEmpty()) item { Text("Songs you play show up here.", style = T.ui(13.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(24.dp)) }
                 itemsIndexed(recent, key = { i, t -> "h$i${t.id}" }) { i, t ->
-                    QRow(t, false, i < 0) { Playback.play(ctx, recent, i, "Recently played") }
+                    QRow(t, false, onClick = { Playback.play(ctx, recent, i, "Recently played") }) {
+                        Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.sheet = Sheet.TrackMenu(t) }.padding(10.dp))
+                    }
                 }
             }
             return@Column
         }
         val apFrom = if (st.autoplayFrom >= 0) st.autoplayFrom else st.tracks.size
         LaunchedEffect(Unit) { list.scrollToItem(0) }
-        LazyColumn(Modifier.heightIn(max = 520.dp), state = list) {
+        LazyColumn(Modifier.heightIn(max = 540.dp), state = list) {
             st.tracks.getOrNull(st.index)?.let { cur ->
                 item(key = "h_now") { QHeader("Now playing") }
-                item(key = "now") { QRow(cur, true, false) { Playback.toggle() } }
+                item(key = "now") {
+                    QRow(cur, true, onClick = { Playback.toggle() }) {
+                        val lk = cur.id in likedIds
+                        Icon(if (lk) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (lk) "Unlike" else "Like", tint = c.txt, modifier = Modifier.size(40.dp).press { dev.benfranklin.itune.data.Likes.toggle(cur) }.padding(10.dp))
+                    }
+                }
             }
             val user = (st.index + 1 until apFrom).toList()
             if (user.isNotEmpty()) {
-                item(key = "h_user") { QHeader("Next in queue") }
+                item(key = "h_user") {
+                    QHeader("Next in queue", "Clear") { user.reversed().forEach { Playback.remove(it) } }
+                }
                 items(user.size, key = { k -> "u${user[k]}-${st.tracks[user[k]].id}" }) { k ->
                     val i = user[k]
-                    val t = st.tracks[i]
-                    Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { QRow(t, false, false) { Playback.jump(i) } }
-                        Icon(Icons.Rounded.Close, "Remove", tint = c.t3, modifier = Modifier.size(36.dp).padding(9.dp).press { Playback.remove(i) })
-                        DragHandle(i, st.index + 1, apFrom - 1)
-                        Spacer(Modifier.width(12.dp))
+                    Box(Modifier.animateItem()) {
+                        QRow(st.tracks[i], false, onClick = { Playback.jump(i) }, onLong = { s.sheet = Sheet.TrackMenu(st.tracks[i], queueIndex = i) }) {
+                            DragHandle(i, st.index + 1, apFrom - 1)
+                        }
                     }
                 }
             }
             item(key = "h_auto") {
-                Row(Modifier.padding(start = 24.dp, end = 20.dp, top = 14.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Next up · Autoplay", style = T.ui(12.5.sp, FontWeight.Bold, c.t2), modifier = Modifier.weight(1f))
-                    dev.benfranklin.itune.ui.components.Toggle(ap) { v -> ap = v; App.prefs.autoplay.value = v; dev.benfranklin.itune.data.Bg.run { App.core.setAutoplay(v) } }
+                Row(Modifier.padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Next up · Autoplay", style = T.ui(12.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.weight(1f))
+                    Box(Modifier.testTag("autoplay_toggle")) {
+                        dev.benfranklin.itune.ui.components.Toggle(ap) { v -> ap = v; App.prefs.autoplay.value = v; dev.benfranklin.itune.data.Bg.run { App.core.setAutoplay(v) } }
+                    }
                 }
             }
             if (ap) {
                 val auto = (maxOf(apFrom, st.index + 1) until st.tracks.size).toList()
-                if (auto.isEmpty()) item(key = "auto_empty") { Text("Similar songs appear here as the queue runs low.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
+                if (auto.isEmpty()) item(key = "auto_empty") { Text("Similar songs appear here as the queue runs low.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
                 items(auto.size, key = { k -> "a${auto[k]}-${st.tracks[auto[k]].id}" }) { k ->
                     val i = auto[k]
-                    Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { QRow(st.tracks[i], false, false) { Playback.jump(i) } }
-                        Icon(Icons.Rounded.Close, "Remove", tint = c.t3, modifier = Modifier.padding(end = 12.dp).size(36.dp).padding(9.dp).press { Playback.remove(i) })
+                    Box(Modifier.animateItem()) {
+                        QRow(st.tracks[i], false, onClick = { Playback.jump(i) }, onLong = { s.sheet = Sheet.TrackMenu(st.tracks[i], queueIndex = i) }) {
+                            Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.sheet = Sheet.TrackMenu(st.tracks[i], queueIndex = i) }.padding(10.dp))
+                        }
                     }
                 }
+            }
+            item(key = "q_save") {
+                Text(
+                    "Save queue as playlist", style = T.ui(13.sp, FontWeight.SemiBold, c.t2),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp).press { s.sheet = Sheet.NamePlaylist(st.tracks) }.testTag("queue_save"),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun QHeader(t: String) {
-    Text(t, style = T.ui(12.5.sp, FontWeight.Bold, LocalColors.current.t2), modifier = Modifier.padding(start = 24.dp, top = 12.dp, bottom = 6.dp))
+private fun QHeader(t: String, action: String? = null, onAction: (() -> Unit)? = null) {
+    val c = LocalColors.current
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(t, style = T.ui(12.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.weight(1f))
+        if (action != null) Text(action, style = T.ui(12.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.press { onAction?.invoke() }.padding(4.dp).testTag("queue_clear"))
+    }
 }
 
 @Composable
-private fun QRow(t: Track, current: Boolean, dim: Boolean, onClick: () -> Unit) {
+private fun QRow(t: Track, current: Boolean, onClick: () -> Unit, onLong: (() -> Unit)? = null, trailing: @Composable () -> Unit = {}) {
     val c = LocalColors.current
     Row(
-        Modifier.fillMaxWidth().press(scaleTo = 0.98f, onClick = onClick).background(if (current) c.surf3 else Color.Transparent).padding(horizontal = 24.dp, vertical = 7.dp),
+        Modifier.fillMaxWidth().height(60.dp).press(scaleTo = 0.98f, onLongClick = onLong, onClick = onClick).padding(start = 20.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Artwork(t.thumb, 40.dp, 6.dp)
+        Box {
+            Artwork(t.thumb, 46.dp, 9.dp)
+            if (current) Box(Modifier.size(46.dp).clip(RoundedCornerShape(9.dp)).background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                EqBars(Playback.playing.collectAsState().value)
+            }
+        }
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
-            Text(t.title, style = T.ui(14.sp, FontWeight.SemiBold, if (current) c.accentUi else if (dim) c.t3 else c.txt), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(t.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        dev.benfranklin.itune.ui.components.fmtDur(t.durationS.toInt()).takeIf { it.isNotEmpty() }?.let { Text(it, style = T.num(11.5.sp, color = c.t3), modifier = Modifier.padding(horizontal = 6.dp)) }
+        trailing()
+    }
+}
+
+/** Playing indicator: four mono bars that bounce while music plays (drawn, no recomposition per frame). */
+@Composable
+private fun EqBars(playing: Boolean) {
+    val c = LocalColors.current
+    val inf = androidx.compose.animation.core.rememberInfiniteTransition(label = "eq")
+    val ph = inf.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.LinearEasing)), label = "eqp")
+    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+        val hs = floatArrayOf(0.55f, 1f, 0.7f, 0.85f)
+        val bw = size.width * 0.14f
+        for (i in 0 until 4) {
+            val k = if (playing) (0.35f + 0.65f * kotlin.math.abs(kotlin.math.sin((ph.value + i * 0.27f) * Math.PI.toFloat()))) else hs[i]
+            val hh = size.height * k
+            drawRoundRect(c.txt, androidx.compose.ui.geometry.Offset(i * size.width * 0.26f, size.height - hh), androidx.compose.ui.geometry.Size(bw, hh), androidx.compose.ui.geometry.CornerRadius(bw / 2))
         }
     }
 }

@@ -1,5 +1,8 @@
 package dev.benfranklin.itune.ui
 
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.platform.testTag
+
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -58,7 +61,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +75,7 @@ import dev.benfranklin.itune.data.Bg
 import dev.benfranklin.itune.data.Library
 import dev.benfranklin.itune.data.io
 import dev.benfranklin.itune.player.Playback
+import dev.benfranklin.itune.ui.components.glass
 import dev.benfranklin.itune.ui.components.Artwork
 import dev.benfranklin.itune.ui.components.ChipButton
 import dev.benfranklin.itune.ui.components.press
@@ -138,16 +141,16 @@ fun DragHandle(index: Int, min: Int, max: Int) {
     var acc by remember { mutableFloatStateOf(0f) }
     var cur by remember(index) { mutableStateOf(index) }
     Icon(
-        Icons.Rounded.DragHandle, "Reorder", tint = c.t3,
-        modifier = Modifier.size(36.dp).padding(8.dp).pointerInput(index) {
-            val step = 54.dp.toPx()
-            detectDragGesturesAfterLongPress(
+        Icons.Rounded.DragHandle, "Reorder", tint = c.t2,
+        modifier = Modifier.size(40.dp).padding(9.dp).testTag("queue_handle").pointerInput(index) {
+            val step = 60.dp.toPx()
+            detectVerticalDragGestures(
                 onDragStart = { acc = 0f; cur = index; h.performHapticFeedback(HapticFeedbackType.LongPress) },
                 onDragEnd = { acc = 0f },
                 onDragCancel = { acc = 0f },
-            ) { change, d ->
+            ) { change, dy ->
                 change.consume()
-                acc += d.y
+                acc += dy
                 while (acc > step && cur < max) { Playback.move(cur, cur + 1); cur++; acc -= step; h.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
                 while (acc < -step && cur > min) { Playback.move(cur, cur - 1); cur--; acc += step; h.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
             }
@@ -287,11 +290,11 @@ internal fun NamePlaylistSheet(s: AppState, tracks: List<Track>, edit: Playlist?
         Spacer(Modifier.height(10.dp))
         Field(desc, { desc = it.take(200) }, "Description (optional)", Modifier.testTag("desc_field"), onDone = { save() })
         Row(Modifier.padding(top = 18.dp, bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(c.surf4).press { s.sheet = null }.testTag("name_cancel"), contentAlignment = Alignment.Center) {
+            Box(Modifier.weight(1f).height(48.dp).press { s.sheet = null }.glass(RoundedCornerShape(24.dp), dark = 0.30f, sheen = 0.10f, rim = 0.7f).testTag("name_cancel"), contentAlignment = Alignment.Center) {
                 Text("Cancel", style = T.ui(15.sp, FontWeight.SemiBold))
             }
             Box(
-                Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(if (ok) c.accentUi else c.surf3).press { save() }.testTag("name_save"),
+                Modifier.weight(1f).height(48.dp).press { save() }.then(if (ok) Modifier.clip(RoundedCornerShape(24.dp)).background(c.accentUi) else Modifier.glass(RoundedCornerShape(24.dp), dark = 0.45f, sheen = 0.04f, rim = 0.4f)).testTag("name_save"),
                 contentAlignment = Alignment.Center,
             ) { Text(if (edit != null) "Save" else "Create", style = T.ui(15.sp, FontWeight.Bold, if (ok) c.onAccent else c.t3)) }
         }
@@ -302,7 +305,7 @@ internal fun NamePlaylistSheet(s: AppState, tracks: List<Track>, edit: Playlist?
 internal fun Field(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
     val c = LocalColors.current
     Box(
-        Modifier.fillMaxWidth().height(50.dp).clip(RoundedCornerShape(14.dp)).background(c.surf).border(0.6.dp, c.line3, RoundedCornerShape(14.dp)).padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().height(50.dp).glass(RoundedCornerShape(14.dp), dark = 0.38f, sheen = 0.05f, rim = 0.6f).padding(horizontal = 16.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         if (value.isEmpty()) Text(hint, style = T.ui(14.5.sp, FontWeight.Medium, c.t3))
@@ -337,7 +340,7 @@ internal fun AccountSheet(s: AppState) {
         Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             val av = info?.avatar
             if (!av.isNullOrEmpty()) Artwork(av, 56.dp, circle = true)
-            else Box(Modifier.size(56.dp).clip(CircleShape).background(c.surf3), contentAlignment = Alignment.Center) {
+            else Box(Modifier.size(56.dp).glass(CircleShape, dark = 0.30f, sheen = 0.12f, rim = 0.8f), contentAlignment = Alignment.Center) {
                 Text((info?.name ?: name).take(1).uppercase(), style = T.ui(22.sp, FontWeight.Bold))
             }
             Column(Modifier.padding(start = 14.dp).weight(1f)) {
@@ -352,7 +355,7 @@ internal fun AccountSheet(s: AppState) {
                 )
             }
         }
-        Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.surf).padding(14.dp)) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().glass(RoundedCornerShape(18.dp), dark = 0.38f, sheen = 0.07f, rim = 0.6f).padding(14.dp)) {
             Column(Modifier.weight(1f)) {
                 Text("This month", style = T.ui(11.5.sp, FontWeight.SemiBold, c.t3))
                 Text(minutes?.let { "$it min" } ?: "–", style = T.num(18.sp, FontWeight.Medium))

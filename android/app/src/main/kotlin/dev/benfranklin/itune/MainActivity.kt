@@ -43,29 +43,7 @@ class MainActivity : ComponentActivity() {
         restoreSignIn()
         setContent {
             val s = remember { state }
-            var crashText by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(crash) }
-            crashText?.let { txt ->
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { crashText = null },
-                    title = { androidx.compose.material3.Text("iTune closed unexpectedly last time") },
-                    text = {
-                        androidx.compose.foundation.lazy.LazyColumn(androidx.compose.ui.Modifier.heightIn(max = 360.dp)) {
-                            item { androidx.compose.material3.Text(txt, style = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)) }
-                        }
-                    },
-                    confirmButton = {
-                        androidx.compose.foundation.layout.Row {
-                        androidx.compose.material3.TextButton(onClick = { crashText = null; s.push(Dest.Diagnostics) }) { androidx.compose.material3.Text("Details") }
-                        androidx.compose.material3.TextButton(onClick = {
-                            val cm = getSystemService(android.content.ClipboardManager::class.java)
-                            cm.setPrimaryClip(android.content.ClipData.newPlainText("crash", txt))
-                            crashText = null
-                        }) { androidx.compose.material3.Text("Copy") }
-                        }
-                    },
-                    dismissButton = { androidx.compose.material3.TextButton(onClick = { crashText = null }) { androidx.compose.material3.Text("Close") } },
-                )
-            }
+            LaunchedEffect(Unit) { if (crash != null) s.crashReport = crash }
             LaunchedEffect(Unit) {
                 // launch-time update check (at most every 6 h)
                 val now = System.currentTimeMillis()

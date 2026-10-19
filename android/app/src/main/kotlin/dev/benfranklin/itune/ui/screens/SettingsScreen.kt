@@ -1,4 +1,5 @@
 package dev.benfranklin.itune.ui.screens
+import dev.benfranklin.itune.ui.components.glass
 
 import android.content.Intent
 import android.net.Uri
@@ -86,8 +87,8 @@ import java.io.File
 @Composable
 fun Group(title: String, content: @Composable () -> Unit) {
     val c = LocalColors.current
-    Text(title.uppercase(), style = T.ui(10.5.sp, FontWeight.Bold, c.t3, 1.sp), modifier = Modifier.padding(start = 24.dp, top = 22.dp, bottom = 8.dp))
-    Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(16.dp)).background(c.surf).border(0.5.dp, c.line, RoundedCornerShape(16.dp))) { content() }
+    Text(title.uppercase(), style = T.ui(10.5.sp, FontWeight.Bold, c.t3, 1.sp), modifier = Modifier.padding(start = 24.dp, top = 26.dp, bottom = 8.dp))
+    Column(Modifier.padding(horizontal = 16.dp).glass(RoundedCornerShape(22.dp), dark = 0.42f, sheen = 0.06f, rim = 0.55f)) { content() }
 }
 
 @Composable
@@ -518,7 +519,7 @@ fun DiagnosticsScreen(s: AppState) {
                 s.toast("Copied")
             }.testTag("diag_copy"))
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 170.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 170.dp)) {
             item { Text(text, style = T.num(11.5.sp, color = c.t2)) }
             item {
                 Text("Clear crash reports", style = T.ui(13.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.padding(top = 18.dp).press {

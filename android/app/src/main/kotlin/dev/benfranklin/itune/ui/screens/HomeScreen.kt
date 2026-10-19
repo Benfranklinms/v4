@@ -69,6 +69,7 @@ import dev.benfranklin.itune.ui.components.SectionTitle
 import dev.benfranklin.itune.ui.components.TrackRow
 import dev.benfranklin.itune.ui.components.enter
 import dev.benfranklin.itune.ui.components.press
+import dev.benfranklin.itune.ui.components.glass
 import dev.benfranklin.itune.ui.theme.LocalColors
 import dev.benfranklin.itune.ui.theme.T
 import java.util.TimeZone
@@ -108,11 +109,11 @@ fun HomeScreen(s: AppState) {
     ) {
     LazyColumn(Modifier.fillMaxSize().testTag("home_list"), contentPadding = PaddingValues(bottom = 170.dp)) {
         item {
-            Row(Modifier.statusBarsPadding().padding(start = 20.dp, end = 20.dp, top = 14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                PulseMark(Modifier.size(18.dp))
-                Text("iTune", style = T.ui(15.sp, FontWeight.Bold), modifier = Modifier.padding(start = 8.dp).weight(1f))
-                Icon(Icons.Rounded.Settings, "Settings", tint = c.t2, modifier = Modifier.size(36.dp).padding(8.dp).press { s.push(Dest.Settings) }.testTag("home_settings"))
-                Box(Modifier.size(30.dp).clip(CircleShape).background(c.surf3).press { s.sheet = Sheet.Account }.testTag("home_avatar"), contentAlignment = Alignment.Center) {
+            Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                PulseMark(Modifier.size(22.dp))
+                Text("iTune", style = T.ui(17.sp, FontWeight.Bold), modifier = Modifier.padding(start = 9.dp).weight(1f))
+                Icon(Icons.Rounded.Settings, "Settings", tint = c.t2, modifier = Modifier.size(40.dp).press { s.push(Dest.Settings) }.padding(10.dp).testTag("home_settings"))
+                Box(Modifier.padding(start = 4.dp).size(32.dp).press { s.sheet = Sheet.Account }.glass(CircleShape, dark = 0.5f, sheen = 0.1f).testTag("home_avatar"), contentAlignment = Alignment.Center) {
                     val av = account?.avatar
                     if (!av.isNullOrEmpty()) Artwork(av, 30.dp, circle = true)
                     else Text(name.take(1).uppercase(), style = T.ui(13.sp, FontWeight.Bold))
@@ -121,15 +122,15 @@ fun HomeScreen(s: AppState) {
         }
         item {
             val greet = feed?.greeting ?: "Hello"
-            RiseText("$greet, $name", T.ui(22.sp, FontWeight.Bold), Modifier.padding(start = 20.dp, top = 22.dp, end = 20.dp))
+            RiseText("$greet, $name", T.ui(22.sp, FontWeight.Bold), Modifier.padding(start = 16.dp, top = 24.dp, end = 16.dp))
         }
-        item { IsaCommandCard(s, Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp)) }
+        item { IsaCommandCard(s, Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp)) }
         resume?.let { r ->
             item {
-                Spacer(Modifier.height(26.dp))
+                Spacer(Modifier.height(36.dp))
                 SectionTitle("Continue listening")
                 Row(
-                    Modifier.padding(horizontal = 20.dp, vertical = 12.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.surf)
+                    Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth().glass(RoundedCornerShape(20.dp), dark = 0.42f)
                         .press(scaleTo = 0.98f) { Playback.playFrom(ctx, r.track, r.positionMs) }.padding(10.dp).testTag("continue"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -170,12 +171,12 @@ fun HomeScreen(s: AppState) {
             }
         } else {
             if (f.recent.isNotEmpty()) {
-                item { Spacer(Modifier.height(28.dp)); SectionTitle("Recently played") }
+                item { Spacer(Modifier.height(44.dp)); SectionTitle("Recently played") }
                 item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                         itemsIndexed(f.recent.take(12), key = { i, t -> "r$i${t.id}" }) { i, t ->
-                            Column(Modifier.width(112.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, f.recent, i, "Recently played") }) {
-                                Artwork(t.thumb, 112.dp, 10.dp)
+                            Column(Modifier.width(160.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, f.recent, i, "Recently played") }) {
+                                Artwork(t.thumb, 160.dp, 14.dp)
                                 Text(t.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                                 Text(t.artists, style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
@@ -184,13 +185,13 @@ fun HomeScreen(s: AppState) {
                 }
             }
             if (f.mixes.isNotEmpty()) {
-                item { Spacer(Modifier.height(28.dp)); SectionTitle("Daily Mixes") }
+                item { Spacer(Modifier.height(44.dp)); SectionTitle("Daily Mixes") }
                 item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                         itemsIndexed(f.mixes) { i, m ->
-                            Column(Modifier.width(138.dp).enter(i).press(scaleTo = 0.96f) { s.push(Dest.Mix(m.title, m.tracks)) }) {
+                            Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f) { s.push(Dest.Mix(m.title, m.tracks)) }) {
                                 Box {
-                                    Artwork(m.thumb, 138.dp, 12.dp)
+                                    Artwork(m.thumb, 150.dp, 16.dp)
                                     Text("%02d".format(i + 1), style = T.num(11.sp, FontWeight.Medium), modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
                                     Box(
                                         Modifier.align(Alignment.BottomEnd).padding(8.dp).size(30.dp).clip(CircleShape).background(c.txt)
@@ -206,15 +207,15 @@ fun HomeScreen(s: AppState) {
                 }
             }
             if (f.onRepeat.size >= 4) {
-                item { Spacer(Modifier.height(28.dp)); SectionTitle("On Repeat", action = "Play") { Playback.play(ctx, f.onRepeat, 0, "On Repeat") } }
+                item { Spacer(Modifier.height(44.dp)); SectionTitle("On Repeat", action = "Play") { Playback.play(ctx, f.onRepeat, 0, "On Repeat") } }
                 item { TrackRail(s, f.onRepeat, "On Repeat") }
             }
             if (f.discover.size >= 6) {
-                item { Spacer(Modifier.height(28.dp)); SectionTitle("Discover", action = "Play") { Playback.play(ctx, f.discover, 0, "Discover") } }
+                item { Spacer(Modifier.height(44.dp)); SectionTitle("Discover", action = "Play") { Playback.play(ctx, f.discover, 0, "Discover") } }
                 item { TrackRail(s, f.discover, "Discover") }
             }
             f.shelves.forEachIndexed { si, sh ->
-                item(key = "shelf$si") { Spacer(Modifier.height(28.dp)); SectionTitle(sh.title) }
+                item(key = "shelf$si") { Spacer(Modifier.height(44.dp)); SectionTitle(sh.title) }
                 if (sh.layout == "songs") {
                     val tracks = sh.items.mapNotNull { it.track }
                     item(key = "shelfc$si") {
@@ -232,11 +233,11 @@ fun HomeScreen(s: AppState) {
                     }
                 } else {
                     item(key = "shelfc$si") {
-                        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                             itemsIndexed(sh.items) { i, it ->
                                 val circle = it.kind == "artist"
-                                Column(Modifier.width(138.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { homeItemMenu(s, it) }) { openHomeItem(s, ctx, it, sh) }) {
-                                    Artwork(it.thumb, 138.dp, 12.dp, circle = circle)
+                                Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { homeItemMenu(s, it) }) { openHomeItem(s, ctx, it, sh) }) {
+                                    Artwork(it.thumb, 150.dp, 16.dp, circle = circle)
                                     Text(it.title, style = T.ui(13.5.sp, FontWeight.SemiBold), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 9.dp))
                                     Text(it.subtitle, style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
@@ -246,7 +247,7 @@ fun HomeScreen(s: AppState) {
                 }
             }
             if (f.trending.isNotEmpty() && f.shelves.none { it.title.contains("chart", true) || it.title.contains("trending", true) }) {
-                item { Spacer(Modifier.height(28.dp)); SectionTitle("Trending"); Spacer(Modifier.height(6.dp)) }
+                item { Spacer(Modifier.height(44.dp)); SectionTitle("Trending"); Spacer(Modifier.height(6.dp)) }
                 itemsIndexed(f.trending.take(10)) { i, t ->
                     TrackRow(t, i, onClick = { Playback.play(ctx, f.trending, i, "Trending") }, onMore = { s.sheet = Sheet.TrackMenu(t) }, leadingNumber = i + 1)
                 }
@@ -281,7 +282,7 @@ private fun homeItemMenu(s: AppState, it: dev.benfranklin.itune.core.HomeItem) {
 private fun TrackRail(s: AppState, tracks: List<dev.benfranklin.itune.core.Track>, source: String) {
     val c = LocalColors.current
     val ctx = LocalContext.current
-    LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
         itemsIndexed(tracks.take(20)) { i, t ->
             Column(Modifier.width(124.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, tracks, i, source) }) {
                 Artwork(t.thumb, 124.dp, 10.dp)
@@ -303,7 +304,7 @@ fun SkeletonRows(n: Int = 4) {
     val c = LocalColors.current
     val a = androidx.compose.animation.core.rememberInfiniteTransition(label = "sk")
     val alpha by a.animateFloat(0.35f, 0.8f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(800), androidx.compose.animation.core.RepeatMode.Reverse), label = "a")
-    Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         repeat(n) {
             Row(Modifier.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(46.dp).clip(RoundedCornerShape(7.dp)).background(c.surf3.copy(alpha = alpha)))

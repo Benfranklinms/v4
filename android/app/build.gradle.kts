@@ -103,6 +103,7 @@ dependencies {
     implementation(libs.newpipe.extractor)
     implementation(libs.okhttp)
     implementation(libs.profileinstaller)
+    implementation(libs.haze)
     coreLibraryDesugaring(libs.desugar)
     testImplementation(libs.junit)
 }

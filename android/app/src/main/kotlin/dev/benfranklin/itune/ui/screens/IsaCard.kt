@@ -1,5 +1,14 @@
 package dev.benfranklin.itune.ui.screens
 
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Mic
+import dev.benfranklin.itune.ui.components.GlassIconButton
+import dev.benfranklin.itune.ui.components.glass
+
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.speech.RecognizerIntent
@@ -41,9 +50,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.North
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -157,39 +164,39 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
 
     val thinking = state is IsaState.Thinking
     val inf = rememberInfiniteTransition(label = "isa")
-    val pulse by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (thinking) 900 else 2600), RepeatMode.Reverse), label = "pulse")
-    val wave by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "wave")
-    val blink by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1060), RepeatMode.Restart), label = "blink")
-    val shimmer by inf.animateFloat(-1f, 2f, infiniteRepeatable(tween(1300), RepeatMode.Restart), label = "shimmer")
+    // animation values are read only inside draw/graphicsLayer lambdas: no recomposition per frame
+    val pulse = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (thinking) 900 else 2600), RepeatMode.Reverse), label = "pulse")
+    val wave = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "wave")
+    val blink = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1060), RepeatMode.Restart), label = "blink")
+    val shimmer = inf.animateFloat(-1f, 2f, infiniteRepeatable(tween(1300), RepeatMode.Restart), label = "shimmer")
     val expanded = focused || text.isNotEmpty() || state !is IsaState.Idle
 
     Column(modifier.fillMaxWidth()) {
         Column(
             Modifier.fillMaxWidth()
                 .animateContentSize(if (reduce) tween(0) else spring(dampingRatio = 0.8f, stiffness = 380f))
-                .clip(RoundedCornerShape(26.dp))
-                .background(Brush.verticalGradient(listOf(c.surf2, c.surf)))
-                .border(0.7.dp, if (focused) c.line3.copy(alpha = 1f) else c.line2, RoundedCornerShape(26.dp))
+                .glass(RoundedCornerShape(24.dp), dark = if (focused) 0.40f else 0.46f, sheen = 0.07f, rim = if (focused) 0.9f else 0.6f)
                 .drawBehind {
                     if (thinking && !reduce) {
-                        val x = size.width * shimmer
+                        val x = size.width * shimmer.value
                         drawRect(Brush.linearGradient(listOf(Color.Transparent, c.txt.copy(alpha = 0.06f), Color.Transparent), start = Offset(x - 220f, 0f), end = Offset(x + 220f, size.height)))
                     }
                 }
-                .padding(start = 22.dp, end = 16.dp, top = 18.dp, bottom = 16.dp)
+                .padding(start = 20.dp, end = 16.dp, top = 18.dp, bottom = 16.dp)
                 .testTag("isa_card"),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Orb(if (reduce) 0.5f else pulse, if (reduce) 0f else wave, thinking)
-                Text("ISA", style = T.num(12.sp, FontWeight.Medium, c.t2).copy(letterSpacing = 3.sp), modifier = Modifier.padding(start = 10.dp))
+                Orb(pulse, wave, thinking, reduce)
+                Text("ISA", style = T.num(10.sp, FontWeight.Medium, c.t2).copy(letterSpacing = 2.sp), modifier = Modifier.padding(start = 8.dp))
                 Spacer(Modifier.weight(1f))
                 AnimatedVisibility(state !is IsaState.Idle, enter = fadeIn(), exit = fadeOut()) {
                     Icon(Icons.Rounded.Close, "Clear", tint = c.t3, modifier = Modifier.size(32.dp).padding(7.dp).press { job?.cancel(); state = IsaState.Idle; text = "" }.testTag("isa_clear"))
                 }
             }
             // prompt
-            Box(Modifier.fillMaxWidth().padding(top = if (expanded) 16.dp else 20.dp, bottom = 14.dp)) {
-                val big = if (expanded) 22.sp else 26.sp
+            Row(Modifier.fillMaxWidth().padding(top = if (expanded) 16.dp else 20.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                val big = if (expanded) 20.sp else 21.sp
                 if (text.isEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -201,7 +208,7 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
                             },
                             style = T.ui(big, FontWeight.SemiBold, c.t2), maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
-                        if (!focused && state is IsaState.Idle) Box(Modifier.padding(start = 2.dp).width(2.dp).height(28.dp).graphicsLayer { alpha = if (reduce || blink < 0.5f) 1f else 0f }.background(c.txt))
+                        if (!focused && state is IsaState.Idle) Box(Modifier.padding(start = 2.dp).width(1.5.dp).height(24.dp).graphicsLayer { alpha = if (reduce || blink.value < 0.5f) 1f else 0f }.background(c.acc))
                     }
                 }
                 BasicTextField(
@@ -212,6 +219,24 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
                     keyboardActions = KeyboardActions(onGo = { run(text) }),
                     modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.testTag("isa_field"),
                 )
+            }
+            // idle: only a subtle glass mic; typed: glass mic + glass send that springs in
+            GlassIconButton(Icons.Rounded.Mic, "Speak", size = 36.dp, iconSize = 17.dp, tint = c.t2, tag = "isa_mic", modifier = Modifier.padding(start = 8.dp)) {
+                try {
+                    speech.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM).putExtra(RecognizerIntent.EXTRA_PROMPT, "What should we play?"))
+                } catch (_: ActivityNotFoundException) {
+                    s.toast("Voice input isn't available on this phone")
+                }
+            }
+            AnimatedVisibility(
+                text.isNotBlank() || state is IsaState.Failed,
+                enter = scaleIn(spring(dampingRatio = 0.6f, stiffness = 420f), initialScale = 0.4f) + fadeIn(tween(140)) + expandHorizontally(spring(dampingRatio = 0.8f, stiffness = 420f)),
+                exit = scaleOut(tween(120), targetScale = 0.5f) + fadeOut(tween(100)) + shrinkHorizontally(tween(160)),
+            ) {
+                GlassIconButton(Icons.Rounded.ArrowUpward, "Send", size = 36.dp, iconSize = 18.dp, tag = "isa_send", modifier = Modifier.padding(start = 8.dp)) {
+                    if (text.isNotBlank()) run(text) else if (state is IsaState.Failed) run((state as IsaState.Failed).prompt)
+                }
+            }
             }
             // live suggestions
             AnimatedVisibility(sugg.isNotEmpty() && focused, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
@@ -224,35 +249,16 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    Modifier.height(42.dp).clip(RoundedCornerShape(21.dp)).background(c.surf3).press { lengthIdx = (lengthIdx + 1) % LENGTHS.size }
-                        .padding(horizontal = 16.dp).testTag("isa_length"),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Rounded.Schedule, null, tint = c.t2, modifier = Modifier.size(16.dp))
-                    AnimatedContent(LENGTHS[lengthIdx].first, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) }, label = "len") { l ->
-                        Text(l, style = T.ui(13.5.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.padding(start = 8.dp))
-                    }
+            // length: a small, light outline chip
+            Row(
+                Modifier.height(28.dp).clip(RoundedCornerShape(14.dp)).border(0.6.dp, c.t4, RoundedCornerShape(14.dp))
+                    .press { lengthIdx = (lengthIdx + 1) % LENGTHS.size }.padding(horizontal = 11.dp).testTag("isa_length"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.Schedule, null, tint = c.t3, modifier = Modifier.size(12.dp))
+                AnimatedContent(LENGTHS[lengthIdx].first, transitionSpec = { (fadeIn(tween(160)) + androidx.compose.animation.slideInVertically { it / 2 }) togetherWith fadeOut(tween(100)) }, label = "len") { l ->
+                    Text(l, style = T.ui(11.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(start = 6.dp))
                 }
-                Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier.size(46.dp).clip(CircleShape).background(c.surf3).press {
-                        try {
-                            speech.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM).putExtra(RecognizerIntent.EXTRA_PROMPT, "What should we play?"))
-                        } catch (_: ActivityNotFoundException) {
-                            s.toast("Voice input isn't available on this phone")
-                        }
-                    }.semantics { contentDescription = "Speak" }.testTag("isa_mic"),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Rounded.Mic, null, tint = c.txt, modifier = Modifier.size(20.dp)) }
-                Spacer(Modifier.width(10.dp))
-                Box(
-                    Modifier.size(52.dp).clip(CircleShape).background(if (text.isNotBlank()) c.accentUi else c.txt.copy(alpha = 0.9f)).press {
-                        if (text.isNotBlank()) run(text) else if (state is IsaState.Failed) run((state as IsaState.Failed).prompt) else s.toast("Tell Isa what you're in the mood for")
-                    }.semantics { contentDescription = "Send" }.testTag("isa_send"),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Rounded.ArrowUpward, null, tint = if (text.isNotBlank()) c.onAccent else c.bg, modifier = Modifier.size(22.dp)) }
             }
             // result area
             AnimatedContent(
@@ -260,7 +266,7 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
                 contentKey = { it::class }, label = "isa-state",
             ) { st ->
                 when (st) {
-                    is IsaState.Thinking -> ThinkingRows(shimmer)
+                    is IsaState.Thinking -> ThinkingRows(shimmer.value)
                     is IsaState.Ready -> Preview(s, st.result)
                     is IsaState.Failed -> Row(Modifier.padding(top = 16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(st.message, style = T.ui(13.sp, FontWeight.Medium, c.t2), modifier = Modifier.weight(1f))
@@ -289,9 +295,11 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun Orb(pulse: Float, wave: Float, thinking: Boolean) {
+private fun Orb(pulseS: androidx.compose.runtime.State<Float>, waveS: androidx.compose.runtime.State<Float>, thinking: Boolean, reduce: Boolean) {
     val c = LocalColors.current
-    Canvas(Modifier.size(28.dp)) {
+    Canvas(Modifier.size(22.dp)) {
+        val pulse = if (reduce) 0.5f else pulseS.value
+        val wave = if (reduce) 0f else waveS.value
         val r = size.minDimension / 2
         drawCircle(Brush.radialGradient(listOf(c.txt.copy(alpha = 0.18f + 0.22f * pulse), Color.Transparent), radius = r * (1.2f + 0.3f * pulse)), radius = r * 1.3f)
         drawCircle(Brush.radialGradient(listOf(Color.White, c.t3, c.surf4), center = Offset(center.x - r * 0.25f, center.y - r * 0.35f), radius = r * 1.1f), radius = r * 0.82f)
