@@ -261,6 +261,8 @@ id isa_mic 0 && back
 log "== Library / playlists"
 tab Library
 shot library
+# show the soft keyboard even with the emulator's hardware keyboard, so the sheet-above-IME check is real
+timeout 10 adb shell settings put secure show_ime_with_hard_keyboard 1
 id lib_create
 # the name field focuses itself and the sheet rides above the keyboard: type straight away, then tap Create
 # while the keyboard is still up (a sheet hidden behind the IME would make this tap miss)
@@ -268,12 +270,23 @@ sleep 1.5
 dump; find_node resource-id name_field >/dev/null || id name_field
 type_text "Smoke list"
 shot name-sheet-ime
+if adb shell dumpsys input_method | grep -q "mInputShown=true"; then
+  dump
+  if XY=$(find_node resource-id name_save); then
+    read _ SY <<< "$XY"
+    if [ "$SY" -lt $(py 62) ]; then log "name sheet rides above the keyboard (Create at y=$SY)"
+    else log "MISSING (required): name sheet above the keyboard (Create at y=$SY of $SH)"; FAILS=$((FAILS + 1)); fi
+  fi
+else
+  log "WARN: soft keyboard not shown for the name field"
+fi
 id name_save
 sleep 2
 shot playlist-new
 back
 if wait_for resource-id "pl_Smoke list" 6; then log "new playlist in Library live"; shot library-new-playlist
 else log "MISSING (required): new playlist in Library without a relaunch"; FAILS=$((FAILS + 1)); shot missing-new-playlist; fi
+timeout 10 adb shell settings put secure show_ime_with_hard_keyboard 0
 id lib_create
 id name_cancel          # cancel creates nothing
 id lib_sort; id lib_sort; id lib_sort
@@ -358,6 +371,7 @@ if id mini_player 0 12; then
   fi
   id queue_tab_1; shot queue-recent; id queue_tab_0
   id sheet_close            # obvious close on the queue sheet
+  sleep 0.8; dump; find_node resource-id queue_sheet >/dev/null && { log "WARN: queue sheet still open after close: BACK"; back; }
   # Now Playing scrolls on to lyrics + up next
   scroll_down; scroll_down; shot np-scrolled
   dump; find_node resource-id np_upnext >/dev/null && log "np up next visible" || log "WARN: up next not visible after scrolling NP"

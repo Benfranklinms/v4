@@ -40,6 +40,7 @@ import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
@@ -125,7 +126,8 @@ fun SheetHost(s: AppState) {
     val dragScope = rememberCoroutineScope()
     val reduceM = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
     LaunchedEffect(open) { if (open) drag.snapTo(0f) }
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+    // a sheet never reaches under the status bar (its close button stays tappable on short screens)
+    Box(Modifier.fillMaxSize().statusBarsPadding().padding(top = 8.dp), contentAlignment = Alignment.BottomCenter) {
         AnimatedVisibility(
             visible = open,
             enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 420f)) { it } + fadeIn(tween(120)),
