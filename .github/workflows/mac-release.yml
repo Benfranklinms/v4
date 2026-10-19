@@ -1,0 +1,71 @@
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: release tag (vX.Y.Z)
+        required: true
+      apk_ref:
+        description: branch holding out/v4-X.Y.Z.apk (release-signed). Empty = build and verify only, no release.
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      APP_VERSION_CODE: ${{ github.run_number }}
+      LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+      LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mac
+          cache-on-failure: true
+      - name: Tools
+        run: |
+          brew install xcodegen
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$X" ] && sudo xcode-select -s "$X"
+          xcodebuild -version
+      - name: Version
+        run: |
+          t="${{ inputs.tag }}"; echo "APP_VERSION_NAME=${t#v}" >> "$GITHUB_ENV"
+      - name: Core tests
+        run: cargo test -p itune-core --lib
+      - name: Build
+        run: bash scripts/build-mac.sh
+      - name: Smoke
+        run: bash scripts/mac-smoke.sh "out/v4-${APP_VERSION_NAME}.dmg"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-smoke
+          path: out/mac-smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: out/*.dmg
+      - name: Publish DMG + APK together
+        if: inputs.apk_ref != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNER: 66891328896721446cfb05cd4e22acd07b1900f46b78f019dcdabc2a0d722eb2
+        run: |
+          tag="${{ inputs.tag }}"; v="${tag#v}"
+          git fetch origin "${{ inputs.apk_ref }}" && git show "FETCH_HEAD:out/v4-$v.apk" > "out/v4-$v.apk"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "out/v4-$v.apk" | tee signer.txt
+          grep -qi "SHA-256 digest: $SIGNER" signer.txt || { echo "APK not release-signed"; exit 1; }
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "release exists"; exit 1; fi
+          printf '%s\n' "$v" > notes.md
+          gh release create "$tag" "out/v4-$v.dmg" "out/v4-$v.apk" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$v" --notes-file notes.md
