@@ -159,7 +159,7 @@ fun AppRoot(s: AppState) {
                 SharedTransitionLayout(Modifier.fillMaxSize().background(c.bg).semantics { testTagsAsResourceId = true }) {
                     Box(Modifier.fillMaxSize()) {
                         // everything that scrolls is the haze source: the floating glass blurs it
-                        Box(Modifier.fillMaxSize().hazeSource(haze).nestedScroll(chrome.connection)) {
+                        Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(haze) else Modifier).nestedScroll(chrome.connection)) {
                             AmbientWash(Modifier.fillMaxSize())
                             Content(s)
                         }
