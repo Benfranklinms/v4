@@ -9,7 +9,15 @@ STEP=0
 FAILS=0
 log() { echo "[ui] $*" | tee -a "$O/steps.txt"; }
 
-dump() { adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; adb shell cat /sdcard/ui.xml 2>/dev/null > "$O/ui.xml"; }
+# whole walk must fit well inside the CI job (60 min incl. build): past the budget every wait fails fast
+BUDGET=${UI_BUDGET:-1500}
+OVER=0
+dump() {
+  local t0=$SECONDS
+  timeout 25 adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  timeout 10 adb shell cat /sdcard/ui.xml 2>/dev/null > "$O/ui.xml"
+  [ $((SECONDS - t0)) -gt 8 ] && echo "[ui] slow dump $((SECONDS - t0))s" >> "$O/steps.txt"
+}
 # find <attr> <value> [contains] -> prints "x y" of the first match
 find_node() {
   python3 - "$O/ui.xml" "$1" "$2" "${3:-}" <<'PY'
@@ -41,11 +49,13 @@ crash_check() {
 }
 # wait_for <attr> <value> <seconds> [contains]
 wait_for() {
-  local t=0
+  if [ $SECONDS -gt $BUDGET ]; then [ $OVER = 1 ] || { OVER=1; log "TIME BUDGET exceeded at ${SECONDS}s"; }; return 1; fi
+  local t0=$SECONDS t=0
   while [ $t -lt "$3" ]; do
     dump
     if find_node "$1" "$2" "${4:-}" >/dev/null; then return 0; fi
     sleep 1; t=$((t + 1))
+    [ $((SECONDS - t0)) -ge "$3" ] && break
   done
   return 1
 }
@@ -337,5 +347,6 @@ adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 350 -s 7 -
 sleep 3
 crash_check monkey
 shot end
-log "done: required-step failures=$FAILS"
+[ $OVER = 1 ] && FAILS=$((FAILS + 1))
+log "done: required-step failures=$FAILS in ${SECONDS}s"
 [ $FAILS -eq 0 ]
