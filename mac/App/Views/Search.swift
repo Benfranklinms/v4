@@ -49,6 +49,8 @@ final class SearchModel: ObservableObject {
     @discardableResult func focusChanged(_ f: Bool, user: Bool) -> Bool {
         if f && !user && Date().timeIntervalSince(SearchModel.launchedAt) < 2.5 { return false }
         fieldFocused = f
+        // focus handed back by the window (a sheet closed, etc.): keep it, but don't navigate
+        if f && !user { return true }
         if f {
             loadRecents()
             if trimmed.isEmpty { showBrowse() } else { openDropdown() }
@@ -236,7 +238,8 @@ struct SearchPill: View {
             .overlay(alignment: .top) { dropdownLayer }
             .background(FrameProbe { LayoutProbe.searchPill = $0 })
             .onChange(of: focused) { _, f in
-                let user = userFocus
+                let ev = NSApp.currentEvent?.type
+                let user = userFocus || ev == .leftMouseDown || ev == .leftMouseUp || ev == .keyDown
                 userFocus = false
                 if !m.focusChanged(f, user: user) { focused = false }
             }

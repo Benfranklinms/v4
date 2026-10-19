@@ -221,7 +221,7 @@ struct Sidebar: View {
                         .transition(.opacity)
                 }
             }
-            .frame(height: WindowChrome.centerY * 2 - RootView.inset)
+            .frame(height: (WindowChrome.centerY - RootView.inset) * 2)
             ScrollView {
                 VStack(alignment: rail ? .center : .leading, spacing: 2) {
                     row("Home", "house", .section(.home))
