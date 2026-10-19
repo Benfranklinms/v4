@@ -15,6 +15,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import dev.benfranklin.itune.player.Playback
 import dev.benfranklin.itune.ui.AppRoot
 import dev.benfranklin.itune.ui.AppState
@@ -30,8 +35,29 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
         handle(intent)
+        val crash = CrashLog.take(this)
         setContent {
             val s = remember { state }
+            var crashText by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(crash) }
+            crashText?.let { txt ->
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { crashText = null },
+                    title = { androidx.compose.material3.Text("iTune closed unexpectedly") },
+                    text = {
+                        androidx.compose.foundation.lazy.LazyColumn(androidx.compose.ui.Modifier.heightIn(max = 360.dp)) {
+                            item { androidx.compose.material3.Text(txt, style = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)) }
+                        }
+                    },
+                    confirmButton = {
+                        androidx.compose.material3.TextButton(onClick = {
+                            val cm = getSystemService(android.content.ClipboardManager::class.java)
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("crash", txt))
+                            crashText = null
+                        }) { androidx.compose.material3.Text("Copy") }
+                    },
+                    dismissButton = { androidx.compose.material3.TextButton(onClick = { crashText = null }) { androidx.compose.material3.Text("Close") } },
+                )
+            }
             LaunchedEffect(Unit) {
                 // launch-time update check (at most every 6 h)
                 val now = System.currentTimeMillis()

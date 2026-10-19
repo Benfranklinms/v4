@@ -869,6 +869,22 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -943,6 +959,22 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_fn_method_core_isa_plan(`ptr`: Pointer,`prompt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_isa_why(`ptr`: Pointer,`track`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_lastfm_begin_auth(`ptr`: Pointer,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_lastfm_complete_auth(`ptr`: Pointer,`token`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_lastfm_configure(`ptr`: Pointer,`apiKey`: RustBuffer.ByValue,`apiSecret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_itune_core_fn_method_core_lastfm_flush(`ptr`: Pointer,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_lastfm_now_playing(`ptr`: Pointer,`track`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_lastfm_set_enabled(`ptr`: Pointer,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_itune_core_fn_method_core_lastfm_sign_out(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_itune_core_fn_method_core_lastfm_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_library_counts(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1202,6 +1234,22 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_isa_why(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_begin_auth(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_complete_auth(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_configure(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_flush(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_now_playing(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_set_enabled(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_sign_out(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_lastfm_state(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_library_counts(
     ): Short
     fun uniffi_itune_core_checksum_method_core_liked(
@@ -1390,6 +1438,30 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_isa_why() != 12406.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_begin_auth() != 48907.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_complete_auth() != 63027.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_configure() != 23125.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_flush() != 13827.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_now_playing() != 44707.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_set_enabled() != 46200.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_sign_out() != 16018.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_lastfm_state() != 54811.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_library_counts() != 24808.toShort()) {
@@ -2094,6 +2166,37 @@ public interface CoreInterface {
      */
     fun `isaWhy`(`track`: Track): kotlin.String
     
+    /**
+     * Step 1: returns the approval URL to open in the browser.
+     */
+    suspend fun `lastfmBeginAuth`(): LastfmAuth
+    
+    /**
+     * Step 2 (after the user approved): stores the session; returns the username.
+     */
+    suspend fun `lastfmCompleteAuth`(`token`: kotlin.String): kotlin.String
+    
+    /**
+     * Build-time keys (empty = feature hidden).
+     */
+    fun `lastfmConfigure`(`apiKey`: kotlin.String, `apiSecret`: kotlin.String)
+    
+    /**
+     * Sends queued scrobbles (call after record_play and when the network returns).
+     */
+    suspend fun `lastfmFlush`(): kotlin.UInt
+    
+    /**
+     * Best effort; never fails playback.
+     */
+    suspend fun `lastfmNowPlaying`(`track`: Track)
+    
+    fun `lastfmSetEnabled`(`on`: kotlin.Boolean)
+    
+    fun `lastfmSignOut`()
+    
+    fun `lastfmState`(): LastfmState
+    
     fun `libraryCounts`(): LibraryCounts
     
     fun `liked`(): List<Track>
@@ -2706,6 +2809,152 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_isa_why(
         it, FfiConverterTypeTrack.lower(`track`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Step 1: returns the approval URL to open in the browser.
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `lastfmBeginAuth`() : LastfmAuth {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_begin_auth(
+                thisPtr,
+                
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeLastfmAuth.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Step 2 (after the user approved): stores the session; returns the username.
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `lastfmCompleteAuth`(`token`: kotlin.String) : kotlin.String {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_complete_auth(
+                thisPtr,
+                FfiConverterString.lower(`token`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterString.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Build-time keys (empty = feature hidden).
+     */override fun `lastfmConfigure`(`apiKey`: kotlin.String, `apiSecret`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_configure(
+        it, FfiConverterString.lower(`apiKey`),FfiConverterString.lower(`apiSecret`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Sends queued scrobbles (call after record_play and when the network returns).
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `lastfmFlush`() : kotlin.UInt {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_flush(
+                thisPtr,
+                
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_u32(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_u32(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_u32(future) },
+        // lift function
+        { FfiConverterUInt.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Best effort; never fails playback.
+     */
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `lastfmNowPlaying`(`track`: Track) {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_now_playing(
+                thisPtr,
+                FfiConverterTypeTrack.lower(`track`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        UniffiNullRustCallStatusErrorHandler,
+    )
+    }
+
+    
+    @Throws(CoreException::class)override fun `lastfmSetEnabled`(`on`: kotlin.Boolean)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_set_enabled(
+        it, FfiConverterBoolean.lower(`on`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(CoreException::class)override fun `lastfmSignOut`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_sign_out(
+        it, _status)
+}
+    }
+    
+    
+
+    override fun `lastfmState`(): LastfmState {
+            return FfiConverterTypeLastfmState.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_lastfm_state(
+        it, _status)
 }
     }
     )
@@ -3961,6 +4210,81 @@ public object FfiConverterTypeIsaResult: FfiConverterRustBuffer<IsaResult> {
     override fun write(value: IsaResult, buf: ByteBuffer) {
             FfiConverterTypeIsaPlan.write(value.`plan`, buf)
             FfiConverterSequenceTypeTrack.write(value.`tracks`, buf)
+    }
+}
+
+
+
+data class LastfmAuth (
+    var `token`: kotlin.String, 
+    var `url`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLastfmAuth: FfiConverterRustBuffer<LastfmAuth> {
+    override fun read(buf: ByteBuffer): LastfmAuth {
+        return LastfmAuth(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LastfmAuth) = (
+            FfiConverterString.allocationSize(value.`token`) +
+            FfiConverterString.allocationSize(value.`url`)
+    )
+
+    override fun write(value: LastfmAuth, buf: ByteBuffer) {
+            FfiConverterString.write(value.`token`, buf)
+            FfiConverterString.write(value.`url`, buf)
+    }
+}
+
+
+
+data class LastfmState (
+    /**
+     * Keys were provided at build time (feature visible).
+     */
+    var `available`: kotlin.Boolean, 
+    var `enabled`: kotlin.Boolean, 
+    var `username`: kotlin.String, 
+    var `pending`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLastfmState: FfiConverterRustBuffer<LastfmState> {
+    override fun read(buf: ByteBuffer): LastfmState {
+        return LastfmState(
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LastfmState) = (
+            FfiConverterBoolean.allocationSize(value.`available`) +
+            FfiConverterBoolean.allocationSize(value.`enabled`) +
+            FfiConverterString.allocationSize(value.`username`) +
+            FfiConverterUInt.allocationSize(value.`pending`)
+    )
+
+    override fun write(value: LastfmState, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`available`, buf)
+            FfiConverterBoolean.write(value.`enabled`, buf)
+            FfiConverterString.write(value.`username`, buf)
+            FfiConverterUInt.write(value.`pending`, buf)
     }
 }
 

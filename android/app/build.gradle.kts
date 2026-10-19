@@ -14,7 +14,8 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("APP_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("APP_VERSION_NAME") ?: "0.1.0"
-        ndk { abiFilters += listOf("arm64-v8a") }
+        // APP_ABIS lets the CI smoke test add x86_64 for the emulator; release builds are arm64 only.
+        ndk { abiFilters += (System.getenv("APP_ABIS") ?: "arm64-v8a").split(",").map { it.trim() } }
         buildConfigField("String", "UPDATE_REPO", "\"Benfranklinms/v4\"")
         // Optional scrobbling keys, injected by CI from secrets; empty = feature hidden.
         buildConfigField("String", "LASTFM_API_KEY", "\"${System.getenv("LASTFM_API_KEY") ?: ""}\"")

@@ -71,7 +71,14 @@ fun StatsScreen(s: AppState) {
     LaunchedEffect(st) { if (st != null && !reduce) { grow.snapTo(0f); grow.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 120f)) } }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp, start = 20.dp, end = 20.dp)) {
-        item { RiseText("Stats", T.ui(22.sp, FontWeight.Bold), Modifier.statusBarsPadding().padding(top = 22.dp)) }
+        item {
+            Row(Modifier.statusBarsPadding().padding(top = 22.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                RiseText("Stats", T.ui(22.sp, FontWeight.Bold), Modifier.weight(1f))
+                Box(Modifier.clip(RoundedCornerShape(16.dp)).background(c.surf3).press { s.push(Dest.Wrapped) }.padding(horizontal = 14.dp, vertical = 7.dp)) {
+                    Text("Your month", style = T.ui(12.5.sp, FontWeight.SemiBold))
+                }
+            }
+        }
         item {
             // segmented control with a sliding pill
             val opts = listOf("week" to "Week", "month" to "Month", "year" to "Year", "all" to "All time")

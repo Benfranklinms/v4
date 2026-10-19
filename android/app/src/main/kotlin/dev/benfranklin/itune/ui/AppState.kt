@@ -20,6 +20,7 @@ sealed interface Dest {
     data object Import : Dest
     data object Downloads : Dest
     data object Local : Dest
+    data object Wrapped : Dest
     data class Mix(val title: String, val tracks: List<Track>) : Dest
 }
 

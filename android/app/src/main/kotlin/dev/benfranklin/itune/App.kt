@@ -16,6 +16,7 @@ class App : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        CrashLog.install(this)
         prefs = Prefs(this)
         // Lean storage: trim the stream cache to its cap on every start.
         scope.launch { runCatching { dev.benfranklin.itune.player.DataSources.applyCap(this@App) } }

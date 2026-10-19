@@ -30,7 +30,8 @@ EOW
   cargo build --release --target aarch64-linux-android -p itune-core
   cp "$TD/aarch64-linux-android/release/libitune_core.so" "$OUT/"
 else
-  cargo ndk -t arm64-v8a -P 26 -o android/app/src/main/jniLibs build --release -p itune-core
+  T=""; for a in ${CORE_ABIS:-arm64-v8a}; do T="$T -t $a"; done
+  cargo ndk $T -P 26 -o android/app/src/main/jniLibs build --release -p itune-core
 fi
 # Bindings from the library's metadata (host build).
 cargo build -p itune-core --lib

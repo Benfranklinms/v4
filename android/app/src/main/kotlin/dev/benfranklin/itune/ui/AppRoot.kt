@@ -166,6 +166,7 @@ private fun Content(s: AppState) {
                 Dest.Import -> ImportScreen(s)
                 Dest.Downloads -> DownloadsScreen(s)
                 Dest.Local -> LocalFilesScreen(s)
+                Dest.Wrapped -> WrappedScreen(s)
             }
         }
     }
