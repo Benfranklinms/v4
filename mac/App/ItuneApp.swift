@@ -388,7 +388,6 @@ struct DetailArea: View {
     var body: some View {
         let bar = player.current != nil
         ZStack(alignment: .bottom) {
-            ArtBackdrop(strength: 0.5)
             ZStack {
                 ForEach(DetailArea.kept, id: \.self) { s in
                     SectionStack(section: s)
@@ -443,24 +442,36 @@ struct DetailArea: View {
                     .zIndex(7)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ArtBackdrop(strength: 0.5))
         .clipped()
     }
 }
 
-/// One section's NavigationStack: the root stays alive under pushed pages, so Back returns to the same
-/// vertical scroll position and carousel offsets.
+/// One section's push stack. The root and every page below the top stay alive (hidden, not torn down), so
+/// Back returns to the same vertical scroll position, carousel offsets and loaded data.
 struct SectionStack: View {
     @EnvironmentObject var nav: Nav
     let section: Section
 
     var body: some View {
-        NavigationStack(path: Binding(get: { nav.stacks[section] ?? [] }, set: { nav.stacks[section] = $0 })) {
+        let path = nav.stacks[section] ?? []
+        ZStack {
             root
-                .navigationDestination(for: Route.self) { r in
-                    destination(r)
-                        .navigationBarBackButtonHidden(true)
-                }
+                .opacity(path.isEmpty ? 1 : 0)
+                .allowsHitTesting(path.isEmpty)
+                .accessibilityHidden(!path.isEmpty)
+            ForEach(Array(path.enumerated()), id: \.offset) { i, r in
+                let top = i == path.count - 1
+                destination(r)
+                    .id(r)
+                    .opacity(top ? 1 : 0)
+                    .allowsHitTesting(top)
+                    .accessibilityHidden(!top)
+                    .transition(.opacity.combined(with: .offset(x: Motion.reduce ? 0 : 28)))
+            }
         }
+        .animation(Motion.spring, value: path.count)
     }
 
     @ViewBuilder private var root: some View {

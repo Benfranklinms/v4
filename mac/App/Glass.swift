@@ -160,13 +160,18 @@ struct ArtBackdrop: View {
         ZStack {
             p.bg
             if !GlassEnv.reduceTransparency, let img = player.backdrop {
-                // pre-blurred 96 px image stretched: no blur filter at render time
-                Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+                // pre-blurred 96 px image stretched: no blur filter at render time. Drawn as an overlay of a
+                // flexible colour so its aspect-fill size never sizes the layout (it used to push the window content).
+                Color.clear
+                    .overlay(Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fill))
+                    .clipped()
                     .opacity(0.55 * strength)
                     .transition(.opacity)
                 p.bg.opacity(0.45)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
         .ignoresSafeArea()
         .animation(Motion.glow, value: player.current?.id)
     }

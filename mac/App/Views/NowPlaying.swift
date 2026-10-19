@@ -163,7 +163,9 @@ struct NowPlayingBackdrop: View {
         ZStack {
             p.bg
             if let img = player.backdrop, !GlassEnv.reduceTransparency {
-                Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+                Color.clear
+                    .overlay(Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fill))
+                    .clipped()
                     .opacity(0.85)
                     .transition(.opacity)
                 LinearGradient(colors: [.black.opacity(0.25), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
@@ -171,6 +173,7 @@ struct NowPlayingBackdrop: View {
                 GlowView(color: theme.glow, opacity: 0.35, center: UnitPoint(x: 0.3, y: 0.35), radius: 640)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .ignoresSafeArea()
         .animation(Motion.glow, value: player.current?.id)

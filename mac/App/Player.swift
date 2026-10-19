@@ -97,8 +97,14 @@ final class Player: ObservableObject {
     }
 
     func toggle() {
-        if av.timeControlStatus == .playing { av.pause(); saveSession() } else {
-            if av.currentItem == nil, let c = current { load(c, startAt: resumeAt) } else { av.play() }
+        if av.currentItem != nil && av.timeControlStatus != .paused {
+            // playing or waiting to play: pause (a just-resumed item reports "waiting", not "playing")
+            av.pause(); saveSession()
+        } else if av.currentItem == nil, let c = current {
+            if buffering, loadTask != nil { loadTask?.cancel(); loadTask = nil; buffering = false; isPlaying = false; return }
+            load(c, startAt: resumeAt)
+        } else {
+            av.play()
         }
         isPlaying = av.rate != 0 || av.timeControlStatus == .waitingToPlayAtSpecifiedRate
         updateNowPlaying()
@@ -335,7 +341,8 @@ final class Player: ObservableObject {
     }
 
     private func tick(_ s: Double) {
-        guard s.isFinite else { return }
+        // ignore ticks of a replaced item (a stale tick right after a track change used to trip the watchdog)
+        guard s.isFinite, av.currentItem != nil, startedId != nil, startedId == current?.id else { return }
         position = min(s, duration > 0 ? duration : s)
         // watchdog: the real end of the track (AVPlayer may report a longer item and never fire didPlayToEnd)
         if duration > 1, s >= duration - 0.3, current != nil { advance("watchdog") }

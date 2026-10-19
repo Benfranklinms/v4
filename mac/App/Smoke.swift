@@ -656,7 +656,8 @@ enum Smoke {
         }
 
         // 5. responsive: Home, Settings, Album at 800 / 1100 / 1600, queue closed and open
-        let albumId = results?.albums.first?.id ?? track?.albumId
+        var albumId = results?.albums.first?.id ?? track?.albumId ?? HomeCache.feed?.shelves.flatMap(\.items).first { $0.kind == "album" }?.id
+        if albumId == nil { albumId = (try? await Engine.core.search(query: "After Hours The Weeknd"))?.albums.first?.id }
         var respFails: [String] = []
         for wdt in [800, 1100, 1600] {
             await resize(CGSize(width: CGFloat(wdt), height: 760))

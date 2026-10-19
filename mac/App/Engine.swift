@@ -54,9 +54,10 @@ enum Engine {
         }
     }
 
-    /// Fire-and-forget background core call.
+    /// Fire-and-forget writes run in order on one serial queue (a save followed by an unsave can't swap).
+    static let writes = DispatchQueue(label: "core.writes", qos: .userInitiated)
     static func bg(_ f: @escaping () throws -> Void) {
-        work.async { try? f() }
+        writes.async { try? f() }
     }
 
     static func message(_ e: Error) -> String {
