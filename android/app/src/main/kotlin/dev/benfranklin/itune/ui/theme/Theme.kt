@@ -84,6 +84,7 @@ object FontChoices {
     )
 }
 
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 private fun variable(res: Int): FontFamily = FontFamily(
     listOf(300, 400, 500, 600, 700, 800).map { w ->
         Font(res, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(w)))

@@ -16,6 +16,9 @@ android {
         versionName = System.getenv("APP_VERSION_NAME") ?: "0.1.0"
         ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "UPDATE_REPO", "\"Benfranklinms/v4\"")
+        // Optional scrobbling keys, injected by CI from secrets; empty = feature hidden.
+        buildConfigField("String", "LASTFM_API_KEY", "\"${System.getenv("LASTFM_API_KEY") ?: ""}\"")
+        buildConfigField("String", "LASTFM_API_SECRET", "\"${System.getenv("LASTFM_API_SECRET") ?: ""}\"")
     }
 
     // Release key: keystore/release.p12.enc (openssl aes-256-cbc, pbkdf2 200k). CI decrypts it with the
