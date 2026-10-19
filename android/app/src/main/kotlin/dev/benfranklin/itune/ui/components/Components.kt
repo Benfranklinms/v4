@@ -1,5 +1,7 @@
 package dev.benfranklin.itune.ui.components
 
+import androidx.compose.ui.platform.testTag
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -130,7 +132,7 @@ fun TrackRow(
 ) {
     val c = LocalColors.current
     Row(
-        Modifier.fillMaxWidth().enter(index).press(onLongClick = onMore, scaleTo = 0.98f) { onClick() }.padding(horizontal = 20.dp, vertical = 7.dp),
+        Modifier.fillMaxWidth().enter(index).press(onLongClick = onMore, scaleTo = 0.98f) { onClick() }.testTag("track_row").padding(horizontal = 20.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (leadingNumber != null) {
@@ -143,7 +145,7 @@ fun TrackRow(
             Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (trailing != null) Text(trailing, style = T.num(11.sp, color = c.t3), modifier = Modifier.padding(start = 8.dp))
-        Icon(Icons.Rounded.MoreHoriz, null, tint = c.t3, modifier = Modifier.padding(start = 6.dp).size(22.dp).press(onClick = onMore))
+        Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t3, modifier = Modifier.padding(start = 6.dp).size(32.dp).padding(5.dp).press(onClick = onMore).testTag("track_more"))
     }
 }
 

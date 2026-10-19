@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import dev.benfranklin.itune.player.Playback
+import kotlinx.coroutines.launch
 import dev.benfranklin.itune.ui.AppRoot
 import dev.benfranklin.itune.ui.AppState
 import dev.benfranklin.itune.ui.Dest
@@ -36,24 +37,31 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handle(intent)
         val crash = CrashLog.take(this)
+        dev.benfranklin.itune.data.Likes.load()
+        dev.benfranklin.itune.data.Library.refresh()
+        dev.benfranklin.itune.data.Net.watch(applicationContext)
+        restoreSignIn()
         setContent {
             val s = remember { state }
             var crashText by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(crash) }
             crashText?.let { txt ->
                 androidx.compose.material3.AlertDialog(
                     onDismissRequest = { crashText = null },
-                    title = { androidx.compose.material3.Text("iTune closed unexpectedly") },
+                    title = { androidx.compose.material3.Text("iTune closed unexpectedly last time") },
                     text = {
                         androidx.compose.foundation.lazy.LazyColumn(androidx.compose.ui.Modifier.heightIn(max = 360.dp)) {
                             item { androidx.compose.material3.Text(txt, style = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)) }
                         }
                     },
                     confirmButton = {
+                        androidx.compose.foundation.layout.Row {
+                        androidx.compose.material3.TextButton(onClick = { crashText = null; s.push(Dest.Diagnostics) }) { androidx.compose.material3.Text("Details") }
                         androidx.compose.material3.TextButton(onClick = {
                             val cm = getSystemService(android.content.ClipboardManager::class.java)
                             cm.setPrimaryClip(android.content.ClipData.newPlainText("crash", txt))
                             crashText = null
                         }) { androidx.compose.material3.Text("Copy") }
+                        }
                     },
                     dismissButton = { androidx.compose.material3.TextButton(onClick = { crashText = null }) { androidx.compose.material3.Text("Close") } },
                 )
@@ -102,6 +110,21 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         requestHighRefresh(true)
+    }
+
+    override fun onStop() {
+        state.flushPending()
+        super.onStop()
+    }
+
+    /** Re-hands the saved Google cookie (WebView keeps it) to the core so the Account sheet and home use it. */
+    private fun restoreSignIn() {
+        if (!App.prefs.signedIn.value) return
+        App.scope.launch {
+            val cookie = runCatching { android.webkit.CookieManager.getInstance().getCookie("https://music.youtube.com") }.getOrNull()
+            if (cookie != null && cookie.contains("SAPISID")) dev.benfranklin.itune.data.io { App.core.signInCookie(cookie) }
+            dev.benfranklin.itune.data.Account.load()
+        }
     }
 
     override fun onPause() {

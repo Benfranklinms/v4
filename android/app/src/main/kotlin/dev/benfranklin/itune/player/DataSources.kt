@@ -64,7 +64,8 @@ class RoutingDataSource(private val net: DataSource, private val local: DataSour
         cur = s
         return s.open(dataSpec)
     }
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = cur!!.read(buffer, offset, length)
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+        (cur ?: throw java.io.IOException("read() before open()")).read(buffer, offset, length)
     override fun getUri(): Uri? = cur?.uri
     override fun getResponseHeaders(): Map<String, List<String>> = cur?.responseHeaders ?: emptyMap()
     override fun close() {

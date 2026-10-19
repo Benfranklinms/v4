@@ -26,8 +26,9 @@ class SignInActivity : ComponentActivity() {
                 val cookie = CookieManager.getInstance().getCookie("https://music.youtube.com") ?: return
                 if (url.startsWith("https://music.youtube.com") && cookie.contains("SAPISID")) {
                     lifecycleScope.launch {
-                        runCatching { App.core.signInCookie(cookie) }.onSuccess {
+                        dev.benfranklin.itune.data.ioResult { App.core.signInCookie(cookie) }.onSuccess {
                             App.prefs.signedIn.value = true
+                            dev.benfranklin.itune.data.Account.load(refresh = true)
                             setResult(RESULT_OK)
                             finish()
                         }

@@ -30,11 +30,17 @@ object Resolver {
     val overrides = ConcurrentHashMap<String, Resolved>()
     val loudness = ConcurrentHashMap<String, Float>()
 
+    /** Blocks the calling (loader) thread only. Never call on the main thread. */
+    private fun <T> blocking(block: suspend () -> T): T {
+        check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "Resolver called on the main thread" }
+        return runBlocking(kotlinx.coroutines.Dispatchers.IO) { kotlinx.coroutines.withTimeout(25_000) { block() } }
+    }
+
     fun resolve(id: String): Resolved {
         overrides[id]?.let { return it }
         if (id.startsWith("local:")) return Resolved(Uri.parse(id.removePrefix("local:")), null, "local", null)
-        App.core.offlinePath(id)?.let { return Resolved(Uri.fromFile(java.io.File(it)), null, "offline", null) }
-        val s: StreamInfo? = runCatching { runBlocking { App.core.stream(id) } }.onFailure { lastError = it.message ?: "$it" }.getOrNull()
+        runCatching { App.core.offlinePath(id) }.getOrNull()?.let { return Resolved(Uri.fromFile(java.io.File(it)), null, "offline", null) }
+        val s: StreamInfo? = runCatching { blocking { App.core.stream(id) } }.onFailure { lastError = it.message ?: "$it" }.getOrNull()
         if (s != null) {
             clientFor[id] = s.client
             s.loudnessDb?.let { loudness[id] = it }
@@ -52,7 +58,7 @@ object Resolver {
     fun retry(id: String, error: String): Resolved {
         val failed = clientFor[id] ?: "visionos"
         if (failed != "newpipe") {
-            val s = runCatching { runBlocking { App.core.streamRetry(id, failed, error) } }.getOrNull()
+            val s = runCatching { blocking { App.core.streamRetry(id, failed, error) } }.getOrNull()
             if (s != null) {
                 clientFor[id] = s.client
                 return Resolved(Uri.parse(s.url), s.userAgent, s.client, s.loudnessDb)

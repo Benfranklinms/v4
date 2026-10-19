@@ -18,10 +18,15 @@ object CrashLog {
                     append(android.util.Log.getStackTraceString(e))
                 }
                 file(ctx).writeText(txt.take(20_000))
+                runCatching { File(ctx.filesDir, "crash_history.txt").appendText("\n\n==== " + java.util.Date() + "\n" + txt.take(8_000)) }
             }
             prev?.uncaughtException(t, e)
         }
     }
+
+    /** Recent crash reports (newest last) for Settings › Diagnostics. */
+    fun history(ctx: Context): String = runCatching { File(ctx.filesDir, "crash_history.txt").readText().takeLast(40_000) }.getOrDefault("")
+    fun clearHistory(ctx: Context) { runCatching { File(ctx.filesDir, "crash_history.txt").delete() } }
 
     /** Returns and clears the saved crash, if any. */
     fun take(ctx: Context): String? {

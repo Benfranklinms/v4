@@ -39,6 +39,12 @@ class Prefs(ctx: Context) {
     val cacheMb = int("stream_cache_mb", 256)
     val autoplay = bool("autoplay", true)
     val normalize = bool("normalize", true)
+    /** Fade between songs, seconds (0 = off, gapless). */
+    val crossfadeSec = int("crossfade_sec", 0)
+    val haptics = bool("haptics", true)
+    val resumeJson = str("resume_json", "")
+    val librarySort = str("library_sort", "recent")
+    val libraryGrid = bool("library_grid", false)
     val batteryAsked = bool("battery_asked", false)
     val lastUpdateCheck = long("last_update_check", 0L)
     val skippedVersion = str("skipped_version", "")

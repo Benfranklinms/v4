@@ -20,6 +20,8 @@ class App : Application(), ImageLoaderFactory {
         prefs = Prefs(this)
         // Lean storage: trim the stream cache to its cap on every start.
         scope.launch { runCatching { dev.benfranklin.itune.player.DataSources.applyCap(this@App) } }
+        // open the Rust core (SQLite + catalogue client) off the main thread at start
+        scope.launch(Dispatchers.IO) { runCatching { core } }
     }
 
     /** Images: 64 MB disk, ~15% of heap in memory. */

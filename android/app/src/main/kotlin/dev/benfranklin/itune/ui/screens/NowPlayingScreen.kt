@@ -94,6 +94,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.FormatQuote
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import dev.benfranklin.itune.core.Lyrics
 import dev.benfranklin.itune.core.Track
 import dev.benfranklin.itune.player.Playback
@@ -121,8 +127,13 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
     val q by Playback.queue.collectAsState()
     val speed by Playback.speed.collectAsState()
     val tr = t ?: return
-    var liked by remember(tr.id) { mutableStateOf(App.core.isLiked(tr.id)) }
-    var downloaded by remember(tr.id) { mutableStateOf(App.core.offlinePath(tr.id) != null) }
+    val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
+    val liked = tr.id in likedIds
+    var downloaded by remember(tr.id) { mutableStateOf(false) }
+    LaunchedEffect(tr.id) { downloaded = dev.benfranklin.itune.data.io { App.core.isDownloaded(tr.id) } ?: false }
+    var showLyrics by remember { mutableStateOf(false) }
+    val sleepAt by Playback.sleepAt.collectAsState()
+    var heartBurst by remember { mutableStateOf(0) }
     var dragY by remember { mutableFloatStateOf(0f) }
     val reduce = LocalReduceMotion.current
     val h = LocalHapticFeedback.current
@@ -163,6 +174,13 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                             .graphicsLayer { translationX = swipeA; rotationZ = swipeA / 90f; val k = if (playing || reduce) 1f else 0.9f; scaleX = k; scaleY = k }
                             .shadow(30.dp, RoundedCornerShape(16.dp), ambientColor = c.glow, spotColor = c.glow)
                             .pointerInput(tr.id) {
+                                detectTapGestures(onDoubleTap = {
+                                    if (!dev.benfranklin.itune.data.Likes.isLiked(tr.id)) dev.benfranklin.itune.data.Likes.set(tr, true)
+                                    heartBurst++
+                                    h.performHapticFeedback(HapticFeedbackType.LongPress)
+                                })
+                            }
+                            .pointerInput(tr.id) {
                                 detectHorizontalDragGestures(
                                     onDragEnd = {
                                         when {
@@ -175,9 +193,11 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                                 ) { _, d -> swipe += d }
                             },
                     ) {
-                        AnimatedContent(tr.thumb, transitionSpec = { (fadeIn(tween(300)) + scaleIn(initialScale = 0.96f)) togetherWith (fadeOut(tween(200)) + scaleOut(targetScale = 1.02f)) }, label = "art") { url ->
-                            Artwork(url, 300.dp, 16.dp)
+                        AnimatedContent(if (showLyrics) "lyrics" else tr.thumb, transitionSpec = { (fadeIn(tween(300)) + scaleIn(initialScale = 0.96f)) togetherWith (fadeOut(tween(200)) + scaleOut(targetScale = 1.02f)) }, label = "art") { url ->
+                            if (url == "lyrics") Box(Modifier.size(300.dp).clip(RoundedCornerShape(16.dp)).background(c.surf)) { LyricsCard(tr, Modifier.fillMaxSize()) }
+                            else Artwork(url, 300.dp, 16.dp)
                         }
+                        HeartBurst(heartBurst, Modifier.align(Alignment.Center))
                     }
                 }
                 // title row
@@ -188,13 +208,13 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                         }
                         Text(
                             listOfNotNull(tr.artists.split(",")[0], tr.album).joinToString(" · "), style = T.ui(13.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.press(haptic = false) { tr.artistId?.let { s.push(Dest.Artist(it)) } },
+                            modifier = Modifier.press(haptic = false) { tr.artistId?.let { s.push(Dest.Artist(it)) } ?: tr.albumId?.let { s.push(Dest.Album(it)) } },
                         )
                     }
                     val hs by animateFloatAsState(if (liked) 1f else 0.9f, spring(dampingRatio = 0.4f, stiffness = 600f), label = "heart")
                     Icon(
                         if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null, tint = c.txt,
-                        modifier = Modifier.size(44.dp).padding(10.dp).graphicsLayer { scaleX = hs * 1.1f; scaleY = hs * 1.1f }.press { liked = !liked; App.core.setLiked(tr, liked) },
+                        modifier = Modifier.size(44.dp).padding(10.dp).graphicsLayer { scaleX = hs * 1.1f; scaleY = hs * 1.1f }.press { dev.benfranklin.itune.data.Likes.toggle(tr) }.testTag("np_like"),
                     )
                 }
                 Scrubber(Modifier.padding(horizontal = 28.dp).padding(top = 18.dp))
@@ -213,27 +233,56 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                     val rep = q?.repeat?.toInt() ?: 0
                     Icon(if (rep == 2) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, null, tint = if (rep > 0) c.accentUi else c.t2, modifier = Modifier.size(44.dp).padding(11.dp).press { Playback.cycleRepeat() })
                 }
-                Row(Modifier.padding(horizontal = 28.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ChipButton("%.2g×".format(speed).replace("1×", "1.0×"), mono = true) { s.sheet = Sheet.Speed }
-                    ChipButton("Ask Isa", Icons.Rounded.AutoAwesome) { s.sheet = Sheet.WhyThisSong }
-                    ChipButton(if (downloaded) "Saved" else "Download", if (downloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download) {
-                        if (!downloaded) cs.launch {
-                            s.toast("Downloading…")
-                            runCatching { App.core.download(tr) }.onSuccess { downloaded = true; s.toast("Downloaded") }.onFailure { s.toast("Download failed") }
-                        }
+                // secondary controls: one centred row on the same axis as the transport
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp).clip(CircleShape).press { s.sheet = Sheet.Speed }.testTag("np_speed"), contentAlignment = Alignment.Center) {
+                        Text(if (speed == 1f) "1×" else "%.2g×".format(speed), style = T.num(13.sp, FontWeight.Medium, if (speed == 1f) c.t2 else c.txt))
                     }
-                }
-                LyricsCard(tr, Modifier.padding(horizontal = 12.dp).padding(top = 18.dp))
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.weight(1f))
-                    Icon(Icons.Rounded.Share, null, tint = c.t2, modifier = Modifier.size(42.dp).padding(10.dp).press {
+                    Icon(
+                        if (downloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download, if (downloaded) "Remove download" else "Download",
+                        tint = if (downloaded) c.txt else c.t2,
+                        modifier = Modifier.size(44.dp).padding(11.dp).press {
+                            if (downloaded) {
+                                downloaded = false
+                                dev.benfranklin.itune.data.Bg.run { App.core.removeDownload(tr.id) }
+                                s.snack = dev.benfranklin.itune.ui.Snack("Removed download", "Undo") { downloaded = true; App.scope.launch { dev.benfranklin.itune.data.io { App.core.download(tr) } } }
+                            } else cs.launch {
+                                s.toast("Downloading…")
+                                dev.benfranklin.itune.data.ioResult { App.core.download(tr) }.onSuccess { downloaded = true; s.toast("Downloaded") }.onFailure { s.toast("Couldn't download. Check your connection.") }
+                            }
+                        }.testTag("np_download"),
+                    )
+                    Icon(Icons.Rounded.Bedtime, "Sleep timer", tint = if (sleepAt != 0L) c.txt else c.t2, modifier = Modifier.size(44.dp).padding(11.dp).press { s.sheet = Sheet.SleepTimer }.testTag("np_sleep"))
+                    Icon(Icons.Rounded.FormatQuote, "Lyrics", tint = if (showLyrics) c.bg else c.t2, modifier = Modifier.size(44.dp).clip(CircleShape).background(if (showLyrics) c.txt else androidx.compose.ui.graphics.Color.Transparent).press { showLyrics = !showLyrics }.padding(11.dp).testTag("np_lyrics"))
+                    Icon(Icons.Rounded.QueueMusic, "Queue", tint = c.t2, modifier = Modifier.size(44.dp).padding(11.dp).press { s.sheet = Sheet.Queue }.testTag("np_queue"))
+                    Icon(Icons.Rounded.Share, "Share", tint = c.t2, modifier = Modifier.size(44.dp).padding(11.dp).press {
                         val url = if (tr.id.startsWith("local:")) tr.title else "https://music.youtube.com/watch?v=${tr.id}"
-                        ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "${tr.title} · ${tr.artists}\n$url"), null))
+                        runCatching { ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "${tr.title} · ${tr.artists}\n$url"), null)) }
                     })
-                    Icon(Icons.Rounded.QueueMusic, null, tint = c.t2, modifier = Modifier.size(42.dp).padding(10.dp).press { s.sheet = Sheet.Queue })
                 }
+                Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun HeartBurst(key: Int, modifier: Modifier) {
+    val c = LocalColors.current
+    val a = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(key) {
+        if (key == 0) return@LaunchedEffect
+        a.snapTo(0f)
+        a.animateTo(1f, tween(650))
+    }
+    if (a.value in 0.001f..0.999f) {
+        Icon(
+            Icons.Rounded.Favorite, null, tint = c.txt,
+            modifier = modifier.size(96.dp).graphicsLayer {
+                val k = if (a.value < 0.3f) a.value / 0.3f * 1.2f else 1.2f - (a.value - 0.3f) * 0.3f
+                scaleX = k; scaleY = k; alpha = if (a.value < 0.6f) 1f else 1f - (a.value - 0.6f) / 0.4f
+            },
+        )
     }
 }
 
@@ -279,7 +328,7 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
     var lyrics by remember(tr.id) { mutableStateOf<Lyrics?>(null) }
     var loaded by remember(tr.id) { mutableStateOf(false) }
     LaunchedEffect(tr.id) {
-        lyrics = runCatching { App.core.lyrics(tr) }.getOrNull()
+        lyrics = dev.benfranklin.itune.data.io { App.core.lyrics(tr) }
         loaded = true
     }
     // frame-smooth position between the 250 ms player ticks

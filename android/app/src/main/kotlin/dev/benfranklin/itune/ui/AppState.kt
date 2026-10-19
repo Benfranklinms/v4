@@ -5,8 +5,16 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import dev.benfranklin.itune.App
+import dev.benfranklin.itune.core.Album
+import dev.benfranklin.itune.core.ImportResult
+import dev.benfranklin.itune.core.Playlist
 import dev.benfranklin.itune.core.Track
 import dev.benfranklin.itune.core.UpdateInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class Tab(val label: String) { Home("Home"), Search("Search"), Library("Library"), Stats("Stats") }
 
@@ -21,20 +29,29 @@ sealed interface Dest {
     data object Downloads : Dest
     data object Local : Dest
     data object Wrapped : Dest
+    data object Diagnostics : Dest
     data class Mix(val title: String, val tracks: List<Track>) : Dest
 }
 
 sealed interface Sheet {
-    data class TrackMenu(val track: Track, val queueIndex: Int? = null) : Sheet
+    data class TrackMenu(val track: Track, val queueIndex: Int? = null, val playlistId: String? = null, val position: Int? = null) : Sheet
     data object Queue : Sheet
     data class Update(val info: UpdateInfo) : Sheet
     data class AddToPlaylist(val track: Track) : Sheet
     data object Speed : Sheet
     data object WhyThisSong : Sheet
+    data class PlaylistMenu(val playlist: Playlist) : Sheet
+    data class AlbumMenu(val album: Album) : Sheet
+    /** Name dialog. `tracks` are added to the new playlist; `edit` renames an existing one. */
+    data class NamePlaylist(val tracks: List<Track> = emptyList(), val edit: Playlist? = null) : Sheet
+    data object Account : Sheet
+    data object SleepTimer : Sheet
 }
 
 /** Glow with nothing playing: neutral mono, so Adaptive looks like Pure Mono until a track plays. */
 val NoTrackGlow = Color(0xFF8A8A8C)
+
+data class Snack(val msg: String, val action: String? = null, val onAction: (() -> Unit)? = null, val id: Long = System.nanoTime())
 
 /** UI navigation state (single root; transitions are driven from here). */
 class AppState {
@@ -44,6 +61,7 @@ class AppState {
     var sheet by mutableStateOf<Sheet?>(null)
     var glow by mutableStateOf(NoTrackGlow)
     var toast by mutableStateOf<String?>(null)
+    var snack by mutableStateOf<Snack?>(null)
     var forward by mutableStateOf(true)
     var updateNeedsKey by mutableStateOf(false)
 
@@ -69,5 +87,41 @@ class AppState {
 
     fun toast(msg: String) {
         toast = msg
+    }
+
+    private var pendingCommit: (() -> Unit)? = null
+    private var pendingJob: Job? = null
+
+    /**
+     * Destructive action with undo: [apply] runs now (optimistic UI), [commit] runs after the undo window
+     * (or when another undoable action starts), [undo] restores the UI if the user taps Undo.
+     */
+    fun undoable(msg: String, apply: () -> Unit, undo: () -> Unit, commit: () -> Unit) {
+        pendingJob?.cancel()
+        pendingCommit?.invoke()
+        apply()
+        var done = false
+        val c = { if (!done) { done = true; commit() } }
+        pendingCommit = c
+        snack = Snack(msg, "Undo") {
+            if (!done) {
+                done = true
+                undo()
+            }
+            pendingCommit = null
+            pendingJob?.cancel()
+        }
+        pendingJob = App.scope.launch(Dispatchers.Main) {
+            delay(5_000)
+            c()
+            if (pendingCommit === c) pendingCommit = null
+        }
+    }
+
+    /** Run a pending commit right away (app going to background). */
+    fun flushPending() {
+        pendingJob?.cancel()
+        pendingCommit?.invoke()
+        pendingCommit = null
     }
 }

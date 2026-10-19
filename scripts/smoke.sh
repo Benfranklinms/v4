@@ -14,6 +14,9 @@ adb logcat -c
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity
 sleep 20
 adb exec-out screencap -p > "$O/launch.png"
+bash scripts/ui-smoke.sh "$O/ui"; UI=$?
+echo "ui-smoke exit=$UI"
+adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 3
 adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 -v 600 > "$O/monkey.txt" 2>&1 || true
 sleep 5
 adb exec-out screencap -p > "$O/after.png"
@@ -27,6 +30,11 @@ if [ -s "$O/crashes.txt" ]; then
   echo "::error::crash detected ($NAME)"
   cat "$O/crashes.txt"
   grep -n -A40 "FATAL EXCEPTION\|Fatal signal" "$O/logcat.txt" | head -150
+  exit 1
+fi
+if [ "$UI" != 0 ]; then
+  echo "::error::scripted UI smoke failed ($NAME)"
+  cat "$O/ui/steps.txt" 2>/dev/null | grep -E "MISSING|DIED" || true
   exit 1
 fi
 echo "smoke OK ($NAME)"

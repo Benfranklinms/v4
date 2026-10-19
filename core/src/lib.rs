@@ -868,6 +868,54 @@ impl Core {
         }
         Ok(IsaResult { plan, tracks: out })
     }
+    /// Isa with a length budget (0 = any): trims the queue to fit, shared by both apps.
+    pub async fn isa_queue(&self, prompt: String, max_minutes: u32) -> Result<IsaResult, CoreError> {
+        let mut r = self.isa(prompt).await?;
+        if max_minutes > 0 {
+            let budget = max_minutes as u64 * 60;
+            let mut total = 0u64;
+            let mut keep = Vec::new();
+            for t in r.tracks.into_iter() {
+                let d = if t.duration_s > 0 { t.duration_s as u64 } else { 210 };
+                if total + d > budget + 120 && !keep.is_empty() {
+                    break;
+                }
+                total += d;
+                keep.push(t);
+            }
+            r.tracks = keep;
+            r.plan.max_duration_s = Some(budget as u32);
+        }
+        Ok(r)
+    }
+    /// Live prompt suggestions for the Isa card while typing (local, instant).
+    pub fn isa_suggestions(&self, text: String) -> Vec<String> {
+        let all = [
+            "late night drive, synthwave", "focus, no vocals", "rainy evening, lo-fi", "gym hype, hip hop",
+            "Malayalam melodies", "90s Bollywood classics", "chill acoustic morning", "sad songs to cry to",
+            "party bangers", "study with piano", "road trip singalongs", "indie for a sunny day",
+            "deep house for work", "Tamil hits", "throwback 2000s pop", "calm sleep music",
+        ];
+        let q = text.trim().to_lowercase();
+        let mut v: Vec<String> = Vec::new();
+        if !q.is_empty() {
+            for a in all.iter() {
+                if a.contains(&q) || q.split_whitespace().any(|w| w.len() > 2 && a.contains(w)) {
+                    v.push(a.to_string());
+                }
+            }
+            let top = self.db.affinity();
+            let mut artists: Vec<(&String, &u32)> = top.plays.iter().collect();
+            artists.sort_by(|a, b| b.1.cmp(a.1));
+            for (a, _) in artists.into_iter().take(30) {
+                if a.contains(&q) {
+                    v.insert(0, format!("songs like {a}"));
+                }
+            }
+        }
+        v.truncate(5);
+        v
+    }
     /// One line on why a track is playing (for "Ask Isa · Why this song?").
     pub fn isa_why(&self, track: Track) -> String {
         let aff = self.db.affinity();

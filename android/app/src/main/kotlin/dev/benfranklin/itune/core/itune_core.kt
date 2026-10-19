@@ -911,6 +911,10 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -999,6 +1003,10 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_fn_method_core_isa(`ptr`: Pointer,`prompt`: RustBuffer.ByValue,
     ): Long
     fun uniffi_itune_core_fn_method_core_isa_plan(`ptr`: Pointer,`prompt`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_isa_queue(`ptr`: Pointer,`prompt`: RustBuffer.ByValue,`maxMinutes`: Int,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_isa_suggestions(`ptr`: Pointer,`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_isa_why(`ptr`: Pointer,`track`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1300,6 +1308,10 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_isa_plan(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_isa_queue(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_isa_suggestions(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_isa_why(
     ): Short
     fun uniffi_itune_core_checksum_method_core_lastfm_begin_auth(
@@ -1537,6 +1549,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_isa_plan() != 41275.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_isa_queue() != 30922.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_isa_suggestions() != 23924.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_isa_why() != 12406.toShort()) {
@@ -2308,6 +2326,16 @@ public interface CoreInterface {
     suspend fun `isa`(`prompt`: kotlin.String): IsaResult
     
     fun `isaPlan`(`prompt`: kotlin.String): IsaPlan
+    
+    /**
+     * Isa with a length budget (0 = any): trims the queue to fit, shared by both apps.
+     */
+    suspend fun `isaQueue`(`prompt`: kotlin.String, `maxMinutes`: kotlin.UInt): IsaResult
+    
+    /**
+     * Live prompt suggestions for the Isa card while typing (local, instant).
+     */
+    fun `isaSuggestions`(`text`: kotlin.String): List<kotlin.String>
     
     /**
      * One line on why a track is playing (for "Ask Isa · Why this song?").
@@ -3086,6 +3114,45 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_isa_plan(
         it, FfiConverterString.lower(`prompt`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Isa with a length budget (0 = any): trims the queue to fit, shared by both apps.
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `isaQueue`(`prompt`: kotlin.String, `maxMinutes`: kotlin.UInt) : IsaResult {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_isa_queue(
+                thisPtr,
+                FfiConverterString.lower(`prompt`),FfiConverterUInt.lower(`maxMinutes`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypeIsaResult.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Live prompt suggestions for the Isa card while typing (local, instant).
+     */override fun `isaSuggestions`(`text`: kotlin.String): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_isa_suggestions(
+        it, FfiConverterString.lower(`text`),_status)
 }
     }
     )

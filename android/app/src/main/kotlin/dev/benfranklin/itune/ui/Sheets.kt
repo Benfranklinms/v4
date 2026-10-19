@@ -41,6 +41,8 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.RemoveCircleOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -67,6 +69,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.lazy.items
 import dev.benfranklin.itune.core.Track
 import dev.benfranklin.itune.player.Playback
 import dev.benfranklin.itune.ui.components.Artwork
@@ -109,12 +113,17 @@ fun SheetHost(s: AppState) {
                 ) { Box(Modifier.size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(c.surf4)) }
                 AnimatedContent(current.value, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "sheet") { sh ->
                     when (sh) {
-                        is Sheet.TrackMenu -> TrackMenu(s, sh.track)
+                        is Sheet.TrackMenu -> TrackMenu(s, sh.track, sh.playlistId, sh.position)
                         Sheet.Queue -> QueueSheet(s)
                         is Sheet.Update -> UpdateSheet(s, sh.info)
                         is Sheet.AddToPlaylist -> AddToPlaylist(s, sh.track)
                         Sheet.Speed -> SpeedSheet(s)
                         Sheet.WhyThisSong -> WhySheet(s)
+                        is Sheet.PlaylistMenu -> PlaylistMenu(s, sh.playlist)
+                        is Sheet.AlbumMenu -> AlbumMenu(s, sh.album)
+                        is Sheet.NamePlaylist -> NamePlaylistSheet(s, sh.tracks, sh.edit)
+                        Sheet.Account -> AccountSheet(s)
+                        Sheet.SleepTimer -> SleepTimerSheet(s)
                         null -> Spacer(Modifier.height(1.dp))
                     }
                 }
@@ -124,7 +133,7 @@ fun SheetHost(s: AppState) {
 }
 
 @Composable
-private fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Unit) {
+internal fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Unit) {
     val c = LocalColors.current
     Row(Modifier.fillMaxWidth().enter(i, 25).press(scaleTo = 0.98f, onClick = onClick).padding(horizontal = 24.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = c.txt, modifier = Modifier.size(20.dp))
@@ -133,11 +142,12 @@ private fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Uni
 }
 
 @Composable
-private fun TrackMenu(s: AppState, t: Track) {
+private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, position: Int? = null) {
     val ctx = LocalContext.current
     val c = LocalColors.current
     val scope = rememberCoroutineScope()
-    var liked by remember { mutableStateOf(App.core.isLiked(t.id)) }
+    val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
+    val liked = t.id in likedIds
     Column {
         Row(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Artwork(t.thumb, 52.dp, 8.dp)
@@ -150,43 +160,57 @@ private fun TrackMenu(s: AppState, t: Track) {
         MenuRow(Icons.Rounded.PlaylistPlay, "Play next", 0) { Playback.playNext(ctx, t); s.sheet = null; s.toast("Playing next") }
         MenuRow(Icons.Rounded.QueueMusic, "Add to queue", 1) { Playback.addToQueue(ctx, t); s.sheet = null; s.toast("Added to queue") }
         MenuRow(if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (liked) "Remove from Liked" else "Like", 2) {
-            liked = !liked
-            App.core.setLiked(t, liked)
+            val now = dev.benfranklin.itune.data.Likes.toggle(t)
+            s.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
         }
         MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to playlist", 3) { s.sheet = Sheet.AddToPlaylist(t) }
         if (!t.id.startsWith("local:")) {
             MenuRow(Icons.Rounded.Radio, "Start radio", 4) {
                 s.sheet = null
                 scope.launch {
-                    val r = runCatching { App.core.radio(t.id) }.getOrDefault(emptyList())
+                    val r = dev.benfranklin.itune.data.io { App.core.radio(t.id) }.orEmpty()
                     Playback.play(ctx, listOf(t) + r, 0, "${t.title} radio")
                 }
             }
             MenuRow(Icons.Rounded.Download, "Download", 5) {
                 s.sheet = null
                 s.toast("Downloading…")
-                scope.launch { runCatching { App.core.download(t) }.onSuccess { s.toast("Downloaded") }.onFailure { s.toast("Download failed") } }
+                App.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                    dev.benfranklin.itune.data.ioResult { App.core.download(t) }.onSuccess { s.toast("Downloaded") }.onFailure { s.toast("Couldn't download. Check your connection.") }
+                }
             }
         }
         t.artistId?.let { a -> MenuRow(Icons.Rounded.Person, "Go to artist", 6) { s.sheet = null; s.push(Dest.Artist(a)) } }
         t.albumId?.let { a -> MenuRow(Icons.Rounded.Album, "Go to album", 7) { s.sheet = null; s.push(Dest.Album(a)) } }
+        MenuRow(Icons.Rounded.Share, "Share", 8) { s.sheet = null; shareText(ctx, t.title + " · " + t.artists, "https://music.youtube.com/watch?v=" + t.id) }
+        if (playlistId != null && position != null) {
+            MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove from this playlist", 9) {
+                s.sheet = null
+                PlaylistEdits.removeTrack(s, playlistId, position, t)
+            }
+        }
     }
 }
 
 @Composable
 private fun AddToPlaylist(s: AppState, t: Track) {
     val c = LocalColors.current
-    val lists = remember { runCatching { App.core.playlists() }.getOrDefault(emptyList()).filter { it.source != "yt" } }
+    val all by dev.benfranklin.itune.data.Library.playlists.collectAsState()
+    LaunchedEffect(Unit) { if (all == null) dev.benfranklin.itune.data.Library.refresh() }
+    val lists = all.orEmpty().filter { it.source != "yt" }
     Column {
         Text("Add to playlist", style = T.ui(17.sp, FontWeight.Bold), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         MenuRow(Icons.Rounded.Add, "New playlist", 0) {
-            App.core.createPlaylist(t.title.take(24), listOf(t))
-            s.sheet = null
-            s.toast("Playlist created")
+            s.sheet = Sheet.NamePlaylist(listOf(t))
         }
         LazyColumn(Modifier.heightIn(max = 360.dp)) {
             itemsIndexed(lists, key = { _, p -> p.id }) { i, p ->
-                Row(Modifier.fillMaxWidth().enter(i + 1).press(scaleTo = 0.98f) { App.core.addToPlaylist(p.id, t); s.sheet = null; s.toast("Added to ${p.title}") }.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().enter(i + 1).press(scaleTo = 0.98f) {
+                    dev.benfranklin.itune.data.Library.replace(p.copy(trackCount = (p.trackCount ?: 0uL) + 1uL))
+                    dev.benfranklin.itune.data.Bg.run { App.core.addToPlaylist(p.id, t) }
+                    s.sheet = null
+                    s.toast("Added to ${p.title}")
+                }.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Artwork(p.thumb, 40.dp, 6.dp)
                     Text(p.title, style = T.ui(14.sp, FontWeight.SemiBold), modifier = Modifier.padding(start = 14.dp))
                     Spacer(Modifier.weight(1f))
@@ -200,38 +224,93 @@ private fun AddToPlaylist(s: AppState, t: Track) {
 @Composable
 private fun QueueSheet(s: AppState) {
     val c = LocalColors.current
+    val ctx = LocalContext.current
     val q by Playback.queue.collectAsState()
     val st = q ?: return
+    var tab by remember { mutableStateOf(0) }
+    var recent by remember { mutableStateOf<List<Track>>(emptyList()) }
+    LaunchedEffect(Unit) { recent = dev.benfranklin.itune.data.io { App.core.recent(40u) }.orEmpty() }
     val list = rememberLazyListState()
-    LaunchedEffect(Unit) { list.scrollToItem(st.index.coerceAtLeast(0)) }
-    Column {
-        Row(Modifier.padding(horizontal = 24.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Up next", style = T.ui(17.sp, FontWeight.Bold), modifier = Modifier.weight(1f))
-            Text("Autoplay", style = T.ui(12.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.padding(end = 8.dp))
-            var ap by remember { mutableStateOf(App.prefs.autoplay.value) }
-            dev.benfranklin.itune.ui.components.Toggle(ap) { ap = it; App.prefs.autoplay.value = it; App.core.setAutoplay(it) }
-        }
-        LazyColumn(Modifier.heightIn(max = 520.dp), state = list) {
-            itemsIndexed(st.tracks, key = { i, t -> "$i-${t.id}" }) { i, t ->
-                if (i == st.autoplayFrom && st.autoplayFrom >= 0) {
-                    Text("FROM RADIO · TUNED TO YOUR TASTE", style = T.ui(10.sp, FontWeight.Bold, c.t3, 1.sp), modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp))
+    var ap by remember { mutableStateOf(App.prefs.autoplay.value) }
+    Column(Modifier.testTag("queue_sheet")) {
+        // tabs with a mono underline indicator
+        Row(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf("Queue", "Recently played").forEachIndexed { i, l ->
+                Column(Modifier.padding(end = 22.dp).press { tab = i }.testTag("queue_tab_$i"), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(l, style = T.ui(16.sp, FontWeight.Bold, if (tab == i) c.txt else c.t3))
+                    Box(Modifier.padding(top = 6.dp).height(2.dp).width(if (tab == i) 28.dp else 0.dp).clip(RoundedCornerShape(1.dp)).background(c.txt))
                 }
-                val cur = i == st.index
-                Row(
-                    Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { Playback.jump(i) }
-                        .background(if (cur) c.surf3 else Color.Transparent).padding(horizontal = 24.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Artwork(t.thumb, 40.dp, 6.dp)
-                    Column(Modifier.weight(1f).padding(start = 14.dp)) {
-                        Text(t.title, style = T.ui(14.sp, FontWeight.SemiBold, if (cur) c.accentUi else if (i < st.index) c.t3 else c.txt), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (i > st.index) {
-                        Icon(Icons.Rounded.Close, null, tint = c.t3, modifier = Modifier.size(36.dp).padding(9.dp).press { Playback.remove(i) })
+            }
+            Spacer(Modifier.weight(1f))
+            if (tab == 0) Text("Save", style = T.ui(12.5.sp, FontWeight.SemiBold, c.txt), modifier = Modifier.padding(end = 4.dp).press { s.sheet = Sheet.NamePlaylist(st.tracks) }.testTag("queue_save"))
+        }
+        if (tab == 1) {
+            LazyColumn(Modifier.heightIn(max = 520.dp)) {
+                if (recent.isEmpty()) item { Text("Songs you play show up here.", style = T.ui(13.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(24.dp)) }
+                itemsIndexed(recent, key = { i, t -> "h$i${t.id}" }) { i, t ->
+                    QRow(t, false, i < 0) { Playback.play(ctx, recent, i, "Recently played") }
+                }
+            }
+            return@Column
+        }
+        val apFrom = if (st.autoplayFrom >= 0) st.autoplayFrom else st.tracks.size
+        LaunchedEffect(Unit) { list.scrollToItem(0) }
+        LazyColumn(Modifier.heightIn(max = 520.dp), state = list) {
+            st.tracks.getOrNull(st.index)?.let { cur ->
+                item(key = "h_now") { QHeader("Now playing") }
+                item(key = "now") { QRow(cur, true, false) { Playback.toggle() } }
+            }
+            val user = (st.index + 1 until apFrom).toList()
+            if (user.isNotEmpty()) {
+                item(key = "h_user") { QHeader("Next in queue") }
+                items(user.size, key = { k -> "u${user[k]}-${st.tracks[user[k]].id}" }) { k ->
+                    val i = user[k]
+                    val t = st.tracks[i]
+                    Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { QRow(t, false, false) { Playback.jump(i) } }
+                        Icon(Icons.Rounded.Close, "Remove", tint = c.t3, modifier = Modifier.size(36.dp).padding(9.dp).press { Playback.remove(i) })
+                        DragHandle(i, st.index + 1, apFrom - 1)
+                        Spacer(Modifier.width(12.dp))
                     }
                 }
             }
+            item(key = "h_auto") {
+                Row(Modifier.padding(start = 24.dp, end = 20.dp, top = 14.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Next up · Autoplay", style = T.ui(12.5.sp, FontWeight.Bold, c.t2), modifier = Modifier.weight(1f))
+                    dev.benfranklin.itune.ui.components.Toggle(ap) { v -> ap = v; App.prefs.autoplay.value = v; dev.benfranklin.itune.data.Bg.run { App.core.setAutoplay(v) } }
+                }
+            }
+            if (ap) {
+                val auto = (maxOf(apFrom, st.index + 1) until st.tracks.size).toList()
+                if (auto.isEmpty()) item(key = "auto_empty") { Text("Similar songs appear here as the queue runs low.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
+                items(auto.size, key = { k -> "a${auto[k]}-${st.tracks[auto[k]].id}" }) { k ->
+                    val i = auto[k]
+                    Row(Modifier.animateItem(), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { QRow(st.tracks[i], false, false) { Playback.jump(i) } }
+                        Icon(Icons.Rounded.Close, "Remove", tint = c.t3, modifier = Modifier.padding(end = 12.dp).size(36.dp).padding(9.dp).press { Playback.remove(i) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QHeader(t: String) {
+    Text(t, style = T.ui(12.5.sp, FontWeight.Bold, LocalColors.current.t2), modifier = Modifier.padding(start = 24.dp, top = 12.dp, bottom = 6.dp))
+}
+
+@Composable
+private fun QRow(t: Track, current: Boolean, dim: Boolean, onClick: () -> Unit) {
+    val c = LocalColors.current
+    Row(
+        Modifier.fillMaxWidth().press(scaleTo = 0.98f, onClick = onClick).background(if (current) c.surf3 else Color.Transparent).padding(horizontal = 24.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(t.thumb, 40.dp, 6.dp)
+        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+            Text(t.title, style = T.ui(14.sp, FontWeight.SemiBold, if (current) c.accentUi else if (dim) c.t3 else c.txt), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -252,7 +331,8 @@ private fun WhySheet(s: AppState) {
     val c = LocalColors.current
     val t by Playback.current.collectAsState()
     val tr = t ?: return
-    val why = remember(tr.id) { App.core.isaWhy(tr) }
+    var why by remember(tr.id) { mutableStateOf("") }
+    LaunchedEffect(tr.id) { why = dev.benfranklin.itune.data.io { App.core.isaWhy(tr) } ?: "" }
     Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
         Text("Ask Isa · Why this song?", style = T.ui(17.sp, FontWeight.Bold))
         Text(why, style = T.ui(14.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(top = 12.dp, bottom = 16.dp))

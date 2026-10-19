@@ -148,7 +148,7 @@ fun WrappedScreen(s: AppState) {
                     val mx = (clock.maxOrNull() ?: 1).coerceAtLeast(1)
                     Row(Modifier.fillMaxWidth().height(120.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
                         clock.forEachIndexed { h, v ->
-                            Box(Modifier.weight(1f).fillMaxHeight(enter.value * (v.toFloat() / mx).coerceAtLeast(0.03f)).clip(RoundedCornerShape(3.dp))
+                            Box(Modifier.weight(1f).fillMaxHeight((enter.value * (v.toFloat() / mx).coerceAtLeast(0.03f)).coerceIn(0.01f, 1f)).clip(RoundedCornerShape(3.dp))
                                 .background(if (h == peak) glow else c.surf4))
                         }
                     }

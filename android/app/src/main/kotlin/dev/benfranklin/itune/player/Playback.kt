@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import dev.benfranklin.itune.App
+import dev.benfranklin.itune.data.Resume
 import dev.benfranklin.itune.core.QueueState
 import dev.benfranklin.itune.core.Track
 import dev.benfranklin.itune.widget.NowPlayingWidget
@@ -57,6 +58,11 @@ object Playback {
     val error: StateFlow<String?> = _error
     private val _speed = MutableStateFlow(1f)
     val speed: StateFlow<Float> = _speed
+    /** Sleep timer: epoch ms to pause at, END_OF_TRACK, or 0 (off). */
+    val sleepAt = MutableStateFlow(0L)
+    const val END_OF_TRACK = -1L
+    private var fadeIn = 1f
+    private var lastResumeSave = 0L
 
     // stats
     private var playStartedAt = 0L
@@ -268,6 +274,11 @@ object Playback {
             val skipped = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
             finishPlay(skipped)
             val p = player ?: return
+            if (sleepAt.value == END_OF_TRACK && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                sleepAt.value = 0L
+                p.pause()
+            }
+            fadeIn = if (App.prefs.crossfadeSec.value > 0 && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) 0f else 1f
             App.core.queueJump(p.currentMediaItemIndex)
             val t = trackFor(mediaItem?.mediaId)
             _current.value = t
@@ -350,9 +361,57 @@ object Playback {
             p.volume = 1f
             return
         }
+        p.volume = baseVolume(id)
+    }
+
+    private fun baseVolume(id: String?): Float {
+        if (!App.prefs.normalize.value) return 1f
         val db = id?.let { Resolver.loudness[it] } ?: 0f
         // YouTube reports loudness relative to its -14 LUFS target; attenuate louder tracks only.
-        p.volume = if (db > 0f) 10f.pow(-db / 20f).coerceIn(0.2f, 1f) else 1f
+        return if (db > 0f) 10f.pow(-db / 20f).coerceIn(0.2f, 1f) else 1f
+    }
+
+    /** Fade out the end of a track and fade the next one in (Settings › Playback › Fade between songs). */
+    private fun applyFade(p: ExoPlayer) {
+        val cf = App.prefs.crossfadeSec.value
+        val base = baseVolume(p.currentMediaItem?.mediaId)
+        if (cf <= 0) {
+            if (p.volume != base) p.volume = base
+            return
+        }
+        val win = cf * 1000L
+        val rem = p.duration.takeIf { it > 0 }?.let { it - p.currentPosition } ?: Long.MAX_VALUE
+        fadeIn = (fadeIn + 250f / win).coerceAtMost(1f)
+        val out = if (rem < win && p.hasNextMediaItem()) (rem.toFloat() / win).coerceIn(0f, 1f) else 1f
+        p.volume = base * minOf(fadeIn, out)
+    }
+
+    private fun tickSleep(p: ExoPlayer) {
+        val at = sleepAt.value
+        if (at <= 0L) return
+        val left = at - System.currentTimeMillis()
+        if (left <= 0) {
+            sleepAt.value = 0L
+            p.pause()
+            p.volume = baseVolume(p.currentMediaItem?.mediaId)
+        } else if (left < 10_000) {
+            p.volume = baseVolume(p.currentMediaItem?.mediaId) * (left / 10_000f)
+        }
+    }
+
+    /** Saves the current track + position every few seconds for Home › Continue listening. */
+    private fun saveResume(p: ExoPlayer) {
+        val now = System.currentTimeMillis()
+        if (now - lastResumeSave < 5_000) return
+        lastResumeSave = now
+        val t = _current.value ?: return
+        if (t.id.startsWith("local:")) return
+        Resume.save(t, p.currentPosition, p.duration)
+    }
+
+    fun playFrom(ctx: Context, t: Track, positionMs: Long) = ensure(ctx) {
+        play(ctx, listOf(t), 0, "Continue listening")
+        player?.seekTo(positionMs)
     }
 
     private suspend fun prefetchUpcoming() {
@@ -376,6 +435,9 @@ object Playback {
                     if (lastTick > 0) listenedMs += (now - lastTick).coerceAtMost(2000)
                     lastTick = now
                     if (_current.value == null) _current.value = trackFor(p.currentMediaItem?.mediaId)
+                    applyFade(p)
+                    tickSleep(p)
+                    saveResume(p)
                 } else lastTick = 0
                 delay(250)
             }

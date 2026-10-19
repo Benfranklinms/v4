@@ -1,5 +1,9 @@
 package dev.benfranklin.itune.player
 
+import dev.benfranklin.itune.App
+import dev.benfranklin.itune.R
+import kotlinx.coroutines.launch
+
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
@@ -39,8 +43,53 @@ class PlaybackService : MediaSessionService() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("open_now_playing", true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        session = MediaSession.Builder(this, player).setSessionActivity(open).build()
+        session = MediaSession.Builder(this, player).setSessionActivity(open).setCallback(callback).build()
         Playback.attach(player)
+        player.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) = updateLikeButton()
+        })
+        likeJob = App.scope.launch(kotlinx.coroutines.Dispatchers.Main) { dev.benfranklin.itune.data.Likes.ids.collect { updateLikeButton() } }
+    }
+
+    private var likeJob: kotlinx.coroutines.Job? = null
+    private val likeCmd = androidx.media3.session.SessionCommand("dev.benfranklin.itune.LIKE", android.os.Bundle.EMPTY)
+
+    /** Like / unlike button on the lock screen and the media notification. */
+    private fun updateLikeButton() {
+        val s = session ?: return
+        val id = s.player.currentMediaItem?.mediaId ?: return
+        val liked = dev.benfranklin.itune.data.Likes.isLiked(id)
+        val btn = androidx.media3.session.CommandButton.Builder()
+            .setDisplayName(if (liked) "Unlike" else "Like")
+            .setIconResId(if (liked) R.drawable.ic_heart_filled else R.drawable.ic_heart)
+            .setSessionCommand(likeCmd)
+            .build()
+        runCatching { s.setCustomLayout(listOf(btn)) }
+    }
+
+    private val callback = object : MediaSession.Callback {
+        override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+            val cmds = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(likeCmd).build()
+            return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(cmds).build()
+        }
+
+        override fun onCustomCommand(session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: androidx.media3.session.SessionCommand, args: android.os.Bundle): com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.SessionResult> {
+            if (customCommand.customAction == likeCmd.customAction) {
+                val id = session.player.currentMediaItem?.mediaId
+                Playback.trackFor(id)?.let { dev.benfranklin.itune.data.Likes.toggle(it) }
+                updateLikeButton()
+            }
+            return com.google.common.util.concurrent.Futures.immediateFuture(androidx.media3.session.SessionResult(androidx.media3.session.SessionResult.RESULT_SUCCESS))
+        }
+    }
+
+    /** Android 12+/15: a foreground start can be refused while in the background; never crash on it. */
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        try {
+            super.onUpdateNotification(session, startInForegroundRequired)
+        } catch (e: Exception) {
+            android.util.Log.w("iTune", "notification update refused", e)
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
@@ -54,6 +103,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        likeJob?.cancel()
         Playback.detach()
         session?.run {
             player.release()

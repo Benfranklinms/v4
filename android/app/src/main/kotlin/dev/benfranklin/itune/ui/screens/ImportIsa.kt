@@ -54,6 +54,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
+import androidx.compose.ui.platform.testTag
+import dev.benfranklin.itune.ui.components.fmtDur
 import dev.benfranklin.itune.ImportLink
 import dev.benfranklin.itune.core.ImportResult
 import dev.benfranklin.itune.core.IsaResult
@@ -85,14 +87,23 @@ fun ImportScreen(s: AppState) {
     var err by remember { mutableStateOf<String?>(null) }
     var tab by remember { mutableStateOf("matched") }
     val included = remember { mutableStateOf(setOf<Int>()) }
+    val overrides = remember { androidx.compose.runtime.mutableStateMapOf<Int, dev.benfranklin.itune.core.Track>() }
+    var expanded by remember { mutableStateOf<Int?>(null) }
+    var more by remember { mutableStateOf<Map<Int, List<dev.benfranklin.itune.core.Track>>>(emptyMap()) }
+    var saving by remember { mutableStateOf(false) }
     fun run() {
         if (url.isBlank() || busy) return
         busy = true
         err = null
         scope.launch {
-            runCatching { App.core.importPlaylist(url.trim()) }
-                .onSuccess { r -> res = r; included.value = r.matches.indices.filter { r.matches[it].status == "matched" }.toSet() }
-                .onFailure { err = it.message?.substringAfter(": ") ?: "Import failed" }
+            dev.benfranklin.itune.data.ioResult { App.core.importPlaylist(url.trim()) }
+                .onSuccess { r ->
+                    res = r
+                    overrides.clear()
+                    included.value = r.matches.indices.filter { r.matches[it].status == "matched" }.toSet()
+                    tab = if (r.matches.any { it.status == "review" }) "review" else "matched"
+                }
+                .onFailure { err = it.message?.substringAfter(": ")?.takeIf { m -> m.isNotBlank() && !m.contains("HTTP") } ?: "Couldn't read that playlist. Make sure the link is public." }
             busy = false
         }
     }
@@ -101,9 +112,7 @@ fun ImportScreen(s: AppState) {
         BackBar(s, "Import playlists")
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
             item {
-                Row(Modifier.padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Spotify", "Apple Music", "Paste link").forEachIndexed { i, l -> ChipButton(l, modifier = Modifier.enter(i), selected = i == 2) { } }
-                }
+                Text("Paste a public Spotify or Apple Music playlist link. You can check and swap any song before it's added.", style = T.ui(13.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(horizontal = 24.dp))
             }
             item {
                 Row(
@@ -112,11 +121,12 @@ fun ImportScreen(s: AppState) {
                 ) {
                     Box(Modifier.weight(1f)) {
                         if (url.isEmpty()) Text("open.spotify.com/playlist/… or music.apple.com/…", style = T.ui(13.sp, FontWeight.Medium, c.t3), maxLines = 1)
-                        BasicTextField(url, { url = it }, singleLine = true, textStyle = T.ui(13.sp, FontWeight.Medium), cursorBrush = SolidColor(c.txt), modifier = Modifier.fillMaxWidth())
+                        BasicTextField(url, { url = it }, singleLine = true, textStyle = T.ui(13.sp, FontWeight.Medium), cursorBrush = SolidColor(c.txt), modifier = Modifier.fillMaxWidth().testTag("import_url"))
                     }
                     Icon(Icons.Rounded.ContentPaste, null, tint = c.t2, modifier = Modifier.size(38.dp).padding(9.dp).press { clip.getText()?.text?.let { url = it } })
-                    Box(Modifier.size(38.dp).clip(CircleShape).background(c.accentUi).press { run() }, contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Check, null, tint = c.onAccent, modifier = Modifier.size(18.dp))
+                    Box(Modifier.size(38.dp).clip(CircleShape).background(if (url.isBlank()) c.surf3 else c.accentUi).press { if (url.isBlank()) s.toast("Paste a playlist link first") else run() }.testTag("import_go"), contentAlignment = Alignment.Center) {
+                        if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), color = c.onAccent, strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Check, "Import", tint = if (url.isBlank()) c.t3 else c.onAccent, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -149,32 +159,68 @@ fun ImportScreen(s: AppState) {
                     }
                 }
                 val rows = r.matches.withIndex().filter { it.value.status == tab }
+                if (rows.isEmpty()) item { Text(if (tab == "missing") "Every song was found." else "Nothing here.", style = T.ui(13.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) }
                 itemsIndexed(rows, key = { _, iv -> iv.index }) { i, (idx, m) ->
                     val inc = idx in included.value
-                    Row(Modifier.fillMaxWidth().enter(i).padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Artwork(m.matched?.thumb, 42.dp, 6.dp)
-                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text(m.source.title, style = T.ui(14.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(m.matched?.let { "${it.title} · ${it.artists}" } ?: m.source.artists, style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val pick = overrides[idx] ?: m.matched
+                    Column(Modifier.animateItem()) {
+                        Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.99f) { expanded = if (expanded == idx) null else idx }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Artwork(pick?.thumb, 42.dp, 6.dp)
+                            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text(m.source.title, style = T.ui(14.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(pick?.let { "→ ${it.title} · ${it.artists}" } ?: "Not found · tap to search", style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (overrides[idx] == null) Text(if (m.matched == null) "–" else "${m.confidence}%", style = T.num(11.sp, color = c.t3), modifier = Modifier.padding(horizontal = 8.dp))
+                            else Text("Swapped", style = T.ui(11.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.padding(horizontal = 8.dp))
+                            if (pick != null) {
+                                Box(
+                                    Modifier.size(26.dp).clip(CircleShape).background(if (inc) c.txt else c.surf4).press { included.value = if (inc) included.value - idx else included.value + idx },
+                                    contentAlignment = Alignment.Center,
+                                ) { Icon(if (inc) Icons.Rounded.Check else Icons.Rounded.Close, if (inc) "Included" else "Skipped", tint = if (inc) c.bg else c.t3, modifier = Modifier.size(14.dp)) }
+                            }
                         }
-                        Text("${m.confidence}%", style = T.num(11.sp, color = c.t3), modifier = Modifier.padding(horizontal = 8.dp))
-                        if (m.matched != null) {
-                            Box(
-                                Modifier.size(26.dp).clip(CircleShape).background(if (inc) c.txt else c.surf4).press { included.value = if (inc) included.value - idx else included.value + idx },
-                                contentAlignment = Alignment.Center,
-                            ) { Icon(if (inc) Icons.Rounded.Check else Icons.Rounded.Close, null, tint = if (inc) c.bg else c.t3, modifier = Modifier.size(14.dp)) }
+                        androidx.compose.animation.AnimatedVisibility(expanded == idx) {
+                            Column(Modifier.padding(start = 40.dp, end = 20.dp, bottom = 8.dp).clip(RoundedCornerShape(14.dp)).background(c.surf).padding(vertical = 6.dp)) {
+                                val alts = (m.alternatives + more[idx].orEmpty()).distinctBy { it.id }.filter { it.id != pick?.id }
+                                if (alts.isEmpty()) Text("No other versions yet.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(12.dp))
+                                alts.take(8).forEach { a ->
+                                    Row(Modifier.fillMaxWidth().press(scaleTo = 0.98f) { overrides[idx] = a; included.value = included.value + idx; expanded = null }.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Artwork(a.thumb, 34.dp, 5.dp)
+                                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                            Text(a.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(listOf(a.artists, fmtDur(a.durationS.toInt())).filter { it.isNotEmpty() }.joinToString(" · "), style = T.ui(11.sp, FontWeight.Medium, c.t3), maxLines = 1)
+                                        }
+                                        Text("Use", style = T.ui(12.sp, FontWeight.Bold), modifier = Modifier.padding(start = 8.dp))
+                                    }
+                                }
+                                Text("Search again", style = T.ui(12.5.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.padding(12.dp).press {
+                                    scope.launch {
+                                        val found = dev.benfranklin.itune.data.io { App.core.importCandidates(m.source, "") }.orEmpty()
+                                        more = more + (idx to found)
+                                        if (found.isEmpty()) s.toast("Nothing else found")
+                                    }
+                                })
+                            }
                         }
                     }
                 }
                 item {
                     Box(
                         Modifier.padding(20.dp).fillMaxWidth().height(50.dp).clip(RoundedCornerShape(25.dp)).background(c.accentUi).press {
-                            val tracks = included.value.sorted().mapNotNull { r.matches[it].matched }
-                            val pl = App.core.saveImport(r.name, r.service, r.cover, tracks)
-                            s.toast("Imported ${tracks.size} songs")
-                            s.pop()
-                            s.push(Dest.Playlist(pl.id))
-                        },
+                            if (saving) return@press
+                            val tracks = included.value.sorted().mapNotNull { overrides[it] ?: r.matches[it].matched }
+                            if (tracks.isEmpty()) { s.toast("Pick at least one song"); return@press }
+                            saving = true
+                            scope.launch {
+                                val pl = dev.benfranklin.itune.data.io { App.core.saveImport(r.name, r.service, r.cover, tracks) }
+                                saving = false
+                                if (pl == null) { s.toast("Couldn't save the playlist"); return@launch }
+                                dev.benfranklin.itune.data.Library.upsert(pl)
+                                s.toast("Imported ${tracks.size} songs")
+                                s.pop()
+                                s.push(Dest.Playlist(pl.id))
+                            }
+                        }.testTag("import_save"),
                         contentAlignment = Alignment.Center,
                     ) { Text("Add ${included.value.size} songs", style = T.ui(15.sp, FontWeight.Bold, c.onAccent)) }
                 }
@@ -189,9 +235,10 @@ fun IsaScreen(s: AppState, prompt: String) {
     val ctx = LocalContext.current
     var res by remember { mutableStateOf<IsaResult?>(null) }
     var err by remember { mutableStateOf<String?>(null) }
-    val plan = remember(prompt) { App.core.isaPlan(prompt) }
+    var plan by remember(prompt) { mutableStateOf(dev.benfranklin.itune.core.IsaPlan(prompt, emptyList(), emptyList(), emptyList(), false, null, 0, "")) }
     LaunchedEffect(prompt) {
-        runCatching { App.core.isa(prompt) }.onSuccess { res = it }.onFailure { err = it.message?.substringAfter(": ") }
+        dev.benfranklin.itune.data.io { App.core.isaPlan(prompt) }?.let { plan = it }
+        dev.benfranklin.itune.data.ioResult { App.core.isa(prompt) }.onSuccess { res = it }.onFailure { err = it.message?.substringAfter(": ") ?: "Isa couldn't find anything for that." }
     }
     val pulse by animateFloatAsState(if (res == null) 1f else 0f, spring(stiffness = 80f), label = "pulse")
     Box(Modifier.fillMaxSize()) {
@@ -208,7 +255,7 @@ fun IsaScreen(s: AppState, prompt: String) {
                     Text("\u201C$prompt\u201D", style = T.ui(13.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 24.dp))
                     Text(plan.explanation, style = T.ui(13.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp))
                     LazyRow(contentPadding = PaddingValues(horizontal = 24.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        itemsIndexed(plan.moods + plan.languages) { i, m -> ChipButton(m, modifier = Modifier.enter(i)) {} }
+                        itemsIndexed(plan.moods + plan.languages) { i, m -> ChipButton(m, modifier = Modifier.enter(i)) { s.push(Dest.Isa(m)) } }
                     }
                     Spacer(Modifier.height(16.dp))
                 }
@@ -230,7 +277,7 @@ fun IsaScreen(s: AppState, prompt: String) {
                                     }
                                 }
                                 Box(Modifier.height(46.dp).clip(RoundedCornerShape(23.dp)).background(c.surf3).press {
-                                    res?.let { App.core.createPlaylist("Isa · ${plan.title}", it.tracks); s.toast("Saved to Library") }
+                                    res?.let { r -> dev.benfranklin.itune.data.Bg.run { App.core.createPlaylistNamed(plan.title, "Made with Isa", "", r.tracks); dev.benfranklin.itune.data.Library.refresh() }; s.toast("Saved to Library") }
                                 }.padding(horizontal = 22.dp), contentAlignment = Alignment.Center) { Text("Save", style = T.ui(15.sp, FontWeight.SemiBold)) }
                             }
                         }

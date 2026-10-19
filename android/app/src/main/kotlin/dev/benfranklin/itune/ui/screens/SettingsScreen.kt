@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import dev.benfranklin.itune.App
+import androidx.compose.ui.platform.testTag
 import dev.benfranklin.itune.BuildConfig
 import dev.benfranklin.itune.core.StreamingHealth
 import dev.benfranklin.itune.player.DataSources
@@ -90,13 +91,14 @@ fun Group(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun SRow(title: String, sub: String? = null, i: Int = 0, onLong: (() -> Unit)? = null, onClick: (() -> Unit)? = null, trailing: @Composable () -> Unit = {}) {
+fun SRow(title: String, sub: String? = null, i: Int = 0, onLong: (() -> Unit)? = null, onClick: (() -> Unit)? = null, lead: @Composable () -> Unit = {}, trailing: @Composable () -> Unit = {}) {
     val c = LocalColors.current
     Row(
         Modifier.fillMaxWidth().enter(i, 22).then(if (onClick != null || onLong != null) Modifier.press(scaleTo = 0.985f, onLongClick = onLong) { onClick?.invoke() } else Modifier)
             .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        lead()
         Column(Modifier.weight(1f)) {
             Text(title, style = T.ui(14.5.sp, FontWeight.SemiBold))
             if (sub != null) Text(sub, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -129,15 +131,17 @@ fun SettingsScreen(s: AppState) {
     var storage by remember { mutableStateOf(Storage()) }
     var lastfm by remember { mutableStateOf<dev.benfranklin.itune.core.LastfmState?>(null) }
     var lfToken by remember { mutableStateOf<String?>(null) }
+    val crossfade by p.crossfadeSec.state.collectAsState()
+    val haptics by p.haptics.state.collectAsState()
     LaunchedEffect(Unit) {
-        health = App.core.streamingHealth()
+        health = dev.benfranklin.itune.data.io { App.core.streamingHealth() }
+        lastfm = dev.benfranklin.itune.data.io { App.core.lastfmState() }
         storage = withContext(Dispatchers.IO) { Storage.measure(ctx) }
-        lastfm = App.core.lastfmState()
     }
     val signIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (p.signedIn.value) scope.launch {
             s.toast("Syncing your library…")
-            runCatching { App.core.syncLibrary() }.onSuccess { s.toast("Synced ${it.liked} liked songs, ${it.playlists} playlists") }.onFailure { s.toast("Sync failed") }
+            dev.benfranklin.itune.data.ioResult { App.core.syncLibrary() }.onSuccess { s.toast("Synced ${it.liked} liked songs, ${it.playlists} playlists"); dev.benfranklin.itune.data.Library.refresh() }.onFailure { s.toast("Couldn't sync right now") }
         }
     }
 
@@ -147,15 +151,21 @@ fun SettingsScreen(s: AppState) {
             item {
                 Group("Account") {
                     SRow(
-                        if (signedIn) "Signed in to YouTube Music" else "Sign in (optional)",
-                        if (signedIn) "Liked songs and playlists sync into your library" else "Everything works without an account. Sign in to sync your library and reduce bot checks.",
+                        if (signedIn) "Signed in with Google" else "Sign in with Google (optional)",
+                        if (signedIn) "Your liked songs and playlists sync into your library" else "Everything works without an account. Sign in to bring your library over.",
                         0, onClick = {
                             if (signedIn) scope.launch {
-                                runCatching { App.core.syncLibrary() }.onSuccess { s.toast("Synced ${it.liked} liked songs") }.onFailure { s.toast("Sync failed: ${it.message}") }
+                                dev.benfranklin.itune.data.ioResult { App.core.syncLibrary() }.onSuccess { s.toast("Synced ${it.liked} liked songs"); dev.benfranklin.itune.data.Library.refresh() }.onFailure { s.toast("Couldn't sync right now") }
                             } else signIn.launch(Intent(ctx, SignInActivity::class.java))
                         },
                     ) { if (signedIn) Text("Sync", style = T.ui(13.sp, FontWeight.SemiBold, c.t2)) else Chevron() }
-                    if (signedIn) SRow("Sign out", null, 1, onClick = { scope.launch { App.core.signOut(); p.signedIn.value = false; android.webkit.CookieManager.getInstance().removeAllCookies(null) } })
+                    if (signedIn) SRow("Sign out", null, 1, onClick = {
+                        p.signedIn.value = false
+                        dev.benfranklin.itune.data.Account.info.value = null
+                        runCatching { android.webkit.CookieManager.getInstance().removeAllCookies(null) }
+                        scope.launch { dev.benfranklin.itune.data.io { App.core.signOut() } }
+                        s.toast("Signed out")
+                    })
                 }
             }
             item {
@@ -166,9 +176,18 @@ fun SettingsScreen(s: AppState) {
             item {
                 Group("Playback") {
                     SRow("Autoplay", "Keep playing similar songs when the queue ends, tuned to what you skip and replay", 0) {
-                        Toggle(autoplay) { p.autoplay.value = it; App.core.setAutoplay(it) }
+                        Toggle(autoplay) { v -> p.autoplay.value = v; dev.benfranklin.itune.data.Bg.run { App.core.setAutoplay(v) } }
                     }
                     SRow("Normalize volume", "Even out loud and quiet tracks", 1) { Toggle(normalize) { p.normalize.value = it } }
+                    SRow("Fade between songs", if (crossfade == 0) "Off · songs play back to back with no gap" else "$crossfade s fade out and in", 1)
+                    Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Slider(
+                            value = crossfade.toFloat(), steps = 11, valueRange = 0f..12f,
+                            onValueChange = { p.crossfadeSec.value = it.roundToInt() },
+                            colors = SliderDefaults.colors(thumbColor = c.txt, activeTrackColor = c.txt, inactiveTrackColor = c.surf4), modifier = Modifier.weight(1f).testTag("crossfade"),
+                        )
+                    }
+                    SRow("Haptics", "Gentle taps on key actions", 1) { Toggle(haptics) { p.haptics.value = it } }
                     val pm = ctx.getSystemService(PowerManager::class.java)
                     val unrestricted = pm.isIgnoringBatteryOptimizations(ctx.packageName)
                     SRow("Battery", if (unrestricted) "Unrestricted · background playback is safe" else "Set to Unrestricted so OnePlus doesn't stop music in the background", 2, onClick = {
@@ -178,27 +197,30 @@ fun SettingsScreen(s: AppState) {
                 }
             }
             item {
-                Group("Streaming") {
+                Group("Playback status") {
                     val h = health
-                    val ok = h != null && h.workingClient.isNotEmpty() && (h.lastErrorAt <= h.lastOkAt)
-                    SRow(
-                        "Streaming health",
-                        when {
-                            h == null -> "…"
-                            h.workingClient.isEmpty() && h.lastError.isEmpty() -> "Not tested yet · clients: ${h.clients.joinToString(" → ")} → NewPipe"
-                            ok -> "Working · client ${h.workingClient}"
-                            else -> "Last error: ${h.lastError.take(160)}"
-                        },
-                        0,
-                    ) {
-                        Box(Modifier.clip(RoundedCornerShape(14.dp)).background(c.surf3).press {
-                            if (!testing) scope.launch {
-                                testing = true
-                                health = runCatching { App.core.streamingSelftest() }.getOrNull() ?: App.core.streamingHealth()
-                                testing = false
-                            }
-                        }.padding(horizontal = 12.dp, vertical = 6.dp)) { Text(if (testing) "Testing…" else "Retry", style = T.ui(12.sp, FontWeight.SemiBold)) }
+                    val ok = h != null && (h.workingClient.isNotEmpty() || h.lastError.isEmpty()) && (h.lastErrorAt <= h.lastOkAt || h.lastError.isEmpty())
+                    val label = when {
+                        testing || h == null -> "Checking…"
+                        ok -> "Playback ready"
+                        else -> "Can't reach streams, tap to fix"
                     }
+                    val fix = {
+                        if (!testing) scope.launch {
+                            testing = true
+                            health = dev.benfranklin.itune.data.io { App.core.streamingSelftest() } ?: dev.benfranklin.itune.data.io { App.core.streamingHealth() }
+                            testing = false
+                        }
+                        Unit
+                    }
+                    SRow(label, if (!ok && !testing && h != null) "Tries every way of reaching the music again" else null, 0, onClick = if (!ok && !testing) fix else null, lead = {
+                        Box(Modifier.padding(end = 12.dp).size(9.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (ok && !testing) c.txt else c.t3))
+                    }) {
+                        if (!ok && !testing && h != null) Box(Modifier.clip(RoundedCornerShape(14.dp)).background(c.surf3).press { fix() }.padding(horizontal = 12.dp, vertical = 6.dp).testTag("playback_fix")) {
+                            Text("Fix", style = T.ui(12.sp, FontWeight.SemiBold))
+                        }
+                    }
+                    SRow("Diagnostics", "Technical details and crash reports", 1, onClick = { s.push(Dest.Diagnostics) }) { Chevron() }
                 }
             }
             item {
@@ -211,8 +233,8 @@ fun SettingsScreen(s: AppState) {
                             value = steps.indexOf(cacheMb).let { if (it < 0) 2 else it }.toFloat(), steps = 3, valueRange = 0f..4f,
                             onValueChange = { p.cacheMb.value = steps[it.roundToInt().coerceIn(0, 4)] },
                             onValueChangeFinished = {
-                                App.core.setCacheLimitMb(p.cacheMb.value.toUInt())
-                                scope.launch(Dispatchers.IO) { DataSources.applyCap(ctx); storage = Storage.measure(ctx) }
+                                val mb = p.cacheMb.value.toUInt()
+                                scope.launch(Dispatchers.IO) { runCatching { App.core.setCacheLimitMb(mb) }; DataSources.applyCap(ctx); storage = Storage.measure(ctx) }
                             },
                             colors = SliderDefaults.colors(thumbColor = c.txt, activeTrackColor = c.txt, inactiveTrackColor = c.surf4), modifier = Modifier.weight(1f),
                         )
@@ -223,11 +245,19 @@ fun SettingsScreen(s: AppState) {
                     }
                     SRow("Clear cache", "Downloads are kept", 2, onClick = {
                         scope.launch(Dispatchers.IO) {
-                            DataSources.clear(ctx); App.core.clearCache()
+                            DataSources.clear(ctx); runCatching { App.core.clearCache() }
                             runCatching { coil.Coil.imageLoader(ctx).let { it.diskCache?.clear(); it.memoryCache?.clear() } }
                             storage = Storage.measure(ctx)
                             withContext(Dispatchers.Main) { s.toast("Cache cleared") }
                         }
+                    })
+                    var confirmAll by remember { mutableStateOf(false) }
+                    SRow(if (confirmAll) "Tap again to remove all downloads" else "Remove all downloads", "Frees " + android.text.format.Formatter.formatShortFileSize(ctx, storage.downloads), 3, onClick = {
+                        if (!confirmAll) { confirmAll = true; return@SRow }
+                        confirmAll = false
+                        s.undoable("Removed all downloads", apply = {}, undo = {}, commit = {
+                            scope.launch(Dispatchers.IO) { runCatching { App.core.removeAllDownloads() }; storage = Storage.measure(ctx); dev.benfranklin.itune.data.Library.refresh() }
+                        })
                     })
                 }
             }
@@ -249,24 +279,24 @@ fun SettingsScreen(s: AppState) {
                                 scope.launch {
                                     val tok = lfToken
                                     if (tok == null) {
-                                        runCatching { App.core.lastfmBeginAuth() }.onSuccess { a ->
+                                        dev.benfranklin.itune.data.ioResult { App.core.lastfmBeginAuth() }.onSuccess { a ->
                                             lfToken = a.token
                                             runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(a.url))) }
                                         }.onFailure { s.toast("Couldn't reach Last.fm") }
                                     } else {
-                                        runCatching { App.core.lastfmCompleteAuth(tok) }
+                                        dev.benfranklin.itune.data.ioResult { App.core.lastfmCompleteAuth(tok) }
                                             .onSuccess { name -> lfToken = null; s.toast("Scrobbling as $name") }
                                             .onFailure { s.toast("Not approved yet") }
                                     }
-                                    lastfm = App.core.lastfmState()
+                                    lastfm = dev.benfranklin.itune.data.io { App.core.lastfmState() }
                                 }
                             },
                         ) { Chevron() }
                     } else {
                         SRow("Scrobbling", "${lf.username}${if (lf.pending > 0u) " · ${lf.pending} queued" else ""}", 0) {
-                            Toggle(lf.enabled) { on -> App.core.lastfmSetEnabled(on); lastfm = App.core.lastfmState() }
+                            Toggle(lf.enabled) { on -> scope.launch { dev.benfranklin.itune.data.io { App.core.lastfmSetEnabled(on) }; lastfm = dev.benfranklin.itune.data.io { App.core.lastfmState() } } }
                         }
-                        SRow("Disconnect", null, 1, onClick = { App.core.lastfmSignOut(); lastfm = App.core.lastfmState() })
+                        SRow("Disconnect", null, 1, onClick = { scope.launch { dev.benfranklin.itune.data.io { App.core.lastfmSignOut() }; lastfm = dev.benfranklin.itune.data.io { App.core.lastfmState() } } })
                     }
                 }
             }
@@ -279,7 +309,7 @@ fun SettingsScreen(s: AppState) {
                                 is Updater.Result.Available -> { updateStatus = "Version ${r.info.version} available"; s.sheet = Sheet.Update(r.info) }
                                 Updater.Result.UpToDate -> updateStatus = "You're up to date"
                                 Updater.Result.NeedsKey -> updateStatus = if (TokenStore.has()) "The access key didn't work" else null
-                                is Updater.Result.Failed -> updateStatus = "Couldn't check: ${r.msg.take(80)}"
+                                is Updater.Result.Failed -> updateStatus = "Couldn't check right now. Try again later."
                             }
                         }
                     })
@@ -311,7 +341,7 @@ fun SettingsScreen(s: AppState) {
             item {
                 Group("About") {
                     Box {
-                        SRow("Version", "iTune ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) · core ${App.core.version()}", 0, onLong = {
+                        SRow("Version", "iTune ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", 0, onLong = {
                             FpsOverlay.enabled.value = !FpsOverlay.enabled.value
                             s.toast(if (FpsOverlay.enabled.value) "FPS overlay on" else "FPS overlay off")
                         }) {
@@ -451,5 +481,49 @@ private fun StorageStat(label: String, bytes: Long) {
     Column {
         Text(android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes), style = T.num(13.sp), color = c.txt)
         Text(label, style = T.ui(11.sp), color = c.t3)
+    }
+}
+
+
+/** Settings › Diagnostics: technical details (stream clients, errors) and crash reports, with Copy. */
+@Composable
+fun DiagnosticsScreen(s: AppState) {
+    val c = LocalColors.current
+    val ctx = LocalContext.current
+    var text by remember { mutableStateOf("Loading…") }
+    LaunchedEffect(Unit) {
+        val h = dev.benfranklin.itune.data.io { App.core.streamingHealth() }
+        val crashes = withContext(Dispatchers.IO) { dev.benfranklin.itune.CrashLog.history(ctx) }
+        text = buildString {
+            append("iTune ").append(dev.benfranklin.itune.BuildConfig.VERSION_NAME).append(" (").append(dev.benfranklin.itune.BuildConfig.VERSION_CODE).append(")\n")
+            append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append(" · Android ").append(android.os.Build.VERSION.RELEASE).append('\n')
+            append("core ").append(dev.benfranklin.itune.data.Bg.let { runCatching { App.core.version() }.getOrDefault("?") }).append('\n')
+            if (h != null) {
+                append("\nStreams\n")
+                append("working client: ").append(h.workingClient.ifEmpty { "-" }).append('\n')
+                append("client order: ").append(h.clients.joinToString(" → ")).append(" → NewPipe\n")
+                append("signed in: ").append(h.signedIn).append('\n')
+                if (h.lastError.isNotEmpty()) append("last error: ").append(h.lastError).append('\n')
+            }
+            append("player resolver: ").append(dev.benfranklin.itune.player.Resolver.lastError.ifEmpty { "-" }).append('\n')
+            append("\nCrash reports\n").append(crashes.ifBlank { "None" })
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        BackBar(s, "Diagnostics") {
+            Text("Copy", style = T.ui(13.5.sp, FontWeight.SemiBold), modifier = Modifier.padding(end = 12.dp).press {
+                val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("iTune diagnostics", text))
+                s.toast("Copied")
+            }.testTag("diag_copy"))
+        }
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 170.dp)) {
+            item { Text(text, style = T.num(11.5.sp, color = c.t2)) }
+            item {
+                Text("Clear crash reports", style = T.ui(13.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.padding(top = 18.dp).press {
+                    dev.benfranklin.itune.CrashLog.clearHistory(ctx); s.toast("Cleared"); s.pop()
+                })
+            }
+        }
     }
 }

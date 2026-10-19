@@ -43,6 +43,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
 import dev.benfranklin.itune.core.StatsSummary
 import dev.benfranklin.itune.ui.AppState
 import dev.benfranklin.itune.ui.Dest
@@ -65,7 +68,7 @@ fun StatsScreen(s: AppState) {
     val c = LocalColors.current
     var range by remember { mutableStateOf("month") }
     var st by remember { mutableStateOf<StatsSummary?>(null) }
-    LaunchedEffect(range) { st = withContext(Dispatchers.IO) { runCatching { App.core.stats(range, tzMin()) }.getOrNull() } }
+    LaunchedEffect(range) { st = dev.benfranklin.itune.data.io { App.core.stats(range, tzMin()) } }
     val reduce = LocalReduceMotion.current
     val grow = remember(range) { Animatable(if (reduce) 1f else 0f) }
     LaunchedEffect(st) { if (st != null && !reduce) { grow.snapTo(0f); grow.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = 120f)) } }
@@ -88,10 +91,11 @@ fun StatsScreen(s: AppState) {
             Box(Modifier.padding(top = 16.dp).fillMaxWidth().height(36.dp).clip(RoundedCornerShape(18.dp)).background(c.surf2)) {
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(2.dp)) {
                     val w = maxWidth / opts.size
-                    Box(Modifier.padding(start = w * pill.value).width(w).fillMaxSize().clip(RoundedCornerShape(16.dp)).background(c.surf4))
+                    // offset (not padding): the spring overshoots below 0, and negative padding crashes
+                    Box(Modifier.offset(x = w * pill.value.coerceIn(-0.2f, opts.size - 0.8f)).width(w).fillMaxHeight().clip(RoundedCornerShape(16.dp)).background(c.surf4))
                     Row(Modifier.fillMaxSize()) {
                         opts.forEach { (k, l) ->
-                            Box(Modifier.weight(1f).fillMaxSize().press { range = k }, contentAlignment = Alignment.Center) {
+                            Box(Modifier.weight(1f).fillMaxSize().press { range = k }.testTag("range_$k"), contentAlignment = Alignment.Center) {
                                 Text(l, style = T.ui(12.5.sp, FontWeight.SemiBold, if (k == range) c.txt else c.t3))
                             }
                         }
@@ -108,7 +112,7 @@ fun StatsScreen(s: AppState) {
                         RollingNumber(x?.minutes?.toInt() ?: 0, T.num(44.sp, FontWeight.Light))
                         Text("min", style = T.ui(12.5.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.padding(start = 6.dp, bottom = 10.dp))
                     }
-                    if (x != null && x.prevMinutes.toInt() > 0) {
+                    if (x != null && x.prevMinutes.toInt() > 0 && x.minutes.toInt() >= 0) {
                         val pct = ((x.minutes.toFloat() - x.prevMinutes.toFloat()) / x.prevMinutes.toFloat() * 100).toInt()
                         Text("${if (pct >= 0) "+" else ""}$pct% vs previous", style = T.num(12.sp, color = c.t2))
                     }
@@ -135,14 +139,14 @@ fun StatsScreen(s: AppState) {
                         Text("Listening clock", style = T.ui(12.5.sp, FontWeight.SemiBold, c.t2))
                         val clock = x?.clock.orEmpty().map { it.toFloat() }
                         val cmax = (clock.maxOrNull() ?: 1f).coerceAtLeast(1f)
-                        val peak = clock.indices.maxByOrNull { clock[it] } ?: 0
+                        val peak = if (clock.all { it <= 0f }) -1 else (clock.indices.maxByOrNull { clock[it] } ?: -1)
                         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                             Canvas(Modifier.size(112.dp)) {
                                 val r0 = size.minDimension * 0.18f
                                 val r1 = size.minDimension * 0.48f
                                 for (h in 0 until 24) {
                                     val a = Math.toRadians((h * 15 - 90 + 7.5).toDouble())
-                                    val act = if (clock.isEmpty()) 0f else clock[h] / cmax
+                                    val act = (clock.getOrNull(h) ?: 0f).div(cmax).let { if (it.isNaN()) 0f else it.coerceIn(0f, 1f) }
                                     val rr = r0 + (r1 - r0) * act * grow.value
                                     val cx = center.x
                                     val cy = center.y
@@ -154,7 +158,7 @@ fun StatsScreen(s: AppState) {
                                     )
                                 }
                             }
-                            Text("${peak}h", style = T.num(10.sp, FontWeight.Medium))
+                            Text(if (peak >= 0) "${peak}h" else "–", style = T.num(10.sp, FontWeight.Medium))
                         }
                     }
                 }
@@ -182,7 +186,7 @@ fun StatsScreen(s: AppState) {
         item { Text("Top artists", style = T.ui(18.sp, FontWeight.Bold), modifier = Modifier.padding(top = 28.dp, bottom = 12.dp)) }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                itemsIndexed(x?.topArtists.orEmpty(), key = { _, a -> a.name }) { i, a ->
+                itemsIndexed(x?.topArtists.orEmpty(), key = { i, a -> "$i${a.name}" }) { i, a ->
                     Column(Modifier.width(70.dp).enter(i).press { if (a.id.isNotEmpty()) s.push(Dest.Artist(a.id)) }, horizontalAlignment = Alignment.CenterHorizontally) {
                         Artwork(a.thumb, 58.dp, circle = true)
                         Text(a.name, style = T.ui(12.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
@@ -192,8 +196,11 @@ fun StatsScreen(s: AppState) {
             }
         }
         item { Text("Top songs", style = T.ui(18.sp, FontWeight.Bold), modifier = Modifier.padding(top = 26.dp, bottom = 6.dp)) }
-        itemsIndexed(x?.topTracks.orEmpty(), key = { _, t -> t.id }) { i, t ->
-            Row(Modifier.fillMaxWidth().enter(i).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (x != null && x.topArtists.isEmpty()) item { Text("Play something to see your top artists.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3)) }
+        item { }
+        if (x != null && x.topTracks.isEmpty()) item { Text("Play something to see your top songs.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 4.dp)) }
+        itemsIndexed(x?.topTracks.orEmpty(), key = { i, t -> "$i${t.id}" }) { i, t ->
+            Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f) { }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${i + 1}", style = T.num(12.sp, color = c.t3), modifier = Modifier.width(24.dp))
                 Artwork(t.thumb, 40.dp, 6.dp)
                 Text(t.name, style = T.ui(14.sp, FontWeight.SemiBold), modifier = Modifier.weight(1f).padding(start = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -211,7 +218,7 @@ fun StatsScreen(s: AppState) {
                     Canvas(Modifier.padding(top = 14.dp).fillMaxWidth().height(10.dp)) {
                         var xx = 0f
                         x?.genres.orEmpty().forEachIndexed { i, g ->
-                            val w = size.width * g.percent.toFloat() / 100f * grow.value
+                            val w = (size.width * g.percent.toFloat() / 100f * grow.value).let { if (it.isNaN()) 0f else it.coerceAtLeast(0f) }
                             drawRoundRect(shades[i % shades.size].let { if (c.light) lerp(it, Color.Black, 0.5f) else it }, Offset(xx, 0f), Size((w - 3f).coerceAtLeast(0f), size.height), CornerRadius(5f))
                             xx += w
                         }
@@ -223,7 +230,7 @@ fun StatsScreen(s: AppState) {
                             Text("${g.percent}%", style = T.num(11.5.sp, color = c.t2))
                         }
                     }
-                    if (x != null && x.genres.isEmpty()) Text("Play some music and your stats appear here.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 8.dp))
+                    if (x != null && x.genres.isEmpty()) Text("Play something to see your genres.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 8.dp))
                 }
             }
             Spacer(Modifier.height(8.dp))

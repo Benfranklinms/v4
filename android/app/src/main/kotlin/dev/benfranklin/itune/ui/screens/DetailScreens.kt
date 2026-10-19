@@ -56,6 +56,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import dev.benfranklin.itune.core.Album
 import dev.benfranklin.itune.core.ArtistPage
 import dev.benfranklin.itune.core.Track
@@ -96,12 +103,15 @@ fun TrackListPage(
     source: String,
     circleArt: Boolean = false,
     actions: @Composable () -> Unit = {},
+    playlistId: String? = null,
     extra: LazyListScope.() -> Unit = {},
 ) {
     val c = LocalColors.current
     val ctx = LocalContext.current
     val list = rememberLazyListState()
     val collapsed by remember { derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 420 } }
+    val hiddenMap by dev.benfranklin.itune.ui.PendingRemovals.hidden.collectAsState()
+    val hiddenRows = playlistId?.let { hiddenMap[it] }.orEmpty()
     Box(Modifier.fillMaxSize()) {
         Glow(c.glow, Modifier.fillMaxWidth().height(420.dp), alpha = 0.28f, centerY = 0.2f)
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 170.dp)) {
@@ -116,11 +126,11 @@ fun TrackListPage(
                     Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         actions()
                         Box(
-                            Modifier.size(54.dp).clip(CircleShape).background(c.accentUi).press { tracks?.takeIf { it.isNotEmpty() }?.let { App.core.setShuffle(false); Playback.play(ctx, it, 0, source) } },
+                            Modifier.size(54.dp).clip(CircleShape).background(c.accentUi).press { tracks?.takeIf { it.isNotEmpty() }?.let { Playback.setShuffle(false); Playback.play(ctx, it, 0, source) } ?: s.toast("Nothing to play yet") },
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Rounded.PlayArrow, null, tint = c.onAccent, modifier = Modifier.size(28.dp)) }
                         Box(
-                            Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { tracks?.takeIf { it.isNotEmpty() }?.let { Playback.playShuffled(ctx, it, source) } },
+                            Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { tracks?.takeIf { it.isNotEmpty() }?.let { Playback.playShuffled(ctx, it, source) } ?: s.toast("Nothing to play yet") },
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Rounded.Shuffle, null, tint = c.txt, modifier = Modifier.size(20.dp)) }
                     }
@@ -128,9 +138,17 @@ fun TrackListPage(
                 }
             }
             if (tracks == null) item { Shimmers() }
+            if (tracks != null && tracks.isEmpty()) item {
+                EmptyState("Nothing here yet", if (playlistId != null) "Add songs from any song's menu (⋯ › Add to playlist)." else "No songs to show.", "Search") { s.select(dev.benfranklin.itune.ui.Tab.Search) }
+            }
             tracks?.let { tl ->
                 itemsIndexed(tl, key = { i, t -> "$i${t.id}" }) { i, t ->
-                    TrackRow(t, i, onClick = { Playback.play(ctx, tl, i, source) }, onMore = { s.sheet = Sheet.TrackMenu(t) }, trailing = fmtDur(t.durationS.toInt()))
+                    if (playlistId != null && i in hiddenRows) return@itemsIndexed
+                    Box(Modifier.animateItem()) {
+                        dev.benfranklin.itune.ui.components.SwipeTrackRow(s, t) {
+                            TrackRow(t, i, onClick = { Playback.play(ctx, tl, i, source) }, onMore = { s.sheet = Sheet.TrackMenu(t, playlistId = playlistId, position = i) }, trailing = fmtDur(t.durationS.toInt()))
+                        }
+                    }
                 }
             }
             extra()
@@ -144,15 +162,21 @@ fun TrackListPage(
 @Composable
 fun AlbumScreen(s: AppState, id: String) {
     var page by remember { mutableStateOf<dev.benfranklin.itune.core.AlbumPage?>(null) }
-    var saved by remember { mutableStateOf(App.core.isSaved("album", id)) }
-    LaunchedEffect(id) { page = runCatching { App.core.album(id) }.getOrNull() }
+    var saved by remember { mutableStateOf(false) }
+    LaunchedEffect(id) {
+        saved = dev.benfranklin.itune.data.io { App.core.isSaved("album", id) } ?: false
+        page = dev.benfranklin.itune.data.io { App.core.album(id) }
+    }
     val a = page?.album
     TrackListPage(
         s, a?.title ?: "", listOfNotNull(a?.artists, a?.year?.toString(), a?.kind).joinToString(" · "), a?.thumb ?: "", page?.tracks, a?.title ?: "Album",
         actions = {
             SaveButton(saved) {
-                saved = !saved
-                a?.let { App.core.saveAlbum(it, saved) }
+                val al = a ?: return@SaveButton
+                fun apply(v: Boolean) { saved = v; dev.benfranklin.itune.data.Bg.run { App.core.saveAlbum(al, v) }; dev.benfranklin.itune.data.Library.albums.value = if (v) listOf(al) + dev.benfranklin.itune.data.Library.albums.value.filter { it.id != al.id } else dev.benfranklin.itune.data.Library.albums.value.filter { it.id != al.id } }
+                val now = !saved
+                apply(now)
+                s.snack = dev.benfranklin.itune.ui.Snack(if (now) "Saved to Library" else "Removed from Library", "Undo") { apply(!now) }
             }
         },
     )
@@ -161,20 +185,29 @@ fun AlbumScreen(s: AppState, id: String) {
 @Composable
 fun PlaylistScreen(s: AppState, id: String) {
     var page by remember { mutableStateOf<dev.benfranklin.itune.core.PlaylistPage?>(null) }
-    val local = id.startsWith("local:") || id.startsWith("import:") || id == "liked"
-    var saved by remember { mutableStateOf(App.core.isSaved("playlist", id)) }
-    LaunchedEffect(id) { page = runCatching { App.core.playlist(id) }.getOrNull() }
-    val p = page?.playlist
+    val local = id.startsWith("local:") || id.startsWith("import:") || id.startsWith("isa:") || id == "liked"
+    var saved by remember { mutableStateOf(false) }
+    val changes by dev.benfranklin.itune.ui.PlaylistEdits.trackChanges.collectAsState()
+    val libLists by dev.benfranklin.itune.data.Library.playlists.collectAsState()
+    LaunchedEffect(id) { saved = dev.benfranklin.itune.data.io { App.core.isSaved("playlist", id) } ?: false }
+    LaunchedEffect(id, changes) { page = dev.benfranklin.itune.data.io { App.core.playlist(id) } }
+    // reflect renames done from the menu without a reload
+    val p = page?.playlist?.let { pp -> libLists?.firstOrNull { it.id == pp.id }?.let { l -> pp.copy(title = l.title, subtitle = l.subtitle) } ?: pp }
     TrackListPage(
-        s, p?.title ?: "", listOfNotNull(p?.subtitle, p?.trackCount?.let { "$it songs" }).joinToString(" · "), p?.thumb ?: "", page?.tracks, p?.title ?: "Playlist",
+        s, p?.title ?: "", listOfNotNull(p?.subtitle, page?.tracks?.size?.let { "$it songs" }).joinToString(" · "), p?.thumb ?: "", page?.tracks, p?.title ?: "Playlist",
+        playlistId = if (local && id != "liked") id else null,
         actions = {
+            val c = LocalColors.current
             if (!local) SaveButton(saved) {
-                saved = !saved
-                p?.let { App.core.savePlaylist(it, saved) }
-            } else if (id != "liked") {
-                val c = LocalColors.current
-                Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { App.core.deletePlaylist(id); s.pop(); s.toast("Playlist deleted") }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Delete, null, tint = c.txt, modifier = Modifier.size(20.dp))
+                val pl = p ?: return@SaveButton
+                fun apply(v: Boolean) { saved = v; dev.benfranklin.itune.data.Bg.run { App.core.savePlaylist(pl, v); dev.benfranklin.itune.data.Library.refresh() } }
+                val now = !saved
+                apply(now)
+                s.snack = dev.benfranklin.itune.ui.Snack(if (now) "Saved to Library" else "Removed from Library", "Undo") { apply(!now) }
+            }
+            if (id != "liked" && p != null) {
+                Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { s.sheet = Sheet.PlaylistMenu(p) }.testTag("playlist_more"), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.MoreHoriz, "More", tint = c.txt, modifier = Modifier.size(20.dp))
                 }
             }
         },
@@ -189,8 +222,12 @@ fun MixScreen(s: AppState, title: String, tracks: List<Track>) {
 @Composable
 private fun SaveButton(saved: Boolean, onClick: () -> Unit) {
     val c = LocalColors.current
-    Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, null, tint = c.txt, modifier = Modifier.size(20.dp))
+    val k by androidx.compose.animation.core.animateFloatAsState(if (saved) 1f else 0f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 500f), label = "save")
+    Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press(onClick = onClick).testTag("save_button"), contentAlignment = Alignment.Center) {
+        Icon(
+            if (saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, if (saved) "Remove from Library" else "Save to Library", tint = c.txt,
+            modifier = Modifier.size(20.dp).graphicsLayer { val z = 1f + 0.18f * kotlin.math.sin(k * Math.PI.toFloat()); scaleX = z; scaleY = z },
+        )
     }
 }
 
@@ -199,12 +236,23 @@ fun ArtistScreen(s: AppState, id: String) {
     val c = LocalColors.current
     val ctx = LocalContext.current
     var page by remember { mutableStateOf<ArtistPage?>(null) }
-    var saved by remember { mutableStateOf(App.core.isSaved("artist", id)) }
-    LaunchedEffect(id) { page = runCatching { App.core.artist(id) }.getOrNull() }
+    var saved by remember { mutableStateOf(false) }
+    LaunchedEffect(id) {
+        saved = dev.benfranklin.itune.data.io { App.core.isSaved("artist", id) } ?: false
+        page = dev.benfranklin.itune.data.io { App.core.artist(id) }
+    }
     val a = page
     TrackListPage(
         s, a?.artist?.name ?: "", a?.artist?.subtitle ?: "", a?.artist?.thumb ?: "", a?.topTracks, a?.artist?.name ?: "Artist", circleArt = true,
-        actions = { SaveButton(saved) { saved = !saved; a?.let { App.core.saveArtist(it.artist, saved) } } },
+        actions = {
+            SaveButton(saved) {
+                val ar = a ?: return@SaveButton
+                fun apply(v: Boolean) { saved = v; dev.benfranklin.itune.data.Bg.run { App.core.saveArtist(ar.artist, v); dev.benfranklin.itune.data.Library.refresh() } }
+                val now = !saved
+                apply(now)
+                s.snack = dev.benfranklin.itune.ui.Snack(if (now) "Saved to Library" else "Removed from Library", "Undo") { apply(!now) }
+            }
+        },
     ) {
         if (a != null && a.albums.isNotEmpty()) {
             item { Spacer(Modifier.height(24.dp)); SectionTitle("Albums & singles"); Spacer(Modifier.height(10.dp)) }
@@ -235,7 +283,7 @@ fun AlbumRow(s: AppState, albums: List<Album>) {
     val c = LocalColors.current
     LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         itemsIndexed(albums) { i, a ->
-            Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f) { s.push(Dest.Album(a.id)) }) {
+            Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }) {
                 Artwork(a.thumb, 130.dp, 10.dp)
                 Text(a.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 Text(listOfNotNull(a.year?.toString(), a.kind).joinToString(" · "), style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1)
@@ -246,9 +294,59 @@ fun AlbumRow(s: AppState, albums: List<Album>) {
 
 @Composable
 fun DownloadsScreen(s: AppState) {
+    val c = LocalColors.current
     var items by remember { mutableStateOf<List<Track>?>(null) }
-    LaunchedEffect(Unit) { items = runCatching { App.core.downloads().map { it.track } }.getOrDefault(emptyList()) }
-    TrackListPage(s, "Downloads", "${items?.size ?: 0} songs · play offline", items?.firstOrNull()?.thumb ?: "", items, "Downloads")
+    var selecting by remember { mutableStateOf(false) }
+    var sel by remember { mutableStateOf(setOf<String>()) }
+    var hidden by remember { mutableStateOf(setOf<String>()) }
+    LaunchedEffect(Unit) { items = dev.benfranklin.itune.data.io { App.core.downloads().map { it.track } }.orEmpty() }
+    val shown = items?.filter { it.id !in hidden }
+    fun remove(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        s.undoable(
+            if (ids.size == 1) "Removed download" else "Removed ${ids.size} downloads",
+            apply = { hidden = hidden + ids },
+            undo = { hidden = hidden - ids },
+            commit = { dev.benfranklin.itune.data.Bg.run { App.core.removeDownloads(ids.toList()) }; dev.benfranklin.itune.data.Library.refresh() },
+        )
+        selecting = false
+        sel = emptySet()
+    }
+    if (!selecting) {
+        TrackListPage(
+            s, "Downloads", "${shown?.size ?: 0} songs · play offline", shown?.firstOrNull()?.thumb ?: "", shown, "Downloads",
+            actions = {
+                if (!shown.isNullOrEmpty()) Box(Modifier.size(44.dp).clip(CircleShape).background(c.surf3).press { selecting = true }.testTag("dl_select"), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Checklist, "Select", tint = c.txt, modifier = Modifier.size(20.dp))
+                }
+            },
+        )
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            BackBar(s, "${sel.size} selected") {
+                Text("Cancel", style = T.ui(13.5.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.padding(end = 10.dp).press { selecting = false; sel = emptySet() })
+            }
+            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                dev.benfranklin.itune.ui.components.ChipButton(if (sel.size == shown?.size) "Clear" else "Select all") { sel = if (sel.size == shown?.size) emptySet() else shown.orEmpty().map { it.id }.toSet() }
+                dev.benfranklin.itune.ui.components.ChipButton("Remove", selected = sel.isNotEmpty(), modifier = Modifier.testTag("dl_remove")) { remove(sel) }
+            }
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 170.dp)) {
+                itemsIndexed(shown.orEmpty(), key = { _, t -> t.id }) { i, t ->
+                    val on = t.id in sel
+                    Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { sel = if (on) sel - t.id else sel + t.id }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.padding(end = 12.dp).size(22.dp).clip(CircleShape).background(if (on) c.txt else c.surf3), contentAlignment = Alignment.Center) {
+                            if (on) Icon(Icons.Rounded.Check, null, tint = c.bg, modifier = Modifier.size(14.dp))
+                        }
+                        Artwork(t.thumb, 46.dp, 7.dp)
+                        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                            Text(t.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** Local audio files from MediaStore, mixed into the same queue as streaming tracks. */
@@ -256,18 +354,19 @@ fun DownloadsScreen(s: AppState) {
 fun LocalFilesScreen(s: AppState) {
     val ctx = LocalContext.current
     val c = LocalColors.current
-    var items by remember { mutableStateOf<List<Track>?>(runCatching { App.core.localTracks() }.getOrNull()?.takeIf { it.isNotEmpty() }) }
+    var items by remember { mutableStateOf<List<Track>?>(null) }
     val scope = rememberCoroutineScope()
     fun scan() {
         scope.launch {
             val list = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { scanMediaStore(ctx) }
-            App.core.setLocalTracks(list)
+            dev.benfranklin.itune.data.io { App.core.setLocalTracks(list) }
             items = list
             App.prefs.localFiles.value = true
         }
     }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) scan() else items = emptyList() }
     LaunchedEffect(Unit) {
+        dev.benfranklin.itune.data.io { App.core.localTracks() }?.takeIf { it.isNotEmpty() }?.let { if (items == null) items = it }
         val p = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
         if (ctx.checkSelfPermission(p) == android.content.pm.PackageManager.PERMISSION_GRANTED) scan() else perm.launch(p)
     }

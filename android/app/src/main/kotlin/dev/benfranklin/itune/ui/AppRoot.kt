@@ -70,6 +70,13 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Size
 import dev.benfranklin.itune.App
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.ExperimentalComposeUiApi
 import dev.benfranklin.itune.player.Playback
 import dev.benfranklin.itune.ui.components.Artwork
 import dev.benfranklin.itune.ui.components.press
@@ -81,6 +88,7 @@ import dev.benfranklin.itune.ui.theme.LocalReduceMotion
 import dev.benfranklin.itune.ui.theme.T
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun AppRoot(s: AppState) {
     val p = App.prefs
@@ -117,9 +125,10 @@ fun AppRoot(s: AppState) {
         }
         // Crossfade the whole UI when the font changes (no jump).
         AnimatedContent(targetState = "$font|$customPath|$customNum", transitionSpec = { fadeIn(tween(320)) togetherWith fadeOut(tween(220)) }, label = "font") { _ ->
-            SharedTransitionLayout(Modifier.fillMaxSize().background(c.bg)) {
+            SharedTransitionLayout(Modifier.fillMaxSize().background(c.bg).semantics { testTagsAsResourceId = true }) {
                 Box(Modifier.fillMaxSize()) {
                     Content(s)
+                    OfflineBanner()
                     PlayerLayer(s, this@SharedTransitionLayout)
                     SheetHost(s)
                     Toast(s)
@@ -167,6 +176,7 @@ private fun Content(s: AppState) {
                 Dest.Downloads -> DownloadsScreen(s)
                 Dest.Local -> LocalFilesScreen(s)
                 Dest.Wrapped -> WrappedScreen(s)
+                Dest.Diagnostics -> DiagnosticsScreen(s)
             }
         }
     }
@@ -209,7 +219,11 @@ private fun MiniPlayer(s: AppState, shared: SharedTransitionScope, scope: Animat
     val pos by Playback.position.collectAsState()
     val dur by Playback.duration.collectAsState()
     val tr = t ?: return
-    var liked by remember(tr.id) { mutableStateOf(App.core.isLiked(tr.id)) }
+    val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
+    val liked = tr.id in likedIds
+    var dragX by remember { mutableStateOf(0f) }
+    var dragY by remember { mutableStateOf(0f) }
+    val hap = androidx.compose.ui.platform.LocalHapticFeedback.current
     with(shared) {
         Box(
             Modifier
@@ -224,7 +238,23 @@ private fun MiniPlayer(s: AppState, shared: SharedTransitionScope, scope: Animat
                     drawRect(Brush.horizontalGradient(0f to c.glow.copy(alpha = 0.22f), 0.6f to c.glow.copy(alpha = 0.04f), 1f to Color.Transparent))
                 }
                 .border(0.5.dp, c.line3, RoundedCornerShape(14.dp))
-                .press(scaleTo = 0.98f) { s.nowPlaying = true },
+                .graphicsLayer { translationX = dragX * 0.5f; translationY = dragY.coerceAtMost(0f) * 0.4f; alpha = 1f - (kotlin.math.abs(dragX) / 900f).coerceIn(0f, 0.4f) }
+                .pointerInput(tr.id) {
+                    // swipe left/right = next/previous, swipe up = open Now Playing
+                    detectDragGestures(
+                        onDragEnd = {
+                            when {
+                                dragY < -120f -> s.nowPlaying = true
+                                dragX < -160f -> { hap.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); Playback.next() }
+                                dragX > 160f -> { hap.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); Playback.prev() }
+                            }
+                            dragX = 0f; dragY = 0f
+                        },
+                        onDragCancel = { dragX = 0f; dragY = 0f },
+                    ) { ch, d -> ch.consume(); dragX += d.x; dragY += d.y }
+                }
+                .press(scaleTo = 0.98f) { s.nowPlaying = true }
+                .testTag("mini_player"),
         ) {
             Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.sharedElement(rememberSharedContentState("art"), scope, boundsTransform = { _, _ -> spring(dampingRatio = 0.82f, stiffness = 300f) })) {
@@ -239,7 +269,7 @@ private fun MiniPlayer(s: AppState, shared: SharedTransitionScope, scope: Animat
                 }
                 Icon(
                     if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null, tint = c.txt,
-                    modifier = Modifier.size(40.dp).padding(9.dp).press { liked = !liked; App.core.setLiked(tr, liked) },
+                    modifier = Modifier.size(40.dp).padding(9.dp).press { dev.benfranklin.itune.data.Likes.toggle(tr) },
                 )
                 Icon(
                     if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, tint = c.txt,
@@ -272,7 +302,7 @@ private fun BottomNav(s: AppState) {
                     Tab.Library -> Icons.Rounded.LibraryMusic
                     Tab.Stats -> Icons.Rounded.BarChart
                 }
-                Column(Modifier.weight(1f).press { s.select(t) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.weight(1f).press { s.select(t) }.testTag("tab_${t.label}"), horizontalAlignment = Alignment.CenterHorizontally) {
                     val pillA by androidx.compose.animation.core.animateFloatAsState(if (on) 1f else 0f, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMedium), label = "pill")
                     Box(Modifier.size(56.dp, 30.dp), contentAlignment = Alignment.Center) {
                         Box(Modifier.fillMaxSize().graphicsLayer { scaleX = 0.6f + 0.4f * pillA; alpha = pillA }.clip(RoundedCornerShape(15.dp)).background(c.surf4))
@@ -290,18 +320,56 @@ private fun BottomNav(s: AppState) {
 private fun Toast(s: AppState) {
     val c = LocalColors.current
     val msg = s.toast
+    val snack = s.snack
     LaunchedEffect(msg) {
         if (msg != null) {
             delay(2400)
             s.toast = null
         }
     }
+    LaunchedEffect(snack?.id) {
+        if (snack != null) {
+            delay(5000)
+            if (s.snack?.id == snack.id) s.snack = null
+        }
+    }
     Box(Modifier.fillMaxSize().padding(bottom = 170.dp), contentAlignment = Alignment.BottomCenter) {
-        AnimatedVisibility(visible = msg != null, enter = slideInVertically { it } + fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(visible = snack != null, enter = slideInVertically { it } + fadeIn(), exit = fadeOut()) {
+            val sn = snack ?: s.snack
+            Row(
+                Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(c.txt).padding(start = 16.dp, end = 6.dp).height(48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(sn?.msg ?: "", style = T.ui(13.5.sp, FontWeight.SemiBold, c.bg), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (sn?.action != null) Text(
+                    sn.action, style = T.ui(13.5.sp, FontWeight.Bold, c.bg),
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).press { sn.onAction?.invoke(); s.snack = null }.padding(horizontal = 12.dp, vertical = 8.dp).testTag("snack_action"),
+                )
+            }
+        }
+        AnimatedVisibility(visible = msg != null && snack == null, enter = slideInVertically { it } + fadeIn(), exit = fadeOut()) {
             Text(
                 msg ?: "", style = T.ui(13.sp, FontWeight.SemiBold, c.bg),
                 modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(c.txt).padding(horizontal = 16.dp, vertical = 10.dp),
             )
+        }
+    }
+}
+
+/** "You're offline" strip; downloads keep playing (Library › Downloads). */
+@Composable
+private fun OfflineBanner() {
+    val c = LocalColors.current
+    val online by dev.benfranklin.itune.data.Net.online.collectAsState()
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        AnimatedVisibility(!online, enter = slideInVertically { -it } + fadeIn(), exit = slideOutVertically { -it } + fadeOut()) {
+            Row(
+                Modifier.statusBarsPadding().padding(top = 6.dp).clip(RoundedCornerShape(16.dp)).background(c.surf3).padding(horizontal = 14.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(7.dp).clip(androidx.compose.foundation.shape.CircleShape).background(c.t3))
+                Text("Offline · downloads still play", style = T.ui(12.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.padding(start = 8.dp))
+            }
         }
     }
 }
