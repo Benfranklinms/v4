@@ -1,4 +1,5 @@
 package dev.benfranklin.itune.ui.screens
+import androidx.compose.ui.graphics.graphicsLayer
 import dev.benfranklin.itune.ui.components.glass
 
 import android.content.Intent
@@ -401,7 +402,8 @@ fun AppearanceScreen(s: AppState) {
                     LazyRow(contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         itemsIndexed(Palettes.all, key = { _, pl -> pl.id }) { i, pl ->
                             val sel = pl.id == theme
-                            Column(Modifier.enter(i, 20).press { p.theme.value = pl.id }, horizontalAlignment = Alignment.CenterHorizontally) {
+                            val k by androidx.compose.animation.core.animateFloatAsState(if (sel) 1.06f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 420f), label = "themesel")
+                            Column(Modifier.enter(i, 20).graphicsLayer { scaleX = k; scaleY = k }.press { p.theme.value = pl.id }.testTag("theme_${pl.id}"), horizontalAlignment = Alignment.CenterHorizontally) {
                                 Box(
                                     Modifier.size(64.dp, 92.dp).clip(RoundedCornerShape(14.dp)).background(pl.bg)
                                         .border(if (sel) 2.dp else 0.6.dp, if (sel) c.txt else c.line3, RoundedCornerShape(14.dp)).padding(8.dp),
