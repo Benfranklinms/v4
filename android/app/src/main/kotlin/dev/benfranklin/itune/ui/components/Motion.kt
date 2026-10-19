@@ -55,9 +55,9 @@ fun Modifier.press(haptic: Boolean = true, scaleTo: Float = 0.94f, onLongClick: 
         .combinedClickable(
             interactionSource = src,
             indication = null,
-            onLongClick = onLongClick?.let { lc -> { h.performHapticFeedback(HapticFeedbackType.LongPress); lc() } },
+            onLongClick = onLongClick?.let { lc -> { if (dev.benfranklin.itune.App.prefs.haptics.value) h.performHapticFeedback(HapticFeedbackType.LongPress); lc() } },
         ) {
-            if (haptic) h.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            if (haptic && dev.benfranklin.itune.App.prefs.haptics.value) h.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         }
 }

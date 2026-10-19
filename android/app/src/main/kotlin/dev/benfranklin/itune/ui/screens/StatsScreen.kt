@@ -1,5 +1,9 @@
 package dev.benfranklin.itune.ui.screens
 
+import androidx.compose.ui.platform.testTag
+import dev.benfranklin.itune.core.Track
+import dev.benfranklin.itune.player.Playback
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -43,7 +47,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.benfranklin.itune.App
-import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxHeight
 import dev.benfranklin.itune.core.StatsSummary
@@ -66,6 +69,7 @@ import kotlin.math.sin
 @Composable
 fun StatsScreen(s: AppState) {
     val c = LocalColors.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     var range by remember { mutableStateOf("month") }
     var st by remember { mutableStateOf<StatsSummary?>(null) }
     LaunchedEffect(range) { st = dev.benfranklin.itune.data.io { App.core.stats(range, tzMin()) } }
@@ -195,12 +199,15 @@ fun StatsScreen(s: AppState) {
                 }
             }
         }
+        if (x == null || x.topArtists.isEmpty()) item { Text("Play something to see your top artists.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.testTag("stats_empty_artists")) }
         item { Text("Top songs", style = T.ui(18.sp, FontWeight.Bold), modifier = Modifier.padding(top = 26.dp, bottom = 6.dp)) }
-        if (x != null && x.topArtists.isEmpty()) item { Text("Play something to see your top artists.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3)) }
-        item { }
-        if (x != null && x.topTracks.isEmpty()) item { Text("Play something to see your top songs.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 4.dp)) }
+        if (x == null || x.topTracks.isEmpty()) item { Text("Play something to see your top songs.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 4.dp)) }
         itemsIndexed(x?.topTracks.orEmpty(), key = { i, t -> "$i${t.id}" }) { i, t ->
-            Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f) { }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f) {
+                val list = x?.topTracks.orEmpty().filter { it.id.isNotEmpty() }.map { n -> Track(n.id, n.name, "", null, null, null, 0u, n.thumb) }
+                val k = list.indexOfFirst { it.id == t.id }
+                if (k >= 0) Playback.play(ctx, list, k, "Top songs")
+            }.testTag("stats_top_song").padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${i + 1}", style = T.num(12.sp, color = c.t3), modifier = Modifier.width(24.dp))
                 Artwork(t.thumb, 40.dp, 6.dp)
                 Text(t.name, style = T.ui(14.sp, FontWeight.SemiBold), modifier = Modifier.weight(1f).padding(start = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -230,7 +237,7 @@ fun StatsScreen(s: AppState) {
                             Text("${g.percent}%", style = T.num(11.5.sp, color = c.t2))
                         }
                     }
-                    if (x != null && x.genres.isEmpty()) Text("Play something to see your genres.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 8.dp))
+                    if (x == null || x.genres.isEmpty()) Text("Play something to see your genres.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(top = 8.dp))
                 }
             }
             Spacer(Modifier.height(8.dp))

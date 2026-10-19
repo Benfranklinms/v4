@@ -39,7 +39,6 @@ sealed interface Sheet {
     data class Update(val info: UpdateInfo) : Sheet
     data class AddToPlaylist(val track: Track) : Sheet
     data object Speed : Sheet
-    data object WhyThisSong : Sheet
     data class PlaylistMenu(val playlist: Playlist) : Sheet
     data class AlbumMenu(val album: Album) : Sheet
     /** Name dialog. `tracks` are added to the new playlist; `edit` renames an existing one. */

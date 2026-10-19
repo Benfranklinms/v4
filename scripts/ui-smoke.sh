@@ -187,6 +187,71 @@ else
   log "WARN: mini player not shown (stream unavailable on the emulator?)"
 fi
 
+# ---------------------------------------------------------------- bookmark: save / unsave album + artist
+log "== Save to Library"
+id tab_Search
+id search_field
+clear_field
+type_text "adele 25"
+adb shell input keyevent KEYCODE_ENTER
+id filter_Albums 0 30
+if id search_album 1 30; then
+  wait_for resource-id track_number 25 && log "album page: track numbers (no repeated art)" || log "WARN: album tracks not loaded"
+  shot album
+  id save_button
+  wait_for text "Saved to Library" 6 || { log "MISSING (required): Saved to Library toast"; FAILS=$((FAILS + 1)); }
+  shot album-saved
+  back
+  id tab_Library
+  id lib_Albums
+  if id lib_album 1 10; then
+    id save_button
+    wait_for text "Removed from Library" 6 || { log "MISSING (required): Removed from Library toast"; FAILS=$((FAILS + 1)); }
+    id snack_action          # Undo -> saved again
+    shot album-undo
+    back
+  fi
+  id lib_Playlists
+fi
+id tab_Search
+id filter_Artists 0
+if id search_artist 0 15; then
+  id save_button
+  wait_for text "Saved to Library" 6 || { log "MISSING (required): artist Saved to Library toast"; FAILS=$((FAILS + 1)); }
+  back
+  id tab_Library; id lib_Artists
+  wait_for resource-id lib_artist 8 || { log "MISSING (required): saved artist in Library"; FAILS=$((FAILS + 1)); }
+  shot library-artists
+  id lib_Playlists
+fi
+id tab_Search
+id filter_Playlists 0
+if id search_playlist 0 15; then
+  id save_button 0
+  shot playlist-saved
+  back
+fi
+id filter_All 0
+
+# ---------------------------------------------------------------- downloads + import
+log "== Downloads / Import"
+home_tab
+id home_settings
+for _ in 1 2 3 4; do dump; find_node resource-id "srow_Downloads" >/dev/null && break; scroll_down; done
+id "srow_Downloads"
+shot downloads
+back
+id "srow_Import playlists"
+if id import_url 0; then
+  type_text "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+  id import_go
+  wait_for resource-id import_loading 5 && { log "import loading state shown"; shot import-loading; } || log "WARN: import loading state not seen (finished fast?)"
+  sleep 8
+  shot import-result
+  back
+fi
+back
+
 # ---------------------------------------------------------------- playlist rename / delete / undo
 log "== Playlist CRUD"
 id tab_Library
@@ -213,6 +278,7 @@ id "pl_Smoke list 2" 0 && { log "playlist still there after delete"; FAILS=$((FA
 # ---------------------------------------------------------------- Stats with zero/low data
 log "== Stats"
 id tab_Stats
+shot stats-top
 for r in week month year all; do id "range_$r"; done
 scroll_down; scroll_down; scroll_up; scroll_up
 adb shell input tap 300 900; adb shell input tap 800 900; adb shell input tap 540 1400; sleep 1; crash_check "stats taps"

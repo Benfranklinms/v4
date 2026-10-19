@@ -95,7 +95,7 @@ fun SRow(title: String, sub: String? = null, i: Int = 0, onLong: (() -> Unit)? =
     val c = LocalColors.current
     Row(
         Modifier.fillMaxWidth().enter(i, 22).then(if (onClick != null || onLong != null) Modifier.press(scaleTo = 0.985f, onLongClick = onLong) { onClick?.invoke() } else Modifier)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .testTag("srow_$title").padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         lead()
@@ -494,10 +494,11 @@ fun DiagnosticsScreen(s: AppState) {
     LaunchedEffect(Unit) {
         val h = dev.benfranklin.itune.data.io { App.core.streamingHealth() }
         val crashes = withContext(Dispatchers.IO) { dev.benfranklin.itune.CrashLog.history(ctx) }
+        val coreVersion = dev.benfranklin.itune.data.io { App.core.version() } ?: "?"
         text = buildString {
             append("iTune ").append(dev.benfranklin.itune.BuildConfig.VERSION_NAME).append(" (").append(dev.benfranklin.itune.BuildConfig.VERSION_CODE).append(")\n")
             append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append(" · Android ").append(android.os.Build.VERSION.RELEASE).append('\n')
-            append("core ").append(dev.benfranklin.itune.data.Bg.let { runCatching { App.core.version() }.getOrDefault("?") }).append('\n')
+            append("core ").append(coreVersion).append('\n')
             if (h != null) {
                 append("\nStreams\n")
                 append("working client: ").append(h.workingClient.ifEmpty { "-" }).append('\n')

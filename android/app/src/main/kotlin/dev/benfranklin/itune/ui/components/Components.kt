@@ -129,6 +129,7 @@ fun TrackRow(
     playing: Boolean = false,
     trailing: String? = null,
     leadingNumber: Int? = null,
+    showArt: Boolean = true,
 ) {
     val c = LocalColors.current
     Row(
@@ -138,8 +139,9 @@ fun TrackRow(
         if (leadingNumber != null) {
             Text("$leadingNumber", style = T.num(12.sp, color = c.t3), modifier = Modifier.width(26.dp))
         }
-        Artwork(t.thumb, 46.dp, 7.dp)
-        Column(Modifier.weight(1f).padding(start = 14.dp)) {
+        if (showArt) Artwork(t.thumb, 46.dp, 7.dp)
+        else if (leadingNumber == null) Text("${index + 1}", style = T.num(13.sp, color = c.t3), modifier = Modifier.width(30.dp).testTag("track_number"))
+        Column(Modifier.weight(1f).padding(start = if (showArt) 14.dp else 4.dp)) {
             Text(t.title, style = T.ui(14.5.sp, FontWeight.SemiBold, if (playing) c.accentUi else c.txt), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
             Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)

@@ -353,8 +353,6 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
     Column(modifier.fillMaxWidth().height(330.dp).clip(RoundedCornerShape(20.dp)).background(c.surf.copy(alpha = 0.85f)).border(0.5.dp, c.line2, RoundedCornerShape(20.dp)).padding(top = 16.dp)) {
         Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Lyrics", style = T.ui(14.sp, FontWeight.Bold), modifier = Modifier.weight(1f))
-            Text("Translate", style = T.ui(12.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.padding(end = 8.dp))
-            Toggle(false) { /* English only; translation stays off */ }
         }
         when {
             !loaded -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Shimmers() }

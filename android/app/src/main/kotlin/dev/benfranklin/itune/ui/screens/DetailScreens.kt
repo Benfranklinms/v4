@@ -102,6 +102,7 @@ fun TrackListPage(
     circleArt: Boolean = false,
     actions: @Composable () -> Unit = {},
     playlistId: String? = null,
+    albumMode: Boolean = false,
     extra: LazyListScope.() -> Unit = {},
 ) {
     val c = LocalColors.current
@@ -144,7 +145,7 @@ fun TrackListPage(
                     if (playlistId != null && i in hiddenRows) return@itemsIndexed
                     Box(Modifier.animateItem()) {
                         dev.benfranklin.itune.ui.components.SwipeTrackRow(s, t) {
-                            TrackRow(t, i, onClick = { Playback.play(ctx, tl, i, source) }, onMore = { s.sheet = Sheet.TrackMenu(t, playlistId = playlistId, position = i) }, trailing = fmtDur(t.durationS.toInt()))
+                            TrackRow(t, i, onClick = { Playback.play(ctx, tl, i, source) }, onMore = { s.sheet = Sheet.TrackMenu(t, playlistId = playlistId, position = i) }, trailing = fmtDur(t.durationS.toInt()), showArt = !albumMode)
                         }
                     }
                 }
@@ -168,6 +169,7 @@ fun AlbumScreen(s: AppState, id: String) {
     val a = page?.album
     TrackListPage(
         s, a?.title ?: "", listOfNotNull(a?.artists, a?.year?.toString(), a?.kind).joinToString(" · "), a?.thumb ?: "", page?.tracks, a?.title ?: "Album",
+        albumMode = true,
         actions = {
             SaveButton(saved) {
                 val al = a ?: return@SaveButton

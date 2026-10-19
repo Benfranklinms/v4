@@ -215,7 +215,7 @@ fun SearchScreen(s: AppState) {
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     itemsIndexed(r.artists) { i, a ->
-                                        Column(Modifier.width(84.dp).enter(i).press { s.push(Dest.Artist(a.id)) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Column(Modifier.width(84.dp).enter(i).press { s.push(Dest.Artist(a.id)) }.testTag("search_artist"), horizontalAlignment = Alignment.CenterHorizontally) {
                                             Artwork(a.thumb, 76.dp, circle = true)
                                             Text(a.name, style = T.ui(12.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                                         }
@@ -235,7 +235,7 @@ fun SearchScreen(s: AppState) {
                             item {
                                 LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     itemsIndexed(r.albums) { i, a ->
-                                        Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }) {
+                                        Column(Modifier.width(130.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("search_album")) {
                                             Artwork(a.thumb, 130.dp, 10.dp)
                                             Text(a.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                                             Text(listOfNotNull(a.artists, a.year?.toString()).joinToString(" · "), style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -247,7 +247,7 @@ fun SearchScreen(s: AppState) {
                         if (r.playlists.isNotEmpty() && (filter == "All" || filter == "Playlists")) {
                             item { Spacer(Modifier.height(22.dp)); SectionTitle("Playlists"); Spacer(Modifier.height(6.dp)) }
                             itemsIndexed(r.playlists) { i, p ->
-                                Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.PlaylistMenu(p) }) { s.push(Dest.Playlist(p.id)) }.testTag("search_playlist").padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Artwork(p.thumb, 46.dp, 7.dp)
                                     Column(Modifier.padding(start = 14.dp)) {
                                         Text(p.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)

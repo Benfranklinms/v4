@@ -130,7 +130,7 @@ fun ImportScreen(s: AppState) {
                 }
             }
             if (busy) item {
-                Column(Modifier.padding(horizontal = 24.dp)) {
+                Column(Modifier.padding(horizontal = 24.dp).testTag("import_loading")) {
                     Text("Reading the playlist and matching every song…", style = T.ui(13.sp, FontWeight.Medium, c.t2))
                     LinearProgressIndicator(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)), color = c.txt, trackColor = c.surf4, strokeCap = StrokeCap.Round)
                 }

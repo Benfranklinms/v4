@@ -118,7 +118,6 @@ fun SheetHost(s: AppState) {
                         is Sheet.Update -> UpdateSheet(s, sh.info)
                         is Sheet.AddToPlaylist -> AddToPlaylist(s, sh.track)
                         Sheet.Speed -> SpeedSheet(s)
-                        Sheet.WhyThisSong -> WhySheet(s)
                         is Sheet.PlaylistMenu -> PlaylistMenu(s, sh.playlist)
                         is Sheet.AlbumMenu -> AlbumMenu(s, sh.album)
                         is Sheet.NamePlaylist -> NamePlaylistSheet(s, sh.tracks, sh.edit)
@@ -172,7 +171,12 @@ private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, positio
                     Playback.play(ctx, listOf(t) + r, 0, "${t.title} radio")
                 }
             }
-            MenuRow(Icons.Rounded.Download, "Download", 5) {
+            var isDl by remember(t.id) { mutableStateOf(false) }
+            LaunchedEffect(t.id) { isDl = dev.benfranklin.itune.data.io { App.core.isDownloaded(t.id) } ?: false }
+            if (isDl) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove download", 5) {
+                s.sheet = null
+                s.undoable("Removed download", apply = {}, undo = {}, commit = { dev.benfranklin.itune.data.Bg.run { App.core.removeDownload(t.id) } })
+            } else MenuRow(Icons.Rounded.Download, "Download", 5) {
                 s.sheet = null
                 s.toast("Downloading…")
                 App.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
@@ -323,20 +327,6 @@ private fun SpeedSheet(s: AppState) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 10.dp)) {
             listOf(0.75f, 0.9f, 1f, 1.1f, 1.25f, 1.5f).forEach { v -> ChipButton("${v}×", selected = v == sp, mono = true) { Playback.setSpeed(v) } }
         }
-    }
-}
-
-@Composable
-private fun WhySheet(s: AppState) {
-    val c = LocalColors.current
-    val t by Playback.current.collectAsState()
-    val tr = t ?: return
-    var why by remember(tr.id) { mutableStateOf("") }
-    LaunchedEffect(tr.id) { why = dev.benfranklin.itune.data.io { App.core.isaWhy(tr) } ?: "" }
-    Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
-        Text("Ask Isa · Why this song?", style = T.ui(17.sp, FontWeight.Bold))
-        Text(why, style = T.ui(14.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(top = 12.dp, bottom = 16.dp))
-        dev.benfranklin.itune.ui.screens.IsaPill(s)
     }
 }
 

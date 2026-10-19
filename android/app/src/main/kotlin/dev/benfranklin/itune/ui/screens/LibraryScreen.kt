@@ -200,7 +200,7 @@ fun LibraryScreen(s: AppState) {
                 "Albums" -> {
                     if (albums.isEmpty()) item { EmptyState("No saved albums", "Long-press an album and choose Save to Library.", "Search") { s.select(dev.benfranklin.itune.ui.Tab.Search) } }
                     items(albums, key = { it.id }) { a ->
-                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f, onLongClick = { s.sheet = Sheet.AlbumMenu(a) }) { s.push(Dest.Album(a.id)) }.testTag("lib_album").padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Artwork(a.thumb, 52.dp, 8.dp)
                             Column(Modifier.padding(start = 14.dp)) {
                                 Text(a.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -212,7 +212,7 @@ fun LibraryScreen(s: AppState) {
                 else -> {
                     if (artists.isEmpty()) item { EmptyState("No artists yet", "Follow artists from their page to see them here.", "Search") { s.select(dev.benfranklin.itune.ui.Tab.Search) } }
                     items(artists, key = { it.id }) { a ->
-                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { s.push(Dest.Artist(a.id)) }.padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().animateItem().press(scaleTo = 0.98f) { s.push(Dest.Artist(a.id)) }.testTag("lib_artist").padding(horizontal = 20.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Artwork(a.thumb, 52.dp, circle = true)
                             Text(a.name, style = T.ui(14.5.sp, FontWeight.SemiBold), modifier = Modifier.padding(start = 14.dp))
                         }
