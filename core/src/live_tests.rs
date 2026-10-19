@@ -131,3 +131,17 @@ async fn live_home() {
     }
     assert!(!h.shelves.is_empty() || !h.trending.is_empty(), "home feed empty");
 }
+
+/// Regression: lastfm_state() used to lock the Last.fm mutex twice in one expression (self-deadlock).
+#[test]
+fn lastfm_state_does_not_deadlock() {
+    let c = core();
+    c.lastfm_configure("k".into(), "s".into());
+    let (tx, rx) = std::sync::mpsc::channel();
+    let c2 = c.clone();
+    std::thread::spawn(move || {
+        let st = c2.lastfm_state();
+        let _ = tx.send(st.available);
+    });
+    assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)), Ok(true), "lastfm_state deadlocked");
+}

@@ -609,8 +609,11 @@ impl Core {
     }
     pub fn lastfm_state(&self) -> LastfmState {
         guard(move || {
+            // read `available` in its own statement: a guard temporary inside the struct literal would still be
+            // held when lastfm_on() locks the same mutex (self-deadlock).
+            let available = self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some();
             LastfmState {
-                available: self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some(),
+                available,
                 enabled: self.lastfm_on(),
                 username: self.db.kv_get("lastfm_user").unwrap_or_default(),
                 pending: lastfm::pending(&self.db),
@@ -1049,7 +1052,8 @@ impl Core {
 
 impl Core {
     fn lastfm_on(&self) -> bool {
-        self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+        let configured = self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some();
+        configured
             && self.db.kv_get("lastfm_on").as_deref() == Some("1")
             && !self.db.kv_get("lastfm_sk").unwrap_or_default().is_empty()
     }

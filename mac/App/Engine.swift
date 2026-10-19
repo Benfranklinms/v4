@@ -36,21 +36,27 @@ enum Engine {
 
     static var tzMinutes: Int32 { Int32(TimeZone.current.secondsFromGMT() / 60) }
 
+    /// Blocking core work (SQLite, files) runs on its own GCD queue, never on the main thread and never on
+    /// Swift's small cooperative pool (a blocked FFI call there could stall every other task).
+    static let work = DispatchQueue(label: "core.work", qos: .userInitiated, attributes: .concurrent)
+
     /// Run a synchronous core call on a background thread; nil on error.
     static func off<T>(_ f: @escaping () throws -> T) async -> T? {
-        await Task.detached(priority: .userInitiated) { try? f() }.value
+        await withCheckedContinuation { (c: CheckedContinuation<T?, Never>) in
+            work.async { c.resume(returning: try? f()) }
+        }
     }
 
     /// Run a synchronous core call on a background thread, keeping the error.
     static func offResult<T>(_ f: @escaping () throws -> T) async -> Result<T, Error> {
-        await Task.detached(priority: .userInitiated) { () -> Result<T, Error> in
-            do { return .success(try f()) } catch { return .failure(error) }
-        }.value
+        await withCheckedContinuation { (c: CheckedContinuation<Result<T, Error>, Never>) in
+            work.async { do { c.resume(returning: .success(try f())) } catch { c.resume(returning: .failure(error)) } }
+        }
     }
 
     /// Fire-and-forget background core call.
     static func bg(_ f: @escaping () throws -> Void) {
-        Task.detached(priority: .utility) { try? f() }
+        work.async { try? f() }
     }
 
     static func message(_ e: Error) -> String {

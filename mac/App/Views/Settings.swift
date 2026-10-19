@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var signedIn = false
     @State private var showDiag = false
     @State private var confirmRemoveAll = false
+    @State private var hasKey = false
     @State private var health: StreamingHealth?
     @State private var testing = false
     @State private var cacheMb: UInt32 = 256
@@ -171,11 +172,11 @@ struct SettingsView: View {
                 }
                 .contentShape(Rectangle())
                 .contextMenu {
-                    Button(Keychain.has ? "Replace access key" : "Set access key") { keyEntry = true }
-                    if Keychain.has { Button("Remove access key") { Keychain.set(nil) } }
+                    Button(hasKey ? "Replace access key" : "Set access key") { keyEntry = true }
+                    if hasKey { Button("Remove access key") { Keychain.set(nil); hasKey = false } }
                 }
                 if let s = up.status { Text(s).font(theme.ui(11.5)).foregroundStyle(p.t3).transition(.opacity) }
-                if up.needsKey && !Keychain.has {
+                if up.needsKey && !hasKey {
                     Button { keyEntry = true } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -194,6 +195,7 @@ struct SettingsView: View {
             let r = await Engine.off { (Engine.core.streamingHealth(), Engine.core.cacheLimitMb(), Engine.core.lastfmState(), Engine.core.isSignedIn()) }
             if let r { health = r.0; cacheMb = r.1; lastfm = r.2; signedIn = r.3 }
             loaded = true
+            hasKey = await Engine.off { Keychain.has } ?? false
             await refreshSizes()
         }
         .confirmationDialog("Remove all downloads?", isPresented: $confirmRemoveAll) {
@@ -209,7 +211,7 @@ struct SettingsView: View {
                     Spacer()
                     Button("Cancel") { keyEntry = false; key = "" }
                     Button("Save") {
-                        Keychain.set(key); key = ""; keyEntry = false
+                        Keychain.set(key); hasKey = !key.isEmpty; key = ""; keyEntry = false
                         Task { await up.check(manual: true) }
                     }.keyboardShortcut(.defaultAction)
                 }
