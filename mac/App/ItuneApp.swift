@@ -449,8 +449,9 @@ struct DetailArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ArtBackdrop(strength: 0.5))
+        .background(ArtBackdrop(strength: 0.5).ignoresSafeArea())
         .clipped()
+        .toolbarBackground(.hidden, for: .windowToolbar)
     }
 }
 
