@@ -42,10 +42,14 @@ for n in root.iter('node'):
 sys.exit(1)
 PY
 }
-alive() { adb shell pidof $PKG >/dev/null 2>&1; }
-shot() { STEP=$((STEP + 1)); adb exec-out screencap -p > "$O/$(printf %02d $STEP)-$1.png" 2>/dev/null; }
+shot() { STEP=$((STEP + 1)); timeout 20 adb exec-out screencap -p > "$O/$(printf %02d $STEP)-$1.png" 2>/dev/null; }
+alive() { timeout 15 adb shell pidof $PKG >/dev/null 2>&1; }
 crash_check() {
-  if ! alive; then log "APP DIED after: $1"; adb logcat -d -v threadtime > "$O/logcat-crash.txt"; exit 1; fi
+  if ! alive; then
+    if timeout 15 adb shell true >/dev/null 2>&1; then log "APP DIED after: $1"; else log "EMULATOR/ADB UNRESPONSIVE after: $1"; fi
+    timeout 60 adb logcat -d -v threadtime > "$O/logcat-crash.txt" 2>&1
+    exit 1
+  fi
 }
 # wait_for <attr> <value> <seconds> [contains]
 wait_for() {

@@ -15,21 +15,24 @@ adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 ||
 adb shell dumpsys deviceidle whitelist +$PKG >/dev/null 2>&1 || true
 adb shell settings put secure show_ime_with_hard_keyboard 0 >/dev/null 2>&1 || true
 adb logcat -c
+# stream logcat + CPU samples to files from the start, so a hung emulator still leaves evidence
+( adb logcat -v threadtime > "$O/logcat-live.txt" 2>&1 & echo $! > /tmp/logcat.pid )
+( while true; do echo "== $(date +%T)"; timeout 10 adb shell top -b -n 1 -m 8 2>&1; sleep 20; done > "$O/top.txt" 2>&1 & echo $! > /tmp/top.pid )
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity
 sleep 20
 adb exec-out screencap -p > "$O/launch.png"
-bash scripts/ui-smoke.sh "$O/ui"; UI=$?
+timeout 1800 bash scripts/ui-smoke.sh "$O/ui"; UI=$?
 echo "ui-smoke exit=$UI"
-adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 3
-adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 -v 600 > "$O/monkey.txt" 2>&1 || true
+timeout 30 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 3
+timeout 600 adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 -v 600 > "$O/monkey.txt" 2>&1 || true
 sleep 5
-adb exec-out screencap -p > "$O/after.png"
-adb logcat -d -v threadtime > "$O/logcat.txt"
+timeout 30 adb exec-out screencap -p > "$O/after.png"
+timeout 60 adb logcat -d -v threadtime > "$O/logcat.txt"; kill $(cat /tmp/logcat.pid /tmp/top.pid) 2>/dev/null
 # ANR stack traces (google_apis images allow adb root)
-adb root >/dev/null 2>&1; sleep 2
-adb shell 'ls /data/anr' > "$O/anr-list.txt" 2>&1 || true
-adb pull /data/anr "$O/anr" >/dev/null 2>&1 || true
-grep -nE "FATAL EXCEPTION|Fatal signal|ANR in $PKG|panicked at|CRASH: $PKG" "$O/logcat.txt" "$O/monkey.txt" > "$O/crashes.txt"
+timeout 30 adb root >/dev/null 2>&1; sleep 2
+timeout 30 adb shell 'ls /data/anr' > "$O/anr-list.txt" 2>&1 || true
+timeout 60 adb pull /data/anr "$O/anr" >/dev/null 2>&1 || true
+grep -nE "FATAL EXCEPTION|Fatal signal|ANR in $PKG|panicked at|CRASH: $PKG" "$O/logcat.txt" "$O/logcat-live.txt" "$O/monkey.txt" > "$O/crashes.txt"
 if [ -s "$O/crashes.txt" ]; then
   echo "::error::crash detected ($NAME)"
   cat "$O/crashes.txt"

@@ -266,7 +266,7 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
                 contentKey = { it::class }, label = "isa-state",
             ) { st ->
                 when (st) {
-                    is IsaState.Thinking -> ThinkingRows(shimmer.value)
+                    is IsaState.Thinking -> ThinkingRows(shimmer, reduce)
                     is IsaState.Ready -> Preview(s, st.result)
                     is IsaState.Failed -> Row(Modifier.padding(top = 16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(st.message, style = T.ui(13.sp, FontWeight.Medium, c.t2), modifier = Modifier.weight(1f))
@@ -316,13 +316,13 @@ private fun Orb(pulseS: androidx.compose.runtime.State<Float>, waveS: androidx.c
 }
 
 @Composable
-private fun ThinkingRows(shimmer: Float) {
+private fun ThinkingRows(shimmer: androidx.compose.runtime.State<Float>, reduce: Boolean) {
     val c = LocalColors.current
     Column(Modifier.padding(top = 16.dp).testTag("isa_thinking")) {
         Text("Isa is picking songs…", style = T.ui(12.5.sp, FontWeight.SemiBold, c.t3), modifier = Modifier.padding(bottom = 10.dp))
         repeat(3) { i ->
             Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(40.dp).clip(RoundedCornerShape(7.dp)).background(c.surf3.copy(alpha = 0.6f + 0.3f * ((shimmer + i * 0.3f) % 1f))))
+                Box(Modifier.size(40.dp).graphicsLayer { alpha = if (reduce) 0.75f else (0.6f + 0.3f * ((shimmer.value + i * 0.3f) % 1f)).coerceIn(0.3f, 1f) }.clip(RoundedCornerShape(7.dp)).background(c.surf3))
                 Column(Modifier.padding(start = 12.dp)) {
                     Box(Modifier.width((150 - i * 24).dp).height(10.dp).clip(RoundedCornerShape(5.dp)).background(c.surf3))
                     Spacer(Modifier.height(6.dp))
