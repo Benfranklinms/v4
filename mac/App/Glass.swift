@@ -4,7 +4,9 @@ import SwiftUI
 /// Central Liquid Glass styling. macOS 26: native `.glassEffect`; older macOS: `.ultraThinMaterial`;
 /// Reduce Transparency: solid surfaces (#09090A family). Every floating container uses these modifiers.
 enum GlassEnv {
-    static var reduceTransparency: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
+    /// Test override (smoke): true = glass even when the system asks for Reduce Transparency, false = solid.
+    nonisolated(unsafe) static var forceGlass: Bool?
+    static var reduceTransparency: Bool { forceGlass.map { !$0 } ?? NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }
 }
 
 struct GlassSurface<S: Shape>: ViewModifier {

@@ -38,6 +38,8 @@ final class Player: ObservableObject {
     private var stallSince: Date?
     private var loudGain: Float = 1
     private var advancing = false
+    /// Consecutive tracks that failed to start; after 3 playback stops instead of skipping through the queue.
+    private var failStreak = 0
 
     private init() {
         av.automaticallyWaitsToMinimizeStalling = true
@@ -63,6 +65,7 @@ final class Player: ObservableObject {
     // MARK: commands
     func play(_ tracks: [Track], index: Int, source: String) {
         guard !tracks.isEmpty else { return }
+        failStreak = 0
         finishPlay(skipped: false)
         if let t = core.queueSet(tracks: tracks, start: Int32(index), source: source) { load(t) }
         publishQueue()
@@ -152,6 +155,12 @@ final class Player: ObservableObject {
             } catch {
                 self.error = "Couldn't play \(t.title): \(Engine.message(error))"
                 self.buffering = false
+                self.failStreak += 1
+                if self.failStreak >= 3 {
+                    self.isPlaying = false
+                    Nav.shared.show("Can't reach streams right now")
+                    return
+                }
                 try? await Task.sleep(nanoseconds: 1_200_000_000)
                 if self.current?.id == t.id { self.next(user: false) }
             }
@@ -197,6 +206,7 @@ final class Player: ObservableObject {
         switch item.status {
         case .readyToPlay:
             buffering = false
+            failStreak = 0
             let d = item.duration.seconds
             // Trust metadata / stream length over AVPlayer's value when they disagree by more than 5 %.
             if d.isFinite && d > 0 {

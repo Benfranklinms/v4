@@ -145,3 +145,17 @@ fn lastfm_state_does_not_deadlock() {
     });
     assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)), Ok(true), "lastfm_state deadlocked");
 }
+
+/// Removing downloads deletes the files and the rows.
+#[test]
+fn remove_downloads_deletes_files() {
+    let c = core();
+    let t = Track { id: "dltest1".into(), title: "T".into(), artists: "A".into(), artist_id: None, album: None, album_id: None, duration_s: 10, thumb: String::new() };
+    let path = format!("{}/downloads/dltest1.m4a", c.data_dir);
+    std::fs::write(&path, b"x").unwrap();
+    c.db.add_download(&t, &path, 1).unwrap();
+    assert!(c.is_downloaded("dltest1".into()));
+    assert_eq!(c.remove_downloads(vec!["dltest1".into()]).unwrap(), 1);
+    assert!(!c.is_downloaded("dltest1".into()));
+    assert!(!std::path::Path::new(&path).exists());
+}

@@ -485,6 +485,7 @@ struct Marquee: View {
     let text: String
     let font: Font
     let color: Color
+    var height: CGFloat = 18
     @State private var w: CGFloat = 0
     @State private var box: CGFloat = 0
     @State private var go = false
@@ -498,7 +499,7 @@ struct Marquee: View {
                 .onAppear { box = g.size.width; go = true }
                 .onChange(of: text) { _, _ in go = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { go = true } }
         }
-        .frame(height: 18)
+        .frame(height: height)
         .clipped()
     }
 }

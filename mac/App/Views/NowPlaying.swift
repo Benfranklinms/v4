@@ -87,7 +87,7 @@ struct NowPlayingView: View {
         let p = theme.p
         return HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Marquee(text: t.title, font: theme.ui(22, .bold), color: p.txt).frame(height: 28)
+                Marquee(text: t.title, font: theme.ui(22, .bold), color: p.txt, height: 30)
                 HStack(spacing: 0) {
                     Button { if let a = t.artistId { nav.push(.artist(a)) } } label: {
                         Text(t.artists).font(theme.ui(13.5, .medium)).foregroundStyle(p.t2).lineLimit(1)
