@@ -29,13 +29,18 @@ ls -la "$GEN"
 
 cd mac
 xcodegen generate
-xcodebuild -project iTune.xcodeproj -scheme iTune -configuration Release -derivedDataPath build/dd \
+mkdir -p build
+if ! xcodebuild -project iTune.xcodeproj -scheme iTune -configuration Release -derivedDataPath build/dd \
   -destination 'platform=macOS,arch=arm64' ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-  MARKETING_VERSION="$VER" CURRENT_PROJECT_VERSION="$BUILD" build | tee build/xcodebuild.log | grep -E "error:|warning: unre|BUILD" || true
-test "${PIPESTATUS[0]}" -eq 0
+  MARKETING_VERSION="$VER" CURRENT_PROJECT_VERSION="$BUILD" build > build/xcodebuild.log 2>&1; then
+  grep -E "error:" build/xcodebuild.log | sort -u | head -80
+  tail -30 build/xcodebuild.log
+  exit 1
+fi
+grep -E "warning:" build/xcodebuild.log | grep -v "deprecated" | sort -u | head -20 || true
 APP=build/dd/Build/Products/Release/iTune.app
-test -d "$APP"
+test -x "$APP/Contents/MacOS/iTune"
 codesign --force --deep -s - --entitlements App/iTune.entitlements "$APP"
 codesign -dv "$APP" 2>&1 | head -5
 # Strip the keys back out of the source plist so they never get committed.

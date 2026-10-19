@@ -34,7 +34,15 @@ CREATE TABLE IF NOT EXISTS downloads(track_id TEXT PRIMARY KEY, json TEXT NOT NU
   bytes INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS local_tracks(track_id TEXT PRIMARY KEY, json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mcache(k TEXT PRIMARY KEY, v TEXT NOT NULL, at INTEGER NOT NULL);
 "#;
+
+/// Lyrics / metadata cache rows expire after 30 days.
+pub const MCACHE_TTL_S: i64 = 30 * 24 * 3600;
+
+fn now_s() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
 
 pub struct ArtistAffinity {
     pub plays: HashMap<String, u32>,
@@ -49,6 +57,9 @@ impl Db {
         let conn = Connection::open(path).map_err(e)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;").map_err(e)?;
         conn.execute_batch(SCHEMA).map_err(e)?;
+        // Keep the DB lean: drop expired cache rows and the old unbounded lyrics rows.
+        let _ = conn.execute("DELETE FROM mcache WHERE at < ?1", [now_s() - MCACHE_TTL_S]);
+        let _ = conn.execute("DELETE FROM kv WHERE k LIKE 'lyr:%'", []);
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -60,6 +71,23 @@ impl Db {
         let c = self.conn.lock().unwrap();
         c.execute("INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])
             .map_err(e)?;
+        Ok(())
+    }
+
+    pub fn mcache_get(&self, k: &str) -> Option<String> {
+        let c = self.conn.lock().unwrap();
+        c.query_row("SELECT v FROM mcache WHERE k=?1 AND at >= ?2", params![k, now_s() - MCACHE_TTL_S], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten()
+    }
+    pub fn mcache_set(&self, k: &str, v: &str) -> Result<(), CoreError> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO mcache(k,v,at) VALUES(?1,?2,?3) ON CONFLICT(k) DO UPDATE SET v=excluded.v, at=excluded.at",
+            params![k, v, now_s()],
+        )
+        .map_err(e)?;
         Ok(())
     }
 

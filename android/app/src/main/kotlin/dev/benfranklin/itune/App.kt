@@ -1,18 +1,32 @@
 package dev.benfranklin.itune
 
 import android.app.Application
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import kotlinx.coroutines.launch
 import dev.benfranklin.itune.core.Core
 import dev.benfranklin.itune.data.Prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
-class App : Application() {
+class App : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         instance = this
         prefs = Prefs(this)
+        // Lean storage: trim the stream cache to its cap on every start.
+        scope.launch { runCatching { dev.benfranklin.itune.player.DataSources.applyCap(this@App) } }
     }
+
+    /** Images: 64 MB disk, ~15% of heap in memory. */
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.15).build() }
+        .diskCache { DiskCache.Builder().directory(cacheDir.resolve("images")).maxSizeBytes(64L * 1024 * 1024).build() }
+        .respectCacheHeaders(false)
+        .build()
 
     companion object {
         lateinit var instance: App

@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import dev.benfranklin.itune.App
 import dev.benfranklin.itune.BuildConfig
 import dev.benfranklin.itune.core.StreamingHealth
@@ -125,10 +126,10 @@ fun SettingsScreen(s: AppState) {
     var keyEntry by remember { mutableStateOf(false) }
     var keyText by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
-    var cacheBytes by remember { mutableStateOf(0L) }
+    var storage by remember { mutableStateOf(Storage()) }
     LaunchedEffect(Unit) {
         health = App.core.streamingHealth()
-        cacheBytes = withContext(Dispatchers.IO) { DataSources.cachedBytes(ctx) }
+        storage = withContext(Dispatchers.IO) { Storage.measure(ctx) }
     }
     val signIn = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (p.signedIn.value) scope.launch {
@@ -195,15 +196,36 @@ fun SettingsScreen(s: AppState) {
                             }
                         }.padding(horizontal = 12.dp, vertical = 6.dp)) { Text(if (testing) "Testing…" else "Retry", style = T.ui(12.sp, FontWeight.SemiBold)) }
                     }
-                    SRow("Offline cache", "${cacheBytes / (1024 * 1024)} MB of $cacheMb MB · next songs and recent plays", 1)
+                }
+            }
+            item {
+                Group("Storage") {
+                    val steps = listOf(0, 128, 256, 512, 1024)
+                    fun label(mb: Int) = when { mb == 0 -> "Off"; mb >= 1024 -> "1 GB"; else -> "$mb MB" }
+                    SRow("Stream cache", "${label(cacheMb)} max · upcoming songs count inside it", 0)
                     Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Slider(
-                            value = cacheMb.toFloat(), onValueChange = { p.cacheMb.value = (it / 256f).toInt().coerceAtLeast(1) * 256 }, valueRange = 256f..8192f,
-                            onValueChangeFinished = { App.core.setCacheLimitMb(p.cacheMb.value.toUInt()) },
+                            value = steps.indexOf(cacheMb).let { if (it < 0) 2 else it }.toFloat(), steps = 3, valueRange = 0f..4f,
+                            onValueChange = { p.cacheMb.value = steps[it.roundToInt().coerceIn(0, 4)] },
+                            onValueChangeFinished = {
+                                App.core.setCacheLimitMb(p.cacheMb.value.toUInt())
+                                scope.launch(Dispatchers.IO) { DataSources.applyCap(ctx); storage = Storage.measure(ctx) }
+                            },
                             colors = SliderDefaults.colors(thumbColor = c.txt, activeTrackColor = c.txt, inactiveTrackColor = c.surf4), modifier = Modifier.weight(1f),
                         )
                     }
-                    SRow("Clear cache", null, 2, onClick = { scope.launch(Dispatchers.IO) { DataSources.clear(ctx); App.core.clearCache(); cacheBytes = 0 } })
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        StorageStat("Cache", storage.cache); StorageStat("Images", storage.images)
+                        StorageStat("Downloads", storage.downloads); StorageStat("Data", storage.data)
+                    }
+                    SRow("Clear cache", "Downloads are kept", 2, onClick = {
+                        scope.launch(Dispatchers.IO) {
+                            DataSources.clear(ctx); App.core.clearCache()
+                            runCatching { coil.Coil.imageLoader(ctx).let { it.diskCache?.clear(); it.memoryCache?.clear() } }
+                            storage = Storage.measure(ctx)
+                            withContext(Dispatchers.Main) { s.toast("Cache cleared") }
+                        }
+                    })
                 }
             }
             item {
@@ -369,5 +391,30 @@ fun AppearanceScreen(s: AppState) {
                 }
             }
         }
+    }
+}
+
+
+/** Live storage breakdown for Settings › Storage. */
+data class Storage(val cache: Long = 0, val images: Long = 0, val downloads: Long = 0, val data: Long = 0) {
+    companion object {
+        fun measure(ctx: android.content.Context): Storage {
+            fun size(f: java.io.File): Long = if (!f.exists()) 0 else f.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            val dl = runCatching { App.core.downloads().sumOf { it.bytes.toLong() } }.getOrDefault(0L)
+            val media = DataSources.cachedBytes(ctx)
+            val coreCache = runCatching { App.core.streamingHealth().cacheBytes.toLong() }.getOrDefault(0L)
+            val images = size(ctx.cacheDir.resolve("images"))
+            val data = (size(ctx.filesDir) - dl - coreCache).coerceAtLeast(0) + size(java.io.File(ctx.applicationInfo.dataDir, "databases"))
+            return Storage(media + coreCache, images, dl, data)
+        }
+    }
+}
+
+@Composable
+private fun StorageStat(label: String, bytes: Long) {
+    val c = LocalColors.current
+    Column {
+        Text(android.text.format.Formatter.formatShortFileSize(LocalContext.current, bytes), style = T.num(13.sp), color = c.txt)
+        Text(label, style = T.ui(11.sp), color = c.t3)
     }
 }

@@ -48,7 +48,7 @@ struct SettingsView: View {
                 slider("Lyrics size", value: $theme.lyricsScale, range: 0.8...1.5)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Font").font(theme.ui(12, .semibold)).foregroundStyle(p.t2)
-                    FlowChips(items: Theme.fonts.map { ($0.0, $0.1) } + (theme.customFamily.isEmpty ? [] : [("custom", theme.customFamily)]),
+                    FlowChips(items: fontItems,
                               selected: theme.fontId) { id in withAnimation(.easeInOut(duration: 0.35)) { theme.fontId = id } }
                     HStack {
                         Chip(label: "Import font…", icon: "plus") { importFont() }
@@ -157,6 +157,12 @@ struct SettingsView: View {
         }
         .animation(Motion.spring, value: up.needsKey)
         .animation(Motion.spring, value: up.status)
+    }
+
+    private var fontItems: [(String, String)] {
+        var items: [(String, String)] = Theme.fonts
+        if !theme.customFamily.isEmpty { items.append(("custom", theme.customFamily)) }
+        return items
     }
 
     private var healthText: String {

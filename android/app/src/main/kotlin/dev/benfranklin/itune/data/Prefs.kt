@@ -35,7 +35,8 @@ class Prefs(ctx: Context) {
     val customFontPath = str("custom_font_path", "")
     val customFontName = str("custom_font_name", "")
     val customFontNumbers = bool("custom_font_numbers", false)
-    val cacheMb = int("cache_mb", 1024)
+    /** Strict LRU cap for streamed audio (incl. prefetch): 0 (off), 128, 256, 512, 1024. */
+    val cacheMb = int("stream_cache_mb", 256)
     val autoplay = bool("autoplay", true)
     val normalize = bool("normalize", true)
     val batteryAsked = bool("battery_asked", false)

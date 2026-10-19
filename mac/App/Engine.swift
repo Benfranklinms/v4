@@ -53,5 +53,5 @@ enum Keychain {
         SecItemAdd(add as CFDictionary, nil)
     }
 
-    static var has: Bool { get() != nil }
+    static var has: Bool { Keychain.get() != nil }
 }

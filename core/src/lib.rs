@@ -263,7 +263,7 @@ impl Core {
         Ok(())
     }
     pub fn cache_limit_mb(&self) -> u32 {
-        self.db.kv_get("cache_limit_mb").and_then(|v| v.parse().ok()).unwrap_or(1024)
+        self.db.kv_get("cache_limit_mb").and_then(|v| v.parse().ok()).unwrap_or(256)
     }
     /// Cached copy of a streamed track, if present (touches it for LRU).
     pub fn cached_path(&self, id: String) -> Option<String> {
@@ -535,7 +535,7 @@ impl Core {
     // ------------------------------------------------------------------ lyrics
     pub async fn lyrics(&self, track: Track) -> Result<Option<Lyrics>, CoreError> {
         let key = format!("lyr:{}", track.id);
-        if let Some(j) = self.db.kv_get(&key) {
+        if let Some(j) = self.db.mcache_get(&key) {
             if j == "none" {
                 return Ok(None);
             }
@@ -544,7 +544,7 @@ impl Core {
             }
         }
         let l = lyrics::fetch(self.yt.http(), &track).await?;
-        let _ = self.db.kv_set(&key, &l.as_ref().map(|l| serde_json::to_string(&LyricsJson::from(l.clone())).unwrap_or_default()).unwrap_or_else(|| "none".into()));
+        let _ = self.db.mcache_set(&key, &l.as_ref().map(|l| serde_json::to_string(&LyricsJson::from(l.clone())).unwrap_or_default()).unwrap_or_else(|| "none".into()));
         Ok(l)
     }
 

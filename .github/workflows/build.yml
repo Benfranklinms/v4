@@ -108,7 +108,7 @@ jobs:
         run: |
           hdiutil attach "out/v4-${APP_VERSION_NAME}.dmg" -nobrowse -mountpoint /tmp/v4m
           ls /tmp/v4m
-          test -d /tmp/v4m/iTune.app
+          test -x /tmp/v4m/iTune.app/Contents/MacOS/iTune
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" /tmp/v4m/iTune.app/Contents/Info.plist
           hdiutil detach /tmp/v4m
       - uses: actions/upload-artifact@v4
