@@ -905,6 +905,12 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -982,6 +988,8 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_itune_core_fn_method_core_invalidate_stream(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_fn_method_core_is_downloaded(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     fun uniffi_itune_core_fn_method_core_is_liked(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_itune_core_fn_method_core_is_saved(`ptr`: Pointer,`kind`: RustBuffer.ByValue,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1058,8 +1066,12 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_record_play(`ptr`: Pointer,`track`: RustBuffer.ByValue,`startedAt`: Long,`listenedMs`: Long,`skipped`: Byte,`tzOffsetMin`: Int,`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_fn_method_core_remove_all_downloads(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     fun uniffi_itune_core_fn_method_core_remove_download(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_fn_method_core_remove_downloads(`ptr`: Pointer,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     fun uniffi_itune_core_fn_method_core_remove_from_playlist(`ptr`: Pointer,`playlistId`: RustBuffer.ByValue,`position`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_remove_recent_search(`ptr`: Pointer,`query`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1276,6 +1288,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_invalidate_stream(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_is_downloaded(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_is_liked(
     ): Short
     fun uniffi_itune_core_checksum_method_core_is_saved(
@@ -1352,7 +1366,11 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_record_play(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_remove_all_downloads(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_remove_download(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_remove_downloads(
     ): Short
     fun uniffi_itune_core_checksum_method_core_remove_from_playlist(
     ): Short
@@ -1503,6 +1521,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_invalidate_stream() != 57497.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_is_downloaded() != 36293.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_is_liked() != 39903.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1617,7 +1638,13 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_record_play() != 4765.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_remove_all_downloads() != 5370.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_remove_download() != 61533.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_remove_downloads() != 48280.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_remove_from_playlist() != 59703.toShort()) {
@@ -2270,6 +2297,8 @@ public interface CoreInterface {
     
     fun `invalidateStream`(`id`: kotlin.String)
     
+    fun `isDownloaded`(`id`: kotlin.String): kotlin.Boolean
+    
     fun `isLiked`(`id`: kotlin.String): kotlin.Boolean
     
     fun `isSaved`(`kind`: kotlin.String, `id`: kotlin.String): kotlin.Boolean
@@ -2373,7 +2402,14 @@ public interface CoreInterface {
     
     fun `recordPlay`(`track`: Track, `startedAt`: kotlin.Long, `listenedMs`: kotlin.ULong, `skipped`: kotlin.Boolean, `tzOffsetMin`: kotlin.Int, `source`: kotlin.String)
     
+    fun `removeAllDownloads`(): kotlin.UInt
+    
     fun `removeDownload`(`id`: kotlin.String)
+    
+    /**
+     * Remove several downloads (multi-select / a whole album or playlist). Returns how many were removed.
+     */
+    fun `removeDownloads`(`ids`: List<kotlin.String>): kotlin.UInt
     
     fun `removeFromPlaylist`(`playlistId`: kotlin.String, `position`: kotlin.UInt)
     
@@ -2975,6 +3011,18 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
     
 
+    override fun `isDownloaded`(`id`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_is_downloaded(
+        it, FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
     override fun `isLiked`(`id`: kotlin.String): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     callWithPointer {
@@ -3538,6 +3586,19 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
 
     
+    @Throws(CoreException::class)override fun `removeAllDownloads`(): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_remove_all_downloads(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `removeDownload`(`id`: kotlin.String)
         = 
     callWithPointer {
@@ -3547,6 +3608,22 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
 }
     }
     
+    
+
+    
+    /**
+     * Remove several downloads (multi-select / a whole album or playlist). Returns how many were removed.
+     */
+    @Throws(CoreException::class)override fun `removeDownloads`(`ids`: List<kotlin.String>): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_remove_downloads(
+        it, FfiConverterSequenceString.lower(`ids`),_status)
+}
+    }
+    )
+    }
     
 
     

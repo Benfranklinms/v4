@@ -872,3 +872,149 @@ mod home_live {
         assert!(s.len() >= 3);
     }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Up next: YouTube Music watch-next automix (playlist RDAMVM<id>, music-filtered), like the YTM / Spotify radio.
+
+/// Candidate from the watch-next panel, with the music video type (ATV = official audio, OMV = official video,
+/// UGC = user upload, PODCAST_EPISODE...).
+pub struct NextItem {
+    pub track: Track,
+    pub kind: String,
+}
+
+pub fn parse_next_panel(v: &Value) -> Vec<NextItem> {
+    let mut out = Vec::new();
+    fn walk(v: &Value, out: &mut Vec<NextItem>, d: u32) {
+        if d > 30 {
+            return;
+        }
+        match v {
+            Value::Object(o) => {
+                if let Some(r) = o.get("playlistPanelVideoRenderer") {
+                    if let Some(it) = parse_panel_video(r) {
+                        out.push(it);
+                    }
+                    return;
+                }
+                for x in o.values() {
+                    walk(x, out, d + 1);
+                }
+            }
+            Value::Array(a) => a.iter().for_each(|x| walk(x, out, d + 1)),
+            _ => {}
+        }
+    }
+    walk(v, &mut out, 0);
+    out
+}
+
+fn parse_panel_video(r: &Value) -> Option<NextItem> {
+    let id = r.get("videoId")?.as_str()?.to_string();
+    let title = runs_text(r.get("title"));
+    let mut artists = Vec::new();
+    let mut artist_id = None;
+    let mut album = None;
+    let mut album_id = None;
+    let byline = r.get("longBylineText").or_else(|| r.get("shortBylineText"));
+    if let Some(runs) = byline.and_then(|b| b.get("runs")).and_then(|x| x.as_array()) {
+        for run in runs {
+            let txt = run.get("text").and_then(|x| x.as_str()).unwrap_or("");
+            match run.get("navigationEndpoint").and_then(browse_id_of) {
+                Some((bid, pt)) if pt.contains("ALBUM") => {
+                    album = Some(txt.to_string());
+                    album_id = Some(bid);
+                }
+                Some((bid, _)) => {
+                    artists.push(txt.to_string());
+                    artist_id.get_or_insert(bid);
+                }
+                None => {}
+            }
+        }
+        if artists.is_empty() {
+            if let Some(a) = runs.first().and_then(|x| x.get("text")).and_then(|x| x.as_str()) {
+                artists.push(a.to_string());
+            }
+        }
+    }
+    let kind = r
+        .pointer("/navigationEndpoint/watchEndpoint/watchEndpointMusicSupportedConfigs/watchEndpointMusicConfig/musicVideoType")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .trim_start_matches("MUSIC_VIDEO_TYPE_")
+        .to_string();
+    let duration_s = parse_duration(&runs_text(r.get("lengthText")));
+    let thumb = r.get("thumbnail").map(thumb_of).unwrap_or_default();
+    Some(NextItem {
+        track: Track { id, title, artists: artists.join(", "), artist_id, album, album_id, duration_s, thumb },
+        kind,
+    })
+}
+
+/// Words that mark a different recording of a song (or a non-music upload).
+const OTHER_VERSION: &[&str] = &[
+    "cover", "live", "karaoke", "slowed", "sped up", "speed up", "8d", "nightcore", "reverb", "instrumental",
+    "the voice", "audition", "x factor", "idol", "got talent", "reaction", "tutorial", "lyrics", "lyric video",
+    "remix", "acoustic version", "piano version", "mashup", "bass boosted", "1 hour", "loop",
+];
+
+pub fn is_other_version_of(seed: &Track, t: &Track) -> bool {
+    let a = crate::import::norm(&seed.title);
+    let b = crate::import::norm(&t.title);
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    if t.id == seed.id {
+        return true;
+    }
+    a == b || (a.len() >= 6 && b.contains(&a)) || (b.len() >= 6 && a.contains(&b))
+}
+
+pub fn looks_like_non_original(t: &Track) -> bool {
+    let low = format!(" {} ", t.title.to_lowercase());
+    OTHER_VERSION.iter().any(|w| low.contains(&format!(" {w}")) || low.contains(&format!("({w}")) || low.contains(&format!("[{w}")))
+}
+
+impl Yt {
+    /// Watch-next automix for a track, music only, official tracks first.
+    pub async fn watch_next(&self, video_id: &str) -> Result<Vec<NextItem>, CoreError> {
+        let body = json!({"videoId": video_id, "playlistId": format!("RDAMVM{video_id}"), "params": "wAEB", "isAudioOnly": true, "enablePersistentPlaylistPanel": true});
+        let v = self.remix_post("next", "", body, None, None).await?;
+        let items = parse_next_panel(&v);
+        if items.is_empty() {
+            return Err(CoreError::Unavailable { msg: "no up next".into() });
+        }
+        Ok(items)
+    }
+}
+
+#[cfg(test)]
+mod next_tests {
+    use super::*;
+    fn tr(id: &str, t: &str, a: &str) -> Track {
+        Track { id: id.into(), title: t.into(), artists: a.into(), artist_id: None, album: None, album_id: None, duration_s: 200, thumb: String::new() }
+    }
+    #[test]
+    fn versions() {
+        let seed = tr("a", "Young And Beautiful", "Lana Del Rey");
+        assert!(is_other_version_of(&seed, &tr("b", "Young and Beautiful (The Voice Norway)", "X")));
+        assert!(is_other_version_of(&seed, &tr("c", "young and beautiful - slowed", "starclouds")));
+        assert!(!is_other_version_of(&seed, &tr("d", "Summertime Sadness", "Lana Del Rey")));
+        assert!(looks_like_non_original(&tr("e", "Video Games (Live at Coachella)", "Lana Del Rey")));
+        assert!(!looks_like_non_original(&tr("f", "Born to Die", "Lana Del Rey")));
+    }
+    #[test]
+    fn panel() {
+        let j = serde_json::json!({"contents":{"x":[{"playlistPanelVideoRenderer":{"videoId":"v1","title":{"runs":[{"text":"Summertime Sadness"}]},
+          "longBylineText":{"runs":[{"text":"Lana Del Rey","navigationEndpoint":{"browseEndpoint":{"browseId":"UC1","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}}}}},{"text":" • "},{"text":"Born To Die","navigationEndpoint":{"browseEndpoint":{"browseId":"MPRE1","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}}}}}]},
+          "lengthText":{"runs":[{"text":"4:25"}]},
+          "navigationEndpoint":{"watchEndpoint":{"videoId":"v1","watchEndpointMusicSupportedConfigs":{"watchEndpointMusicConfig":{"musicVideoType":"MUSIC_VIDEO_TYPE_ATV"}}}}}}]}});
+        let v = parse_next_panel(&j);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].kind, "ATV");
+        assert_eq!(v[0].track.artists, "Lana Del Rey");
+        assert_eq!(v[0].track.album.as_deref(), Some("Born To Die"));
+        assert_eq!(v[0].track.duration_s, 265);
+    }
+}

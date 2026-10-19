@@ -63,6 +63,53 @@ pub struct LastfmAuth {
     pub url: String,
 }
 
+impl Core {
+    /// Spotify-style "similar songs" for Up next / radio: YouTube Music watch-next automix (official tracks first),
+    /// falling back to rustypipe's radio; other versions of the seed, non-originals, already queued and recently
+    /// played tracks are dropped, then the taste engine reranks (no artist twice in a row).
+    async fn similar(&self, seed_id: &str, seed: Option<&Track>, exclude: &HashSet<String>) -> Result<Vec<Track>, CoreError> {
+        let mut cands: Vec<(Track, u8)> = match self.yt.watch_next(seed_id).await {
+            Ok(items) => items
+                .into_iter()
+                .filter(|i| !i.kind.contains("PODCAST") && !i.kind.contains("EPISODE"))
+                .map(|i| {
+                    let rank = match i.kind.as_str() {
+                        "ATV" => 0,
+                        "OMV" | "OFFICIAL_SOURCE_MUSIC" => 1,
+                        _ => 2,
+                    };
+                    (i.track, rank)
+                })
+                .collect(),
+            Err(_) => self.yt.radio(seed_id).await?.into_iter().map(|t| (t, 1)).collect(),
+        };
+        let seed_t = seed.cloned().or_else(|| cands.iter().find(|c| c.0.id == seed_id).map(|c| c.0.clone()));
+        let recent: HashSet<String> = self.db.recent_tracks(40).unwrap_or_default().into_iter().map(|t| t.id).collect();
+        let mut seen_titles = HashSet::new();
+        cands.retain(|(t, _)| {
+            if t.id == seed_id || exclude.contains(&t.id) || recent.contains(&t.id) {
+                return false;
+            }
+            if let Some(s) = &seed_t {
+                if yt::is_other_version_of(s, t) {
+                    return false;
+                }
+            }
+            if yt::looks_like_non_original(t) {
+                return false;
+            }
+            seen_titles.insert(format!("{}|{}", import::norm(&t.title), t.main_artist().to_lowercase()))
+        });
+        // user uploads only when there aren't enough official tracks
+        if cands.iter().filter(|c| c.1 < 2).count() >= 10 {
+            cands.retain(|c| c.1 < 2);
+        }
+        cands.sort_by_key(|c| c.1);
+        let aff = self.db.affinity();
+        Ok(queue::rerank(cands.into_iter().map(|c| c.0).collect(), &aff, exclude))
+    }
+}
+
 fn io(e: std::io::Error) -> CoreError {
     CoreError::Storage { msg: e.to_string() }
 }
@@ -127,11 +174,10 @@ impl Core {
         self.yt.playlist(&id).await
     }
     pub async fn radio(&self, video_id: String) -> Result<Vec<Track>, CoreError> {
-        let c = self.yt.radio(&video_id).await?;
-        let aff = self.db.affinity();
+        let seed = self.queue.lock().unwrap_or_else(|p| p.into_inner()).tracks.iter().find(|t| t.id == video_id).cloned();
         let mut ex = HashSet::new();
         ex.insert(video_id.clone());
-        let mut r = queue::rerank(c, &aff, &ex);
+        let mut r = self.similar(&video_id, seed.as_ref(), &ex).await?;
         r.truncate(40);
         Ok(r)
     }
@@ -465,7 +511,7 @@ impl Core {
     pub async fn ensure_autoplay(&self) -> Result<u32, CoreError> {
         let (seed, exclude) = {
             let q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
-            if !q.autoplay || q.repeat != 0 || q.remaining() >= 3 {
+            if !q.autoplay || q.repeat != 0 || q.remaining() >= 5 {
                 return Ok(0);
             }
             // seed from the last streaming track in the queue
@@ -473,9 +519,7 @@ impl Core {
             (seed, q.tracks.iter().map(|t| t.id.clone()).collect::<HashSet<_>>())
         };
         let Some(seed) = seed else { return Ok(0) };
-        let cands = self.yt.radio(&seed.id).await?;
-        let aff = self.db.affinity();
-        let mut r = queue::rerank(cands, &aff, &exclude);
+        let mut r = self.similar(&seed.id, Some(&seed), &exclude).await?;
         r.truncate(25);
         let n = self.queue.lock().unwrap_or_else(|p| p.into_inner()).append_autoplay(r);
         Ok(n as u32)
@@ -726,6 +770,24 @@ impl Core {
             let _ = std::fs::remove_file(p);
         }
         Ok(())
+    }
+    /// Remove several downloads (multi-select / a whole album or playlist). Returns how many were removed.
+    pub fn remove_downloads(&self, ids: Vec<String>) -> Result<u32, CoreError> {
+        let mut n = 0;
+        for id in ids {
+            if let Some(p) = self.db.remove_download(&id)? {
+                let _ = std::fs::remove_file(p);
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+    pub fn remove_all_downloads(&self) -> Result<u32, CoreError> {
+        let ids: Vec<String> = self.db.downloads()?.into_iter().map(|d| d.track.id).collect();
+        self.remove_downloads(ids)
+    }
+    pub fn is_downloaded(&self, id: String) -> bool {
+        self.db.download_path(&id).is_some()
     }
 
     // ------------------------------------------------------------------ lyrics
