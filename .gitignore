@@ -1,0 +1,13 @@
+/target/
+**/build/
+.gradle/
+local.properties
+*.p12
+*.jks
+!*.enc
+/android/app/src/main/jniLibs/
+/out/
+.DS_Store
+mac/build/
+mac/*.xcodeproj/
+mac/Generated/

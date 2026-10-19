@@ -1,0 +1,14 @@
+# Hand-written Baseline Profile: AOT-compile the app's own UI/player code and the hot Compose/Media3 paths
+# so first frames and scrolling don't hit the JIT. (Installed by androidx.profileinstaller.)
+HSPLdev/benfranklin/itune/**->**(**)**
+Ldev/benfranklin/itune/**;
+HSPLdev/benfranklin/itune/core/**->**(**)**
+HSPLandroidx/compose/runtime/**->**(**)**
+HSPLandroidx/compose/ui/**->**(**)**
+HSPLandroidx/compose/foundation/**->**(**)**
+HSPLandroidx/compose/animation/**->**(**)**
+HSPLandroidx/compose/material3/**->**(**)**
+HSPLandroidx/media3/exoplayer/**->**(**)**
+HSPLandroidx/media3/session/**->**(**)**
+HSPLcoil/**->**(**)**
+HSPLcom/sun/jna/**->**(**)**

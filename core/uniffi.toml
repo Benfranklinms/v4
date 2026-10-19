@@ -1,0 +1,8 @@
+[bindings.kotlin]
+package_name = "dev.benfranklin.itune.core"
+cdylib_name = "itune_core"
+
+[bindings.swift]
+module_name = "ItuneCore"
+ffi_module_name = "ItuneCoreFFI"
+ffi_module_filename = "ItuneCoreFFI"

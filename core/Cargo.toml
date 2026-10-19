@@ -1,0 +1,28 @@
+[package]
+name = "itune-core"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "itune_core"
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+uniffi = { version = "0.28.3", features = ["tokio"] }
+rustypipe = { git = "https://codeberg.org/ThetaDev/rustypipe.git", rev = "c93bafd8", default-features = false, features = ["rustls-tls-webpki-roots", "userdata"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "gzip", "http2"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+thiserror = "2"
+rand = "0.9"
+regex = "1"
+once_cell = "1"
+url = "2"
+urlencoding = "2"
+log = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
