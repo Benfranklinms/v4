@@ -85,6 +85,7 @@ final class Player: ObservableObject {
     }
 
     func next(user: Bool = true) {
+        Smoke.trace("next user=\(user) from \(current?.title ?? "-") at \(Int(position))s/\(Int(duration))s")
         finishPlay(skipped: user)
         if let t = core.queueNext(user: user) { load(t); publishQueue(); return }
         Task {
@@ -146,6 +147,7 @@ final class Player: ObservableObject {
                 let (url, headers, loud, client, streamMs) = try await self.resolve(t)
                 if Task.isCancelled { return }
                 self.clientFor[t.id] = client
+                Smoke.trace("resolved \(t.title) via \(client), stream \(streamMs) ms, metadata \(t.durationS) s")
                 if streamMs > 0 {
                     let sd = Double(streamMs) / 1000
                     if self.trustedDuration <= 0 || abs(sd - self.trustedDuration) / max(1, self.trustedDuration) < 0.08 { self.trustedDuration = sd }
@@ -154,6 +156,7 @@ final class Player: ObservableObject {
                 self.start(url: url, headers: headers, loudness: loud, track: t)
             } catch {
                 self.error = "Couldn't play \(t.title): \(Engine.message(error))"
+                Smoke.trace("resolve failed \(t.title): \(Engine.message(error).prefix(160))")
                 self.buffering = false
                 self.failStreak += 1
                 if self.failStreak >= 3 {
@@ -216,6 +219,7 @@ final class Player: ObservableObject {
             updateNowPlaying()
         case .failed:
             let msg = item.error?.localizedDescription ?? "playback failed"
+            Smoke.trace("item failed \(track.title): \(msg)")
             // 403 / dead URL / throttled: next client in the chain, once per track.
             if !retried.contains(track.id), current?.id == track.id, !track.id.hasPrefix("local:") {
                 retried.insert(track.id)
@@ -254,8 +258,9 @@ final class Player: ObservableObject {
     }
 
     /// Auto-advance exactly once per track (end notification, watchdog at the real end, or a stall there).
-    private func advance() {
+    private func advance(_ why: String = "end") {
         guard !advancing else { return }
+        Smoke.trace("auto-advance (\(why)) at \(Int(position))s of \(Int(duration))s")
         advancing = true
         next(user: false)
     }
@@ -264,10 +269,10 @@ final class Player: ObservableObject {
         guard s.isFinite else { return }
         position = min(s, duration > 0 ? duration : s)
         // watchdog: the real end of the track (AVPlayer may report a longer item and never fire didPlayToEnd)
-        if duration > 1, s >= duration - 0.3, current != nil { advance() }
+        if duration > 1, s >= duration - 0.3, current != nil { advance("watchdog") }
         if av.timeControlStatus == .waitingToPlayAtSpecifiedRate, duration > 1, s >= duration - 2 {
             if stallSince == nil { stallSince = Date() }
-            if let st = stallSince, Date().timeIntervalSince(st) > 3 { advance() }
+            if let st = stallSince, Date().timeIntervalSince(st) > 3 { advance("stall") }
         } else if av.timeControlStatus == .playing { stallSince = nil }
         let playing = av.timeControlStatus == .playing
         if playing { listened += min(2, Date().timeIntervalSince(lastTick)) }

@@ -28,6 +28,8 @@ enum Smoke {
         FileHandle.standardError.write(Data(("SMOKE " + s + "\n").utf8))
     }
 
+    static func trace(_ s: String) { if enabled { say("trace: " + s) } }
+
     static func sleep(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
     static func wait(_ secs: Double, _ cond: @MainActor () -> Bool) async -> Bool {
         let end = Date().addingTimeInterval(secs)
@@ -224,9 +226,12 @@ enum Smoke {
         // playback, duration, autoplay
         var track: Track?
         var results: SearchResults?
+        var npAlbum: String?
         do {
             results = try await Engine.core.search(query: "Blinding Lights The Weeknd")
             track = results?.tracks.first { $0.title.lowercased().contains("blinding") } ?? results?.tracks.first
+            npAlbum = track?.albumId ?? results?.albums.first?.id
+            if npAlbum == nil { npAlbum = (try? await Engine.core.search(query: "After Hours The Weeknd"))?.albums.first?.id }
             record("search", track != nil, track.map { "\($0.title) — \($0.artists) \($0.durationS)s" } ?? "no tracks")
         } catch { record("search", false, Engine.message(error), soft: true) }
 
@@ -288,7 +293,7 @@ enum Smoke {
                 let frac = img.map(transparentFraction) ?? 1
                 record("np_to_artist", ok && frac < 0.001, String(format: "collapsed=%@, see-through pixels %.3f%%", ok ? "yes" : "no", frac * 100))
             } else { record("np_to_artist", false, "track has no artist id", soft: true) }
-            if let alid = t.albumId ?? results?.albums.first?.id {
+            if let alid = npAlbum {
                 nav.openNowPlaying(); await sleep(1)
                 nav.push(.album(alid))
                 let ok = await wait(5) { !nav.showNowPlaying && nav.path.last == .album(alid) }
@@ -299,12 +304,15 @@ enum Smoke {
             }
 
             // auto-advance at the real end of the track
-            if playing {
-                let before = player.current?.id
+            // fresh start of the searched track, then jump near its real end
+            player.play([t], index: 0, source: "Smoke advance")
+            let again = await wait(40) { player.current?.id == t.id && player.isPlaying && player.position > 0.5 }
+            if again {
+                _ = await wait(20) { (player.queue?.tracks.count ?? 0) > 1 }
                 player.seek(max(0, player.duration - 4))
-                let adv = await wait(25) { player.current?.id != before && player.current != nil }
-                record("auto_advance", adv, adv ? "advanced to \(player.current?.title ?? "")" : "stayed on \(player.current?.title ?? "")")
-            } else { record("auto_advance", false, "no playback in this environment", soft: true) }
+                let adv = await wait(30) { player.current?.id != t.id && player.current != nil }
+                record("auto_advance", adv, adv ? "advanced to \(player.current?.title ?? "")" : "stayed on \(player.current?.title ?? "") at \(Int(player.position))s/\(Int(player.duration))s")
+            } else { record("auto_advance", false, "stream not available here: \(player.error ?? "-")", soft: true) }
         } else {
             for n in ["playback", "duration", "autoplay_up_next", "auto_advance"] { record(n, false, "no track (search failed)", soft: true) }
         }

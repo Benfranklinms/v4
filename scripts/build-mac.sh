@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 TD=${CARGO_TARGET_DIR:-$ROOT/target}
-VER=${APP_VERSION_NAME:-0.1.0}
+VER=${APP_VERSION_NAME:-0.2.0}
 BUILD=${APP_VERSION_CODE:-1}
 export MACOSX_DEPLOYMENT_TARGET=14.0
 
