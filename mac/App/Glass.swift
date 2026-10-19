@@ -73,7 +73,7 @@ struct GlassIconButton: View {
 
     var body: some View {
         let p = theme.p
-        Button(action: { Haptics.tap(); action() }) {
+        Button(action: { Haptics.tap(); hover = false; action() }) {
             Image(systemName: name)
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(on ? p.bg : (hover ? p.txt : p.t2))
@@ -85,6 +85,8 @@ struct GlassIconButton: View {
         .help(help)
         .accessibilityLabel(help.isEmpty ? name : help)
         .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
+        .onDisappear { hover = false }
+        .animation(Motion.spring, value: on)
     }
 }
 
@@ -115,7 +117,7 @@ struct PrimaryButton: View {
                 } else if let i = icon {
                     Image(systemName: i).font(.system(size: 12, weight: .bold))
                 }
-                Text(busy ? (busyTitle ?? title) : title).font(theme.ui(13, .bold))
+                Text(busy ? (busyTitle ?? title) : title).font(theme.ui(13, .bold)).lineLimit(1).fixedSize()
             }
             .foregroundStyle(text)
             .padding(.horizontal, 18).frame(height: 36)
@@ -138,7 +140,7 @@ struct SecondaryButton: View {
         Button(action: { Haptics.tap(); action() }) {
             HStack(spacing: 7) {
                 if let i = icon { Image(systemName: i).font(.system(size: 12, weight: .semibold)) }
-                Text(title).font(theme.ui(13, .semibold))
+                Text(title).font(theme.ui(13, .semibold)).lineLimit(1).fixedSize()
             }
             .foregroundStyle(p.txt)
             .padding(.horizontal, 16).frame(height: 36)
@@ -157,9 +159,10 @@ struct ArtBackdrop: View {
         let p = theme.p
         ZStack {
             p.bg
-            if !GlassEnv.reduceTransparency, let img = player.artwork {
-                Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
-                    .blur(radius: 80).saturation(1.2).opacity(0.55 * strength)
+            if !GlassEnv.reduceTransparency, let img = player.backdrop {
+                // pre-blurred 96 px image stretched: no blur filter at render time
+                Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+                    .opacity(0.55 * strength)
                     .transition(.opacity)
                 p.bg.opacity(0.45)
             }

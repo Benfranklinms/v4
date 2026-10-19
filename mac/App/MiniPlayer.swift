@@ -125,11 +125,7 @@ struct MiniPlayerContent: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(t.title).font(theme.ui(13, .semibold)).foregroundStyle(p.txt).lineLimit(1)
                     Text(t.artists).font(theme.ui(11)).foregroundStyle(p.t2).lineLimit(1)
-                    GeometryReader { g in
-                        Capsule().fill(p.surf4).overlay(alignment: .leading) {
-                            Capsule().fill(p.txt).frame(width: g.size.width * CGFloat(player.duration > 0 ? min(1, player.position / player.duration) : 0))
-                        }
-                    }.frame(height: 3)
+                    ProgressLine().frame(height: 3)
                 }
                 Spacer(minLength: 0)
                 Transport(size: 13).opacity(hover ? 1 : 0.85)
@@ -151,5 +147,18 @@ struct MiniPlayerContent: View {
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .onHover { h in withAnimation(Motion.spring) { hover = h } }
         .contextMenu { Button("Close") { MiniPlayerPanel.shared.toggle() } }
+    }
+}
+
+/// Thin progress line observing only the player clock.
+struct ProgressLine: View {
+    @EnvironmentObject var theme: Theme
+    @ObservedObject private var clock = Player.shared.clock
+    var body: some View {
+        GeometryReader { g in
+            Capsule().fill(theme.p.surf4).overlay(alignment: .leading) {
+                Capsule().fill(theme.p.txt).frame(width: g.size.width * CGFloat(clock.duration > 0 ? min(1, clock.position / clock.duration) : 0))
+            }
+        }
     }
 }

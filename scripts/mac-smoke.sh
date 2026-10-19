@@ -20,11 +20,17 @@ hdiutil detach "$MP" >/dev/null 2>&1 || true
 rm -rf "$HOME/Library/Application Support/iTune"
 sw_vers | tee -a "$OUT/dmg-contents.txt"
 export ITUNE_SMOKE_OUT="$OUT"
-# launch from the copied bundle; hard cap 16 min
+# phase 1 (session): play, pause at a known position, cache Home, quit -> phase 2 checks the restore + cold start
+( /tmp/iTune.app/Contents/MacOS/iTune --smoke --smoke-phase=session > "$OUT/stdout-session.txt" 2> "$OUT/stderr-session.txt" ) & P1=$!
+for i in $(seq 1 300); do kill -0 $P1 2>/dev/null || break; sleep 1; done
+if kill -0 $P1 2>/dev/null; then echo "session phase hung, killing"; kill -9 $P1; fi
+wait $P1; echo "session phase exit $?"; grep "^SMOKE" "$OUT/stderr-session.txt" | tail -20
+sleep 2
+# launch from the copied bundle; hard cap 21 min
 ( /tmp/iTune.app/Contents/MacOS/iTune --smoke > "$OUT/stdout.txt" 2> "$OUT/stderr.txt" ) & PID=$!
 # stall diagnostics: when the log stops moving for 75 s, sample the process (main-thread stack)
 LAST=0; SINCE=0; NS=0
-for i in $(seq 1 960); do
+for i in $(seq 1 1260); do
   kill -0 $PID 2>/dev/null || break
   sleep 1
   N=$(wc -l < "$OUT/stderr.txt" 2>/dev/null || echo 0)

@@ -26,13 +26,15 @@ final class LibraryStore: ObservableObject {
             async let dl = Engine.off { try Engine.core.downloads().map(\.track.id) }
             async let pn = Engine.off { Engine.core.getSetting(key: "pinned") ?? "" }
             let (a, b, c, d, e, f, g) = await (pl, sp, al, ar, lk, dl, pn)
-            playlists = a ?? playlists ?? []
-            savedPlaylists = b ?? []
-            albums = c ?? []
-            artists = d ?? []
-            liked = Set(e ?? [])
-            downloaded = Set(f ?? [])
-            pinned = Set((g ?? "").split(separator: "\n").map(String.init))
+            MenuTracker.run {
+                self.playlists = a ?? self.playlists ?? []
+                self.savedPlaylists = b ?? []
+                self.albums = c ?? []
+                self.artists = d ?? []
+                self.liked = Set(e ?? [])
+                self.downloaded = Set(f ?? [])
+                self.pinned = Set((g ?? "").split(separator: "\n").map(String.init))
+            }
         }
     }
 
@@ -166,7 +168,7 @@ final class LibraryStore: ObservableObject {
         Task {
             var ok = 0
             for t in tracks {
-                if await (try? Engine.core.download(track: t)) != nil { ok += 1; downloaded.insert(t.id) }
+                if await (try? Engine.core.download(track: t)) != nil { ok += 1; MenuTracker.run { self.downloaded.insert(t.id) } }
             }
             Nav.shared.show(ok == tracks.count ? "Downloaded \(label)" : "Downloaded \(ok) of \(tracks.count)")
         }
@@ -187,6 +189,26 @@ final class LibraryStore: ObservableObject {
             Engine.bg { _ = try Engine.core.removeAllDownloads() }
         })
     }
+}
+
+/// While an NSMenu (context / "…" menu) is open, store updates wait until it closes, so SwiftUI doesn't rebuild
+/// the menu under the pointer (that flickered and reset the Add to Playlist submenu).
+@MainActor
+enum MenuTracker {
+    private(set) static var open = false
+    private static var pending: [() -> Void] = []
+    static func install() {
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { _ in MainActor.assumeIsolated { open = true } }
+        nc.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                open = false
+                let p = pending; pending = []
+                p.forEach { $0() }
+            }
+        }
+    }
+    static func run(_ f: @escaping () -> Void) { if open { pending.append(f) } else { f() } }
 }
 
 /// Google account shown in the Account sheet.

@@ -14,21 +14,30 @@ struct QueueSidePanel: View {
     var body: some View {
         let p = theme.p
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 18) {
+            HStack(spacing: 16) {
                 ForEach(["Queue", "Recently played"], id: \.self) { x in
                     Button { withAnimation(Motion.spring) { tab = x } } label: {
                         VStack(spacing: 6) {
-                            Text(x).font(theme.ui(13, tab == x ? .bold : .medium)).foregroundStyle(tab == x ? p.txt : p.t2)
+                            Text(x).font(theme.ui(13, tab == x ? .bold : .medium)).foregroundStyle(tab == x ? p.txt : p.t2).lineLimit(1)
                             Capsule().fill(tab == x ? p.txt : .clear).frame(height: 2)
                         }.fixedSize()
                     }.buttonStyle(.plain).accessibilityIdentifier("queue_tab_\(x)")
                 }
-                Spacer()
-                IconButton("xmark", size: 11) { nav.toggleQueue() }.foregroundStyle(p.t2).help("Close").accessibilityLabel("Close queue")
+                Spacer(minLength: 8)
+                Button { nav.closeQueue() } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(p.txt)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(p.light ? Color.black.opacity(0.08) : Color.white.opacity(0.12)))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(PressStyle(scale: 0.9))
+                .help("Close (Esc)").accessibilityLabel("Close queue").accessibilityIdentifier("queue_close")
             }
             .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
             Divider().opacity(0.4)
-            if tab == "Queue" { queueList } else { recentList }
+            Group { if tab == "Queue" { queueList } else { recentList } }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
         }
         .overlay(alignment: .leading) {
             // resize handle

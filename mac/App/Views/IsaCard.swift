@@ -182,10 +182,12 @@ struct IsaPreview: View {
 }
 
 /// Glowing mono orb with a live waveform; pulses while thinking / listening.
+/// The timeline only runs while Isa is active (thinking / listening / focused) or hovered; idle it is a still frame.
 struct IsaOrb: View {
     let active: Bool
+    @State private var hover = false
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: Motion.reduce)) { ctx in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: Motion.reduce || !(active || hover))) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             let pulse = active ? 1 + 0.08 * sin(t * 6) : 1
             Canvas { g, size in
@@ -205,6 +207,7 @@ struct IsaOrb: View {
             .scaleEffect(pulse)
             .shadow(color: .white.opacity(active ? 0.45 : 0.18), radius: active ? 10 : 5)
         }
+        .onHover { hover = $0 }
         .accessibilityHidden(true)
     }
 }

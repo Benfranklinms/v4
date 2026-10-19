@@ -1,23 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Image cache + off-main decoding for artwork.
-final class ArtCache {
-    static let shared = ArtCache()
-    let cache = NSCache<NSString, NSImage>()
-    func image(_ url: String) async -> NSImage? {
-        if let i = cache.object(forKey: url as NSString) { return i }
-        guard let u = URL(string: url) else { return nil }
-        let img: NSImage? = await Task.detached(priority: .utility) {
-            if u.isFileURL { return NSImage(contentsOf: u) }
-            guard let (d, _) = try? await URLSession.shared.data(from: u) else { return nil }
-            return NSImage(data: d)
-        }.value
-        if let img { cache.setObject(img, forKey: url as NSString) }
-        return img
-    }
-}
-
 struct ArtView: View {
     @EnvironmentObject var theme: Theme
     let url: String
@@ -31,7 +14,7 @@ struct ArtView: View {
         let p = theme.p
         ZStack {
             p.surf3
-            if let img = image ?? loaded {
+            if let img = image ?? loaded ?? (url.isEmpty ? nil : ArtCache.shared.cached(url, points: size)) {
                 Image(nsImage: img).resizable().aspectRatio(contentMode: .fill).transition(.opacity)
             } else {
                 PulseMark().foregroundStyle(p.t4).frame(width: size * 0.34, height: size * 0.34)
@@ -41,8 +24,9 @@ struct ArtView: View {
         .clipShape(circle ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: radius, style: .continuous)))
         .task(id: url) {
             guard image == nil, !url.isEmpty else { return }
-            let i = await ArtCache.shared.image(url)
-            withAnimation(.easeOut(duration: 0.25)) { loaded = i }
+            if let c = ArtCache.shared.cached(url, points: size) { loaded = c; return }
+            let i = await ArtCache.shared.image(url, points: size)
+            withAnimation(.easeOut(duration: 0.2)) { loaded = i }
         }
     }
 }
@@ -114,34 +98,35 @@ struct Transport: View {
     }
 }
 
+/// Observes only the player clock (4 Hz): the rest of the window doesn't re-render on ticks.
 struct Scrubber: View {
     @EnvironmentObject var theme: Theme
-    @EnvironmentObject var player: Player
+    @ObservedObject private var clock = Player.shared.clock
+    private var player: Player { Player.shared }
     var width: CGFloat? = nil
     @State private var drag: Double?
     @State private var hover = false
 
     var body: some View {
         let p = theme.p
-        let f = drag ?? (player.duration > 0 ? min(1, player.position / player.duration) : 0)
+        let f = drag ?? (clock.duration > 0 ? min(1, clock.position / clock.duration) : 0)
         HStack(spacing: 10) {
-            Text(fmt(drag.map { $0 * player.duration } ?? player.position)).font(theme.num(10.5)).foregroundStyle(p.t3).frame(width: 38, alignment: .trailing)
+            Text(fmt(drag.map { $0 * clock.duration } ?? clock.position)).font(theme.num(10.5)).foregroundStyle(p.t3).frame(width: 38, alignment: .trailing)
             GeometryReader { g in
                 let h: CGFloat = hover || drag != nil ? 6 : 4
                 ZStack(alignment: .leading) {
                     Capsule().fill(p.surf4).frame(height: h)
-                    Capsule().fill(theme.glow.opacity(0.55)).frame(width: max(0, g.size.width * f), height: h * 3).blur(radius: 5)
                     Capsule().fill(p.txt).frame(width: max(0, g.size.width * f), height: h)
                 }
                 .frame(maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 0)
                     .onChanged { v in drag = max(0, min(1, v.location.x / g.size.width)) }
-                    .onEnded { _ in if let d = drag { player.seek(d * player.duration) }; drag = nil })
+                    .onEnded { _ in if let d = drag { player.seek(d * clock.duration) }; drag = nil })
                 .onHover { h in withAnimation(Motion.spring) { hover = h } }
             }
             .frame(width: width, height: 14)
-            Text(fmt(player.duration)).font(theme.num(10.5)).foregroundStyle(p.t3).frame(width: 38, alignment: .leading)
+            Text(fmt(clock.duration)).font(theme.num(10.5)).foregroundStyle(p.t3).frame(width: 38, alignment: .leading)
         }
     }
 }
@@ -155,7 +140,6 @@ func fmt(_ s: Double) -> String {
 struct TrackRow: View {
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var player: Player
-    @EnvironmentObject var nav: Nav
     let t: Track
     let index: Int
     var number: Int? = nil
@@ -180,9 +164,9 @@ struct TrackRow: View {
             ArtView(url: t.thumb, size: 40, radius: 6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(t.title).font(theme.ui(13.5, .semibold)).foregroundStyle(playing ? theme.accent : p.txt).lineLimit(1)
-                Text(t.artists).font(theme.ui(11.5, .medium)).foregroundStyle(p.t3).lineLimit(1)
+                if !t.artists.isEmpty { Text(t.artists).font(theme.ui(11.5, .medium)).foregroundStyle(p.t2).lineLimit(1) }
             }
-            Spacer(minLength: 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if showAlbum, let a = t.album, !a.isEmpty {
                 Text(a).font(theme.ui(11.5, .medium)).foregroundStyle(p.t3).lineLimit(1).frame(width: 200, alignment: .leading)
             }
@@ -215,9 +199,11 @@ struct TrackMenu: View {
 }
 
 /// Track context menu. Reads library state from the store (no core calls while the menu builds).
+/// Doesn't observe Player or Nav (they publish while the menu is open, which rebuilt the NSMenu and reset the
+/// Add to Playlist submenu); LibraryStore holds its publishes while a menu is tracking.
 struct TrackMenuItems: View {
-    @EnvironmentObject var player: Player
-    @EnvironmentObject var nav: Nav
+    private var player: Player { Player.shared }
+    private var nav: Nav { Nav.shared }
     @EnvironmentObject var lib: LibraryStore
     let t: Track
     var playlistId: String? = nil
@@ -259,8 +245,8 @@ struct TrackMenuItems: View {
 }
 
 struct AlbumMenuItems: View {
-    @EnvironmentObject var player: Player
-    @EnvironmentObject var nav: Nav
+    private var player: Player { Player.shared }
+    private var nav: Nav { Nav.shared }
     @EnvironmentObject var lib: LibraryStore
     let a: Album
     var body: some View {
@@ -302,7 +288,7 @@ struct Chip: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 if let i = icon { Image(systemName: i).font(.system(size: 11, weight: .semibold)) }
-                Text(label).font(theme.ui(12, .medium)).lineLimit(1)
+                Text(label).font(theme.ui(12, .medium)).lineLimit(1).fixedSize()
             }
             .foregroundStyle(selected ? p.txt : p.t2)
             .padding(.horizontal, 12).frame(height: 30)

@@ -8,7 +8,10 @@ struct SettingsView: View {
     @EnvironmentObject var nav: Nav
     @EnvironmentObject var account: AccountStore
     @EnvironmentObject var lib: LibraryStore
+    @EnvironmentObject var prefs: Prefs
     @ObservedObject var up = Updater.shared
+    @AppStorage("themesExpanded") private var themesExpanded = false
+    @State private var nameDraft = ""
     @State private var loaded = false
     @State private var signedIn = false
     @State private var showDiag = false
@@ -49,24 +52,50 @@ struct SettingsView: View {
                 }.buttonStyle(PressStyle(scale: 0.99)).accessibilityIdentifier("settings_account")
             }
 
-            group("Appearance") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Theme").font(theme.ui(12, .semibold)).foregroundStyle(p.t2)
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(96), spacing: 10), count: 6), alignment: .leading, spacing: 10) {
-                        ForEach(Palette.all) { pal in
-                            Button { withAnimation(.easeInOut(duration: 0.5)) { theme.themeId = pal.id } } label: {
-                                VStack(spacing: 6) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 10).fill(pal.bg)
-                                        HStack(spacing: 4) { Circle().fill(pal.txt).frame(width: 10); Circle().fill(pal.acc).frame(width: 10); Circle().fill(pal.surf4).frame(width: 10) }
-                                    }
-                                    .frame(width: 96, height: 54)
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.themeId == pal.id ? p.txt : p.line3, lineWidth: theme.themeId == pal.id ? 2 : 0.6))
-                                    Text(pal.name).font(theme.ui(11)).foregroundStyle(p.t2).lineLimit(1)
-                                }
-                            }.buttonStyle(PressStyle(scale: 0.96))
+            group("Profile") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("What should I call you?").font(theme.ui(13, .medium)).foregroundStyle(p.txt)
+                    HStack(spacing: 10) {
+                        TextField(prefs.firstName(account: account.info) == "there" ? "Your name" : prefs.firstName(account: account.info), text: $nameDraft)
+                            .textFieldStyle(.plain).font(theme.ui(14)).foregroundStyle(p.txt)
+                            .padding(.horizontal, 12).frame(height: 34).frame(maxWidth: 320)
+                            .background(RoundedRectangle(cornerRadius: 9).fill(p.surf2))
+                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(p.line3, lineWidth: 0.6))
+                            .onSubmit { prefs.setDisplayName(nameDraft); nav.show(nameDraft.isEmpty ? "Using your account name" : "Hi, \(nameDraft)") }
+                            .accessibilityIdentifier("settings_name")
+                        if nameDraft != prefs.displayName {
+                            Chip(label: "Save", selected: true) { prefs.setDisplayName(nameDraft); nav.show(nameDraft.isEmpty ? "Using your account name" : "Hi, \(nameDraft)") }
+                                .transition(.opacity)
                         }
                     }
+                    Text("Used in the Home greeting. Leave empty to use your account name.").font(theme.ui(11.5)).foregroundStyle(p.t2)
+                }
+                .animation(Motion.spring, value: nameDraft != prefs.displayName)
+            }
+
+            group("Appearance") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("Theme").font(theme.ui(12, .semibold)).foregroundStyle(p.t2)
+                        Spacer()
+                        Button { withAnimation(Motion.spring) { themesExpanded.toggle() } } label: {
+                            HStack(spacing: 4) {
+                                Text(themesExpanded ? "Show less" : "See all \(Palette.all.count)").font(theme.ui(12, .semibold)).lineLimit(1).fixedSize()
+                                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                                    .rotationEffect(.degrees(themesExpanded ? 180 : 0))
+                            }.foregroundStyle(p.txt)
+                        }
+                        .buttonStyle(PressStyle()).accessibilityIdentifier("themes_toggle")
+                    }
+                    // adaptive grid; collapsed shows the first row (6), "See all" springs open the rest
+                    let shown = themesExpanded ? Palette.all : Array(Palette.all.prefix(6)) + (Palette.all.prefix(6).contains { $0.id == theme.themeId } ? [] : Palette.all.filter { $0.id == theme.themeId })
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 140), spacing: 10)], alignment: .leading, spacing: 12) {
+                        ForEach(shown) { pal in
+                            ThemeTile(pal: pal, selected: theme.themeId == pal.id) { withAnimation(.easeInOut(duration: 0.5)) { theme.themeId = pal.id } }
+                                .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        }
+                    }
+                    .accessibilityIdentifier("themes_grid")
                 }
                 row("Follow system appearance") { Toggle2(on: $theme.followSystem) }
                 row("Pure black") { Toggle2(on: $theme.pureBlack) }
@@ -166,7 +195,7 @@ struct SettingsView: View {
                     }
                     Spacer()
                     Button { Task { await up.check(manual: true) } } label: {
-                        Group { if up.checking { ProgressView().controlSize(.small) } else { Text("Check for updates").font(theme.ui(12, .semibold)) } }
+                        Group { if up.checking { ProgressView().controlSize(.small) } else { Text("Check for updates").font(theme.ui(12, .semibold)).lineLimit(1).fixedSize() } }
                             .foregroundStyle(p.txt).padding(.horizontal, 14).frame(height: 28).background(Capsule().fill(p.surf3))
                     }.buttonStyle(PressStyle())
                 }
@@ -191,6 +220,7 @@ struct SettingsView: View {
             }
         }
         // Everything the page shows is read off the main thread (the page renders at once, values fade in).
+        .onAppear { nameDraft = prefs.displayName }
         .task {
             let r = await Engine.off { (Engine.core.streamingHealth(), Engine.core.cacheLimitMb(), Engine.core.lastfmState(), Engine.core.isSignedIn()) }
             if let r { health = r.0; cacheMb = r.1; lastfm = r.2; signedIn = r.3 }
@@ -309,7 +339,7 @@ struct SettingsView: View {
     }
 
     private func row<R: View>(_ title: String, @ViewBuilder _ r: () -> R) -> some View {
-        HStack { Text(title).font(theme.ui(13, .medium)).foregroundStyle(theme.p.txt); Spacer(); r() }
+        HStack { Text(title).font(theme.ui(13, .medium)).foregroundStyle(theme.p.txt).fixedSize(horizontal: false, vertical: true); Spacer(minLength: 12); r() }
     }
 
     private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
@@ -321,6 +351,34 @@ struct SettingsView: View {
             }
             Slider(value: value, in: range, step: 0.05).tint(theme.accent)
         }
+    }
+}
+
+/// Theme swatch with its name (label always shown, never clipped).
+struct ThemeTile: View {
+    @EnvironmentObject var theme: Theme
+    let pal: Palette
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        let p = theme.p
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10).fill(pal.bg)
+                    HStack(spacing: 4) { Circle().fill(pal.txt).frame(width: 10); Circle().fill(pal.acc).frame(width: 10); Circle().fill(pal.surf4).frame(width: 10) }
+                }
+                .frame(height: 54)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? p.txt : p.line3, lineWidth: selected ? 2 : 0.6))
+                Text(pal.name).font(theme.ui(11)).foregroundStyle(selected ? p.txt : p.t2).lineLimit(1).minimumScaleFactor(0.85)
+                    .frame(height: 16)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle(scale: 0.96))
+        .accessibilityLabel(pal.name)
+        .accessibilityIdentifier("theme_\(pal.id)")
     }
 }
 

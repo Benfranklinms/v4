@@ -59,6 +59,9 @@ final class Theme: ObservableObject {
     @AppStorage("customFontFamily") var customFamily = "" { didSet { objectWillChange.send() } }
     @AppStorage("customFontNumbers") var customNumbers = false { didSet { objectWillChange.send() } }
     @Published var glow: Color = Color(red: 0.36, green: 0.29, blue: 0.48)
+    /// Mean colour of the current artwork (what the blurred backdrops look like overall).
+    @Published var artAverage: Color?
+    private var accentMemo: (key: String, color: Color)?
 
     var p: Palette {
         var pal = Palette.byId(themeId)
@@ -72,8 +75,31 @@ final class Theme: ObservableObject {
         }
         return pal
     }
-    /// Accent for toggles / active items: album colour on Adaptive, the palette accent elsewhere.
-    var accent: Color { themeId == "adaptive" ? glow : p.acc }
+    /// Accent for text, icons and fills: album colour on Adaptive (lightened / desaturated until it reads at
+    /// WCAG >= 4.5:1 against the window background AND the art backdrop), the palette accent elsewhere.
+    var accent: Color {
+        guard themeId == "adaptive", artAverage != nil else { return p.acc }  // nothing playing: mono
+        let bg = p.bg
+        let key = Theme.hexOf(glow) + Theme.hexOf(bg) + (artAverage.map(Theme.hexOf) ?? "-")
+        if let m = accentMemo, m.key == key { return m.color }
+        var against = [bg]
+        if let a = artAverage { against.append(Theme.backdropEstimate(art: a, bg: bg)) }
+        let c = Contrast.readable(glow, against: against, min: 4.5)
+        accentMemo = (key, c)
+        return c
+    }
+
+    /// Roughly the colour the blurred art backdrop settles to (art at ~55 % over the background, darkened).
+    static func backdropEstimate(art: Color, bg: Color) -> Color {
+        let a = Contrast.rgb(art), b = Contrast.rgb(bg)
+        let mix = (0..<3).map { b[$0] * 0.45 + a[$0] * 0.55 * 0.75 }
+        return Color(.sRGB, red: mix[0], green: mix[1], blue: mix[2], opacity: 1)
+    }
+
+    @MainActor func setArtColors(glow g: Color?, average: Color?) {
+        if let g { withAnimation(Motion.glow) { glow = g } }
+        artAverage = average
+    }
 
     static func hexOf(_ c: Color) -> String {
         let n = NSColor(c).usingColorSpace(.sRGB) ?? .black
@@ -135,6 +161,40 @@ final class Theme: ObservableObject {
     }
 }
 
+/// WCAG contrast helpers.
+enum Contrast {
+    static func rgb(_ c: Color) -> [Double] {
+        let n = NSColor(c).usingColorSpace(.sRGB) ?? .gray
+        return [Double(n.redComponent), Double(n.greenComponent), Double(n.blueComponent)]
+    }
+    static func luminance(_ c: Color) -> Double {
+        let v = rgb(c).map { $0 <= 0.03928 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
+        return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]
+    }
+    static func ratio(_ a: Color, _ b: Color) -> Double {
+        let x = luminance(a), y = luminance(b)
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
+    }
+    /// Moves `c` in lightness (towards white on dark backgrounds, black on light) and trims saturation
+    /// until it meets `min` contrast against every colour in `against`.
+    static func readable(_ c: Color, against: [Color], min: Double) -> Color {
+        func ok(_ x: Color) -> Bool { against.allSatisfy { ratio(x, $0) >= min } }
+        if ok(c) { return c }
+        let darkBg = (against.map(luminance).max() ?? 0) < 0.25
+        let n = NSColor(c).usingColorSpace(.sRGB) ?? .gray
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        n.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        var sat = Double(s), bri = Double(b)
+        for _ in 0..<40 {
+            if darkBg { bri = Swift.min(1, bri + 0.04); sat = Swift.max(0, sat - 0.025) }
+            else { bri = Swift.max(0, bri - 0.04); sat = Swift.min(1, sat + 0.01) }
+            let x = Color(hue: Double(h), saturation: sat, brightness: bri)
+            if ok(x) { return x }
+        }
+        return darkBg ? Color(white: 0.93) : Color(white: 0.07)
+    }
+}
+
 /// Springs used everywhere (respecting Reduce Motion).
 enum Motion {
     static var reduce: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
@@ -157,8 +217,10 @@ struct PressStyle: ButtonStyle {
 
 /// Fade-and-rise entrance with a stagger index.
 struct Enter: ViewModifier {
+    /// Last navigation; rows created later (scrolled into a lazy stack) appear without the entrance.
+    nonisolated(unsafe) static var navigatedAt = Date()
     let index: Int
-    @State private var shown = Motion.reduce
+    @State private var shown = Motion.reduce || Date().timeIntervalSince(Enter.navigatedAt) > 0.7
     func body(content: Content) -> some View {
         content
             .opacity(shown ? 1 : 0)

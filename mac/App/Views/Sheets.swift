@@ -145,20 +145,17 @@ struct AccountSheet: View {
                     Spacer()
                 }
             }
-            HStack {
-                SecondaryButton(title: "Settings", icon: "gearshape") { nav.sheet = nil; nav.go(.settings) }
-                SecondaryButton(title: "Stats", icon: "chart.bar") { nav.sheet = nil; nav.go(.stats) }
-                Spacer()
-                if account.signedIn {
-                    SecondaryButton(title: "Switch account") { showLogin = true }
-                    PrimaryButton(title: "Sign out") { account.signOut(); nav.sheet = nil }
-                } else {
-                    PrimaryButton(title: "Sign in with Google", icon: "person.crop.circle") { showLogin = true }
-                        .accessibilityIdentifier("google_sign_in")
+            // one row when it fits, two rows otherwise (labels never wrap)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { navButtons; Spacer(minLength: 12); accountButtons }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) { navButtons }
+                    HStack(spacing: 10) { Spacer(minLength: 0); accountButtons }
                 }
             }
+            .accessibilityIdentifier("account_buttons")
         }
-        .padding(24).frame(width: 480)
+        .padding(24).frame(width: 520)
         .background(p.surf)
         .task {
             stats = await Engine.off { try Engine.core.stats(range: "week", tzOffsetMin: Engine.tzMinutes) }
@@ -175,10 +172,24 @@ struct AccountSheet: View {
         .accessibilityIdentifier("account_sheet")
     }
 
+    @ViewBuilder private var navButtons: some View {
+        SecondaryButton(title: "Settings", icon: "gearshape") { nav.sheet = nil; nav.go(.settings) }
+        SecondaryButton(title: "Stats", icon: "chart.bar") { nav.sheet = nil; nav.go(.stats) }
+    }
+    @ViewBuilder private var accountButtons: some View {
+        if account.signedIn {
+            SecondaryButton(title: "Switch account") { showLogin = true }
+            PrimaryButton(title: "Sign out") { account.signOut(); nav.sheet = nil }
+        } else {
+            PrimaryButton(title: "Sign in with Google", icon: "person.crop.circle") { showLogin = true }
+                .accessibilityIdentifier("google_sign_in")
+        }
+    }
+
     private func snap(_ v: String, _ l: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(v).font(theme.num(20, .medium)).foregroundStyle(theme.p.txt)
-            Text(l).font(theme.ui(11)).foregroundStyle(theme.p.t3)
+            Text(l).font(theme.ui(11)).foregroundStyle(theme.p.t2).lineLimit(1).minimumScaleFactor(0.8)
         }
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(theme.p.surf2))

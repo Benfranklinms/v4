@@ -1,17 +1,22 @@
 import AppKit
 import SwiftUI
 
-/// Scrolling page. Content runs under the floating glass sidebar / player bar; `contentInsets` keeps the
-/// readable part clear of them while the scroll view itself stays full-bleed (content blurs through the glass).
+/// Scrolling page (lazy: long lists only build the rows on screen). The detail column already starts at the
+/// sidebar's edge and gets a bottom safe-area inset for the floating player bar.
 struct Page<Content: View>: View {
     @EnvironmentObject var nav: Nav
     @Environment(\.contentInsets) var insets
+    /// Names the page for the scroll-offset probe (smoke: Back restores the same offset).
+    var name: String? = nil
     @ViewBuilder let content: () -> Content
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     Color.clear.frame(height: 0).id("page_top")
+                        .background(name.map { n in GeometryReader { g in
+                            Color.clear.onChange(of: g.frame(in: .named("page_scroll")).minY) { _, y in ScrollProbe.offsets[n] = -y }
+                        } })
                     content()
                     Color.clear.frame(height: 1).id("page_end")
                 }
@@ -19,6 +24,7 @@ struct Page<Content: View>: View {
                 .padding(.top, 40 + insets.top).padding(.bottom, 32 + insets.bottom)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .coordinateSpace(name: "page_scroll")
             .scrollIndicators(.never)
             .onChange(of: nav.scrollTarget) { _, t in
                 guard let t else { return }
@@ -39,13 +45,24 @@ struct LargeTitle: View {
     }
 }
 
-enum HomeCache { @MainActor static var feed: HomeFeed?; @MainActor static var at = Date.distantPast }
+/// Scroll offsets reported by named pages and carousels (smoke checks).
+enum ScrollProbe { nonisolated(unsafe) static var offsets: [String: CGFloat] = [:] }
+
+enum HomeCache {
+    @MainActor static var feed: HomeFeed?
+    /// Last successful network refresh.
+    @MainActor static var at = Date.distantPast
+    /// When the cached feed was first on screen (CACurrentMediaTime), for the cold-launch smoke check.
+    @MainActor static var cachedShownAt: CFTimeInterval = 0
+    @MainActor static var source = "none"
+}
 
 struct HomeView: View {
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var player: Player
     @EnvironmentObject var nav: Nav
     @EnvironmentObject var account: AccountStore
+    @EnvironmentObject var prefs: Prefs
     @State private var feed: HomeFeed? = HomeCache.feed
     @State private var failed = false
     @State private var loading = false
@@ -53,7 +70,7 @@ struct HomeView: View {
 
     var body: some View {
         let p = theme.p
-        Page {
+        Page(name: "home") {
             LargeTitle(text: "Home").enter(0)
             Text("\(feed?.greeting ?? greetingNow), \(firstName)").font(theme.ui(14, .medium)).foregroundStyle(p.t2).padding(.top, 2).enter(0)
             IsaCommandCard().padding(.top, 18).frame(maxWidth: 980, alignment: .leading).enter(1)
@@ -83,10 +100,7 @@ struct HomeView: View {
         let h = Calendar.current.component(.hour, from: Date())
         return h < 5 ? "Late night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 22 ? "Good evening" : "Late night"
     }
-    private var firstName: String {
-        let n = account.info?.name ?? ""
-        return n.isEmpty ? "Ben" : String(n.split(separator: " ").first ?? "Ben")
-    }
+    private var firstName: String { prefs.firstName(account: account.info) }
 
     @ViewBuilder private func feedSections(_ f: HomeFeed) -> some View {
         let shelves = HomeView.sections(f)
@@ -122,7 +136,16 @@ struct HomeView: View {
         return out
     }
 
+    /// Stale-while-revalidate: the last saved feed renders at once (no network), then the fresh feed is
+    /// swapped in without animation (same section ids, so nothing jumps). Skeletons only with no cache at all.
     private func load(force: Bool) async {
+        if feed == nil, let c = await Engine.off({ Engine.core.homeCached(tzOffsetMin: Engine.tzMinutes) }) ?? nil, !HomeView.sections(c).isEmpty {
+            feed = c
+            HomeCache.feed = c
+            HomeCache.source = "cache"
+            if HomeCache.cachedShownAt == 0 { HomeCache.cachedShownAt = CACurrentMediaTime() }
+            HomeView.prefetchArt(c)
+        }
         if !force, feed != nil, Date().timeIntervalSince(HomeCache.at) < 1200 { return }
         loading = true
         let r: Result<HomeFeed, Error>
@@ -130,13 +153,42 @@ struct HomeView: View {
         loading = false
         switch r {
         case .success(let f) where !HomeView.sections(f).isEmpty:
-            withAnimation(Motion.spring) { feed = f; failed = false }
-            HomeCache.feed = f; HomeCache.at = Date()
+            if feed == nil {
+                withAnimation(Motion.spring) { feed = f; failed = false }
+            } else {
+                var t = Transaction(); t.disablesAnimations = true
+                withTransaction(t) { feed = f; failed = false }
+            }
+            HomeCache.feed = f; HomeCache.at = Date(); HomeCache.source = "network"
+            HomeView.prefetchArt(f)
         default:
             if feed == nil {
                 localRecent = await Engine.off { try Engine.core.recent(limit: 20) } ?? []
                 withAnimation(Motion.spring) { failed = true }
             }
+        }
+    }
+}
+
+extension HomeView {
+    /// Warm the image cache with the first visible shelves' covers.
+    @MainActor static func prefetchArt(_ f: HomeFeed) {
+        for s in sections(f).prefix(2) {
+            ArtCache.shared.prefetch(s.items.prefix(8).map(\.thumb), points: s.songs ? 44 : (s.items.first?.kind == "mix" ? 196 : 168))
+        }
+    }
+}
+
+/// Page prefetch on hover: album / playlist pages land in the core page cache before the click.
+@MainActor
+enum PagePrefetch {
+    private static var done = Set<String>()
+    static func hover(_ it: HomeItemBox) {
+        let id = it.rawId
+        guard ["album", "playlist"].contains(it.kind), done.insert(it.id).inserted else { return }
+        ArtCache.shared.prefetch([it.thumb], points: 200)
+        Task.detached(priority: .utility) {
+            if it.kind == "album" { _ = try? await Engine.core.album(id: id) } else { _ = try? await Engine.core.playlist(id: id) }
         }
     }
 }
@@ -185,15 +237,26 @@ struct CardShelf: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ShelfHeader(title: title)
-            ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 18) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
-                        HomeCard(item: it, size: it.kind == "mix" ? 196 : 168) { open(it, index: i) }
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: 18) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                            HomeCard(item: it, size: it.kind == "mix" ? 196 : 168) { open(it, index: i) }
+                                .id("card_\(i)")
+                        }
                     }
+                    .padding(.vertical, 8)
+                    .background(GeometryReader { g in
+                        Color.clear.onChange(of: g.frame(in: .named("carousel_\(title)")).minX) { _, x in ScrollProbe.offsets["carousel_\(title)"] = -x }
+                    })
+                }
+                .coordinateSpace(name: "carousel_\(title)")
+                .carousel()
+                .onChange(of: nav.carouselTarget) { _, t in
+                    guard let t, t.shelf == title else { return }
+                    withAnimation(Motion.spring) { proxy.scrollTo("card_\(t.index)", anchor: .leading) }
                 }
             }
-            .scrollIndicators(.never)
-            .scrollClipDisabled()
         }
     }
 
@@ -202,9 +265,9 @@ struct CardShelf: View {
         case "song", "video":
             let tracks = items.compactMap { $0.track }
             if let t = it.track { player.play(tracks, index: tracks.firstIndex { $0.id == t.id } ?? 0, source: title) }
-        case "album": nav.push(.album(it.rawId))
-        case "playlist": nav.push(.playlist(it.rawId))
-        case "artist": nav.push(.artist(it.rawId))
+        case "album", "playlist", "artist":
+            nav.seeds[it.rawId] = RouteSeed(title: it.title, subtitle: it.subtitle, thumb: it.thumb)
+            nav.push(it.kind == "album" ? .album(it.rawId) : it.kind == "playlist" ? .playlist(it.rawId) : .artist(it.rawId))
         case "mix":
             if let m = it.mix { nav.mixes[m.title] = m.tracks; nav.push(.mix(m.title)) }
         default: break
@@ -224,7 +287,7 @@ struct HomeCard: View {
         VStack(alignment: circle ? .center : .leading, spacing: 3) {
             ZStack(alignment: .bottomTrailing) {
                 ArtView(url: item.thumb, size: size, radius: 12, circle: circle)
-                    .shadow(color: .black.opacity(hover ? 0.4 : 0.2), radius: hover ? 16 : 8, y: 6)
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 5)
                 if !circle {
                     Image(systemName: "play.fill").font(.system(size: 13, weight: .bold)).foregroundStyle(Color(red: 0.035, green: 0.035, blue: 0.04))
                         .frame(width: 34, height: 34).background(Circle().fill(Color(red: 0.91, green: 0.91, blue: 0.91)))
@@ -237,7 +300,7 @@ struct HomeCard: View {
         .frame(width: size)
         .contentShape(Rectangle())
         .scaleEffect(hover && !Motion.reduce ? 1.02 : 1)
-        .onHover { h in withAnimation(Motion.spring) { hover = h } }
+        .onHover { h in withAnimation(Motion.spring) { hover = h }; if h { PagePrefetch.hover(item) } }
         .onTapGesture(perform: action)
         .contextMenu { if let t = item.track { TrackMenuItems(t: t) } }
         .accessibilityElement(children: .combine)
@@ -256,7 +319,7 @@ struct SongShelf: View {
         VStack(alignment: .leading, spacing: 0) {
             ShelfHeader(title: title)
             ScrollView(.horizontal) {
-                HStack(alignment: .top, spacing: 18) {
+                LazyHStack(alignment: .top, spacing: 18) {
                     ForEach(Array(cols.enumerated()), id: \.offset) { c, col in
                         VStack(spacing: 4) {
                             ForEach(Array(col.enumerated()), id: \.element.id) { r, t in
@@ -266,8 +329,7 @@ struct SongShelf: View {
                     }
                 }
             }
-            .scrollIndicators(.never)
-            .scrollClipDisabled()
+            .carousel()
         }
     }
 }
@@ -414,9 +476,10 @@ struct SearchView: View {
             }
         }
         .onAppear {
-            focused = true
+            if nav.section == .search { focused = true }
             if let pnd = SearchCache.pending { SearchCache.pending = nil; q = pnd; run(pnd) }
         }
+        .onChange(of: nav.section) { _, sec in if sec == .search { focused = true } else { focused = false } }
         .task { recents = await Engine.off { Engine.core.recentSearches(limit: 12) } ?? [] }
         .task(id: q) {
             guard !q.isEmpty, q != SearchCache.q else { sugg = []; return }
@@ -456,12 +519,25 @@ struct AlbumStrip: View {
                         ArtView(url: a.thumb, size: 150, radius: 10)
                         Text(a.title).font(theme.ui(13, .semibold)).foregroundStyle(p.txt).lineLimit(1).padding(.top, 5)
                         Text([a.artists, a.year.map(String.init)].compactMap { $0 }.joined(separator: " · ")).font(theme.ui(11.5)).foregroundStyle(p.t3).lineLimit(1)
-                    }.frame(width: 150).contentShape(Rectangle()).onTapGesture { nav.push(.album(a.id)) }
+                    }.frame(width: 150).contentShape(Rectangle()).onTapGesture {
+                        nav.seeds[a.id] = RouteSeed(title: a.title, subtitle: a.artists, thumb: a.thumb)
+                        nav.push(.album(a.id))
+                    }
                         .contextMenu { AlbumMenuItems(a: a) }
                         .enter(i)
                 }
             }
-        }.scrollIndicators(.never).scrollClipDisabled()
+        }.carousel()
+    }
+}
+
+extension View {
+    /// Horizontal carousel: runs edge to edge of the detail column (clipped there, never under the sidebar)
+    /// with the page's 32 pt margins as content margins.
+    func carousel() -> some View {
+        self.scrollIndicators(.never)
+            .contentMargins(.horizontal, 32, for: .scrollContent)
+            .padding(.horizontal, -32)
     }
 }
 
@@ -599,7 +675,6 @@ struct Tile: View {
 struct TrackListPage: View {
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var player: Player
-    @EnvironmentObject var nav: Nav
     let title: String
     let subtitle: String
     let art: String
@@ -616,8 +691,8 @@ struct TrackListPage: View {
     var body: some View {
         let p = theme.p
         Page {
-            Button { nav.pop() } label: { Label("Back", systemImage: "chevron.left").font(theme.ui(12.5, .semibold)).foregroundStyle(p.t2) }
-                .buttonStyle(PressStyle()).opacity(nav.path.isEmpty ? 0 : 1).accessibilityIdentifier("back")
+            Button { Nav.shared.pop() } label: { Label("Back", systemImage: "chevron.left").font(theme.ui(12.5, .semibold)).foregroundStyle(p.t2) }
+                .buttonStyle(PressStyle()).accessibilityIdentifier("back")
             HStack(alignment: .bottom, spacing: 24) {
                 ArtView(url: art, size: 200, radius: 14, circle: circle).shadow(color: .black.opacity(0.35), radius: 24, y: 10)
                 VStack(alignment: .leading, spacing: 6) {
@@ -640,6 +715,7 @@ struct TrackListPage: View {
                 let albumCol = showAlbum && Set(ts.compactMap { $0.album }).count > 1
                 ForEach(Array(ts.enumerated()), id: \.offset) { i, t in
                     TrackRow(t: t, index: i, number: i + 1, showAlbum: albumCol, playlistId: playlistId, position: i) { player.play(ts, index: i, source: source) }
+                        .id("row_\(i)")
                 }
             } else {
                 Shimmer(count: 3)
@@ -649,39 +725,58 @@ struct TrackListPage: View {
     }
 }
 
+/// "N songs" once: strips any count already in the source subtitle (Liked Songs said "0 songs · 0 songs").
+func playlistSubtitle(_ sub: String?, count: Int?) -> String {
+    var parts = (sub ?? "").components(separatedBy: " · ").map { $0.trimmingCharacters(in: .whitespaces) }
+    parts.removeAll { $0.isEmpty || $0.range(of: #"^\d[\d,.]*\s*(songs?|tracks?)$"#, options: [.regularExpression, .caseInsensitive]) != nil }
+    if let n = count { parts.append(n == 1 ? "1 song" : "\(n) songs") }
+    return parts.joined(separator: " · ")
+}
+
+/// First rows on screen per page id (smoke timing).
+enum PageTiming { @MainActor static var firstRows: [String: CFTimeInterval] = [:] }
+
 struct AlbumView: View {
     @EnvironmentObject var lib: LibraryStore
     let id: String
     @State private var page: AlbumPage?
     var body: some View {
-        TrackListPage(title: page?.album.title ?? "", subtitle: [page?.album.artists, page?.album.year.map(String.init), page?.album.kind].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-                      art: page?.album.thumb ?? "", tracks: page?.tracks, source: page?.album.title ?? "Album", showAlbum: false,
+        let seed = Nav.shared.seeds[id]
+        TrackListPage(title: page?.album.title ?? seed?.title ?? "", subtitle: page.map { pg in [pg.album.artists, pg.album.year.map(String.init), pg.album.kind].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ") } ?? seed?.subtitle ?? "",
+                      art: page?.album.thumb ?? seed?.thumb ?? "", tracks: page?.tracks, source: page?.album.title ?? "Album", showAlbum: false,
                       actions: AnyView(HStack(spacing: 10) {
                           if let a = page?.album {
                               BookmarkButton(saved: lib.isSaved(album: a.id)) { lib.toggleSaved(album: a) }
                               if let ts = page?.tracks { DownloadAllButton(tracks: ts, label: a.title) }
                           }
                       }))
-            .task(id: id) { page = try? await Engine.core.album(id: id) }
+            .task(id: id) {
+                // cached page at once, then revalidate (the core serves it without network while fresh)
+                if let c = await Engine.off({ Engine.core.albumCached(id: id) }) ?? nil { page = c; PageTiming.firstRows[id] = CACurrentMediaTime() }
+                if let n = try? await Engine.core.album(id: id) { page = n; if PageTiming.firstRows[id] == nil { PageTiming.firstRows[id] = CACurrentMediaTime() } }
+            }
             .accessibilityIdentifier("album_page")
     }
 }
 
 struct PlaylistView: View {
     @EnvironmentObject var lib: LibraryStore
-    @EnvironmentObject var nav: Nav
     let id: String
     @State private var page: PlaylistPage?
+    @State private var tracks: [Track]?
     var body: some View {
         let local = LibraryStore.isLocal(id) || id == "liked"
+        let seed = Nav.shared.seeds[id]
         let pl = page?.playlist ?? lib.visiblePlaylists.first { $0.id == id }
-        TrackListPage(title: pl?.title ?? "", subtitle: [pl?.subtitle, page.map { "\($0.tracks.count) songs" }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-                      art: pl?.thumb ?? page?.tracks.first?.thumb ?? "", tracks: page?.tracks, source: pl?.title ?? "Playlist",
+        let title = pl?.title ?? seed?.title ?? ""
+        TrackListPage(title: title,
+                      subtitle: playlistSubtitle(pl?.subtitle ?? seed?.subtitle, count: tracks?.count),
+                      art: pl?.thumb ?? tracks?.first?.thumb ?? seed?.thumb ?? "", tracks: tracks, source: pl?.title ?? "Playlist",
                       playlistId: LibraryStore.isLocal(id) ? id : nil,
                       actions: AnyView(HStack(spacing: 10) {
                           if let pl {
                               if !local { BookmarkButton(saved: lib.isSaved(playlist: pl.id)) { lib.toggleSaved(playlist: pl) } }
-                              if let ts = page?.tracks { DownloadAllButton(tracks: ts, label: pl.title) }
+                              if let ts = tracks { DownloadAllButton(tracks: ts, label: pl.title) }
                               if id != "liked" {
                                   Menu { PlaylistMenuItems(p: pl) } label: { Image(systemName: "ellipsis").font(.system(size: 14, weight: .bold)) }
                                       .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 38, height: 38)
@@ -690,24 +785,47 @@ struct PlaylistView: View {
                           }
                       }),
                       empty: "Add songs from any ⋯ menu.")
-            .task(id: "\(id)-\(lib.trackChanges)") {
-                page = try? await Engine.core.playlist(id: id)
-            }
+            .task(id: "\(id)-\(lib.trackChanges)") { await load() }
             .accessibilityIdentifier("playlist_page")
+    }
+
+    private func show(_ p: PlaylistPage) {
+        page = p
+        tracks = p.tracks
+        if PageTiming.firstRows[id] == nil, !p.tracks.isEmpty { PageTiming.firstRows[id] = CACurrentMediaTime() }
+    }
+
+    /// Cached page at once -> first network page -> the rest appended page by page (queue extended too).
+    private func load() async {
+        if page == nil, let c = await Engine.off({ Engine.core.playlistCached(id: id) }) ?? nil { show(c) }
+        guard let p = try? await Engine.core.playlist(id: id) else { return }
+        if Task.isCancelled { return }
+        show(p)
+        let source = p.playlist.title
+        while !Task.isCancelled, Engine.core.playlistHasMore(id: id) {
+            guard let more = try? await Engine.core.playlistMore(id: id, count: 100) else { break }
+            let have = Set((tracks ?? []).map(\.id))
+            let new = more.tracks.filter { !have.contains($0.id) }
+            if !new.isEmpty {
+                tracks = (tracks ?? []) + new
+                Player.shared.extendQueue(new, source: source)
+            }
+            if more.done { break }
+        }
     }
 }
 
 struct ArtistView: View {
     @EnvironmentObject var theme: Theme
-    @EnvironmentObject var nav: Nav
     @EnvironmentObject var lib: LibraryStore
     let id: String
     @State private var page: ArtistPage?
     var body: some View {
         let p = theme.p
+        let seed = Nav.shared.seeds[id]
         let sub = page?.artist.subtitle ?? ""
-        TrackListPage(title: page?.artist.name ?? "", subtitle: sub.lowercased().contains("subscriber") || sub.isEmpty ? "Artist" : sub,
-                      art: page?.artist.thumb ?? "", tracks: page?.topTracks,
+        TrackListPage(title: page?.artist.name ?? seed?.title ?? "", subtitle: sub.lowercased().contains("subscriber") || sub.isEmpty ? "Artist" : sub,
+                      art: page?.artist.thumb ?? seed?.thumb ?? "", tracks: page?.topTracks,
                       source: page?.artist.name ?? "Artist", circle: true,
                       actions: AnyView(Group {
                           if let a = page?.artist { BookmarkButton(saved: lib.isSaved(artist: a.id)) { lib.toggleSaved(artist: a) } }
@@ -717,17 +835,22 @@ struct ArtistView: View {
                           if let a = page, !a.similar.isEmpty {
                               SectionTitle(text: "Fans also like")
                               ScrollView(.horizontal) {
-                                  HStack(spacing: 18) {
+                                  LazyHStack(spacing: 18) {
                                       ForEach(Array(a.similar.prefix(12).enumerated()), id: \.element.id) { i, x in
                                           VStack { ArtView(url: x.thumb, size: 110, circle: true); Text(x.name).font(theme.ui(12, .semibold)).foregroundStyle(p.txt).lineLimit(1) }
-                                              .frame(width: 116).contentShape(Rectangle()).onTapGesture { nav.push(.artist(x.id)) }.enter(i)
+                                              .frame(width: 116).contentShape(Rectangle())
+                                              .onTapGesture { Nav.shared.seeds[x.id] = RouteSeed(title: x.name, subtitle: "Artist", thumb: x.thumb); Nav.shared.push(.artist(x.id)) }
+                                              .enter(i)
                                       }
                                   }
-                              }.scrollIndicators(.never)
+                              }.carousel()
                           }
                           if let d = page?.description { Text(d).font(theme.ui(12.5)).foregroundStyle(p.t2).lineLimit(8).padding(.top, 20).frame(maxWidth: 720, alignment: .leading) }
                       }))
-            .task(id: id) { page = try? await Engine.core.artist(id: id) }
+            .task(id: id) {
+                if let c = await Engine.off({ Engine.core.artistCached(id: id) }) ?? nil { page = c }
+                if let n = try? await Engine.core.artist(id: id) { page = n }
+            }
             .accessibilityIdentifier("artist_page")
     }
 }

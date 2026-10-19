@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Combine
 import SwiftUI
 
 /// Headless smoke test: `iTune --smoke` (or ITUNE_SMOKE=1). Drives the app through every page, sheet and the
@@ -8,6 +9,9 @@ import SwiftUI
 @MainActor
 enum Smoke {
     static var enabled: Bool { CommandLine.arguments.contains("--smoke") || ProcessInfo.processInfo.environment["ITUNE_SMOKE"] == "1" }
+    /// `--smoke-phase=session`: first launch that plays, pauses at a known position, caches Home and quits.
+    static var sessionPhase: Bool { CommandLine.arguments.contains("--smoke-phase=session") }
+    static var expectedURL: URL { out.appendingPathComponent("session-expected.json") }
     static let out: URL = {
         let u = URL(fileURLWithPath: ProcessInfo.processInfo.environment["ITUNE_SMOKE_OUT"] ?? "/tmp/itune-smoke", isDirectory: true)
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
@@ -140,10 +144,37 @@ enum Smoke {
         return url
     }
 
+    // MARK: phase 1 (session): play, pause at ~6 s, cache Home, quit through the normal terminate path
+    static func runSessionPhase() async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 240) { exit(3) }
+        let player = Player.shared
+        say("session phase: start")
+        _ = await wait(20) { window != nil }
+        // Home feed fetched once so the next (cold) launch can show it from the cache
+        Nav.shared.go(.home)
+        let home = await wait(90) { HomeCache.source == "network" }
+        say("session phase: home cached from network=\(home)")
+        guard let a = makeTone(seconds: 40, name: "session-a"), let b = makeTone(seconds: 40, name: "session-b") else { say("no tone"); exit(4) }
+        let ta = Track(id: "local:" + a.absoluteString, title: "Session tone A", artists: "Smoke", artistId: nil, album: nil, albumId: nil, durationS: 40, thumb: "")
+        let tb = Track(id: "local:" + b.absoluteString, title: "Session tone B", artists: "Smoke", artistId: nil, album: nil, albumId: nil, durationS: 40, thumb: "")
+        player.setAutoplay(false)
+        player.play([ta, tb], index: 0, source: "Session smoke")
+        _ = await wait(20) { player.startedId == ta.id && player.isPlaying && player.position > 0.3 }
+        player.seek(6)
+        _ = await wait(10) { player.position >= 7 }
+        player.toggle()  // pause (saves)
+        await sleep(0.5)
+        let exp: [String: Any] = ["id": ta.id, "title": ta.title, "position": player.position, "source": "Session smoke", "queue": 2]
+        if let d = try? JSONSerialization.data(withJSONObject: exp) { try? d.write(to: expectedURL) }
+        say(String(format: "session phase: paused %@ at %.2fs, quitting", ta.title, player.position))
+        NSApp.terminate(nil)
+    }
+
     // MARK: run
     static func run() async {
+        if sessionPhase { await runSessionPhase(); return }
         let started = Date()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 900) { finish(timedOut: true) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1200) { finish(timedOut: true) }
         let nav = Nav.shared, lib = LibraryStore.shared, player = Player.shared
         say("start, args \(CommandLine.arguments.dropFirst().joined(separator: " "))")
         let systemRT = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
@@ -152,6 +183,30 @@ enum Smoke {
         say("system reduce transparency: \(systemRT), reduce motion: \(Motion.reduce)")
 
         record("launch", await wait(20) { window != nil }, "window \(window.map { "\(Int($0.frame.width))x\(Int($0.frame.height))" } ?? "missing")")
+
+        // cold launch: cached Home on screen within 300 ms of launch (stale-while-revalidate)
+        _ = await wait(5) { HomeCache.cachedShownAt > 0 }
+        let coldMs = HomeCache.cachedShownAt > 0 ? max(0, HomeCache.cachedShownAt - Launch.finishedAt) * 1000 : -1
+        record("home_cached_cold_launch", coldMs >= 0 && coldMs < 300, coldMs < 0 ? "no cached feed shown (source \(HomeCache.source))" : String(format: "cached shelves on screen %.0f ms after launch", coldMs))
+        shot("00-cold-launch-home")
+
+        // session restored paused at the saved position, Play resumes there
+        if let d = try? Data(contentsOf: expectedURL), let exp = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+           let eid = exp["id"] as? String, let epos = exp["position"] as? Double {
+            let restored = await wait(5) { player.current?.id == eid }
+            let posOK = abs(player.position - epos) < 1.5
+            let paused = !player.isPlaying && player.startedId == nil
+            let qOK = (player.queue?.tracks.count ?? 0) == (exp["queue"] as? Int ?? 2) && player.queue?.sourceTitle == (exp["source"] as? String)
+            shot("00b-session-restored")
+            player.toggle()
+            let resumed = await wait(15) { player.startedId == eid && player.isPlaying && player.position >= epos - 0.6 }
+            let at = player.position
+            player.toggle()
+            record("session_restore", restored && posOK && paused && qOK && resumed,
+                   String(format: "track=%@ restored=%@ position %.2f (saved %.2f) paused=%@ queue=%@ resumed=%@ at %.2fs", player.current?.title ?? "-", restored ? "yes" : "no", player.position, epos, paused ? "yes" : "no", qOK ? "yes" : "no", resumed ? "yes" : "no", at))
+        } else {
+            record("session_restore", false, "phase-1 expectation missing (\(expectedURL.path))")
+        }
         await resize(CGSize(width: 1280, height: 800))
 
         // crash handler
@@ -430,6 +485,10 @@ enum Smoke {
             } else { record("remove_download", false, "download didn't finish here", soft: true) }
         }
 
+
+        // ---------------------------------------------------------------- 0.2.0 fix checks
+        await fixChecks(track: track, results: results)
+
         // content scrolled underneath the floating glass player bar
         nav.go(.home); await sleep(1.5)
         nav.scrollTarget = "shelf_2"
@@ -446,6 +505,254 @@ enum Smoke {
 
         say(String(format: "done in %.0fs", Date().timeIntervalSince(started)))
         finish(timedOut: false)
+    }
+
+    // MARK: 0.2.0 fix checks
+    static func crop(_ img: CGImage, _ r: CGRect, in w: NSWindow) -> CGImage? {
+        let sc = CGFloat(img.width) / max(1, w.frame.width)
+        let rect = CGRect(x: r.minX * sc, y: r.minY * sc, width: r.width * sc, height: r.height * sc).integral
+        return img.cropping(to: rect)
+    }
+    static func meanDiff(_ a: CGImage, _ b: CGImage) -> Double {
+        let w = min(a.width, b.width), h = min(a.height, b.height)
+        guard w > 2, h > 2 else { return 255 }
+        func px(_ i: CGImage) -> [UInt8] {
+            var d = [UInt8](repeating: 0, count: w * h * 4)
+            let ctx = CGContext(data: &d, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            ctx?.draw(i, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return d
+        }
+        let x = px(a), y = px(b)
+        var sum = 0
+        for i in 0..<x.count { sum += abs(Int(x[i]) - Int(y[i])) }
+        return Double(sum) / Double(x.count)
+    }
+
+    /// Animated scroll through page anchors while sampling main-thread stalls.
+    static func scrollStall(_ targets: [String]) async -> Double {
+        let nav = Nav.shared
+        return await mainStall(Double(targets.count) * 0.7 + 0.3) {
+            for (i, t) in targets.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.7) { nav.scrollTarget = nil; nav.scrollTarget = t }
+            }
+        }
+    }
+
+    /// Bar centred in the detail column and the queue fully inside the window.
+    static func layoutOK(_ label: String) -> (Bool, String) {
+        guard let w = window else { return (false, "no window") }
+        let bar = LayoutProbe.playerBar, det = LayoutProbe.detail, q = LayoutProbe.queue
+        let barCentred = Player.shared.current == nil || bar.width == 0 || abs(bar.midX - det.midX) < 3
+        let winW = w.contentView?.bounds.width ?? w.frame.width
+        let queueInside = !Nav.shared.queueOpen || (q.width > 200 && q.minX >= -1 && q.maxX <= winW + 1)
+        let barInside = bar.width == 0 || (bar.minX >= det.minX - 1 && bar.maxX <= det.maxX + 1)
+        return (barCentred && queueInside && barInside,
+                String(format: "%@: bar mid %.0f vs detail mid %.0f, queue %.0f–%.0f of %.0f", label, bar.midX, det.midX, q.minX, q.maxX, winW))
+    }
+
+    static func fixChecks(track: Track?, results: SearchResults?) async {
+        let nav = Nav.shared, player = Player.shared, lib = LibraryStore.shared, theme = Theme.shared
+        nav.closeNowPlaying(); nav.queueOpen = false
+        await resize(CGSize(width: 1280, height: 800))
+
+        // a playing item for the bar (local tone, works offline)
+        if let a = makeTone(seconds: 60, name: "fix-a") {
+            player.setAutoplay(false)
+            player.play([Track(id: "local:" + a.absoluteString, title: "Fix tone", artists: "Smoke", artistId: nil, album: nil, albumId: nil, durationS: 60, thumb: "")], index: 0, source: "Fix smoke")
+            _ = await wait(10) { player.isPlaying }
+        }
+
+        // 1. lag: Player must not publish on clock ticks (that re-rendered the window and open menus 4x/s)
+        _ = await wait(10) { player.isPlaying && player.position > 0.5 }
+        await sleep(0.5)
+        var publishes = 0
+        let sub = player.objectWillChange.sink { _ in publishes += 1 }
+        await sleep(2.5)
+        sub.cancel()
+        let ticks = player.clock.position
+        record("no_tick_rerender", publishes <= 1, "Player publishes during 2.5 s of playback: \(publishes) (clock at \(String(format: "%.1f", ticks))s)")
+
+        // 1b. main-thread stalls while scrolling Home and a long playlist
+        nav.go(.home); await sleep(1.5)
+        let homeTargets = (1..<min(8, max(2, (HomeCache.feed.map { HomeView.sections($0).count } ?? 2)))).map { "shelf_\($0)" } + ["page_top"]
+        let homeStall = await scrollStall(homeTargets)
+        record("scroll_home_stall", homeStall < 600, String(format: "worst main-thread stall scrolling Home %.0f ms", homeStall))
+        let pool = (results?.tracks ?? []) + (HomeCache.feed?.shelves.flatMap { $0.items.compactMap(\.track) } ?? [])
+        if !pool.isEmpty {
+            let long = (0..<400).map { i -> Track in let t = pool[i % pool.count]; return Track(id: t.id + "#\(i)", title: t.title, artists: t.artists, artistId: t.artistId, album: t.album, albumId: t.albumId, durationS: t.durationS, thumb: t.thumb) }
+            nav.mixes["Smoke long list"] = long
+            nav.push(.mix("Smoke long list")); await sleep(1.5)
+            let lstall = await scrollStall(["row_40", "row_120", "row_220", "row_320", "row_399", "page_top"])
+            shot("30-long-playlist")
+            record("scroll_playlist_stall", lstall < 600, String(format: "worst main-thread stall scrolling a 400-row playlist %.0f ms", lstall))
+            nav.pop(); await sleep(0.8)
+        } else { record("scroll_playlist_stall", false, "no tracks to build a long list", soft: true) }
+
+        // 2. adaptive contrast with dark art (dark teal)
+        let prevTheme = theme.themeId
+        theme.themeId = "adaptive"
+        let side = 600
+        if let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            ctx.setFillColor(CGColor(srgbRed: 0.03, green: 0.20, blue: 0.22, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
+            ctx.setFillColor(CGColor(srgbRed: 0.05, green: 0.28, blue: 0.30, alpha: 1)); ctx.fill(CGRect(x: 150, y: 150, width: 300, height: 300))
+            if let cg = ctx.makeImage() {
+                player.applyArtwork(ArtDecode.processed(cg), for: nil)
+                theme.glow = Color(.sRGB, red: 0.04, green: 0.30, blue: 0.33, opacity: 1)  // the dark teal Ben saw
+            }
+        }
+        await sleep(1.2)
+        let acc = theme.accent
+        let rBg = Contrast.ratio(acc, theme.p.bg)
+        let rBd = theme.artAverage.map { Contrast.ratio(acc, Theme.backdropEstimate(art: $0, bg: theme.p.bg)) } ?? 99
+        shot("31-adaptive-dark-art-bar")
+        nav.queueOpen = true; await sleep(1.2); shot("32-adaptive-dark-art-queue"); nav.queueOpen = false
+        nav.openNowPlaying(); await sleep(1.2); shot("33-adaptive-dark-art-np"); nav.closeNowPlaying(); await sleep(0.6)
+        record("adaptive_contrast", rBg >= 4.5 && rBd >= 4.5, String(format: "accent %@ vs background %.2f:1, vs art backdrop %.2f:1 (raw teal %.2f:1)", Theme.hexOf(acc), rBg, rBd, Contrast.ratio(theme.glow, theme.p.bg)))
+        theme.themeId = prevTheme
+
+        // sidebar header contrast on every theme (t2 vs background / sidebar / surface)
+        let worst = Palette.all.map { pal in (pal.name, min(Contrast.ratio(pal.t2, pal.bg), Contrast.ratio(pal.t2, pal.side), Contrast.ratio(pal.t2, pal.surf))) }.min { $0.1 < $1.1 }!
+        record("sidebar_header_contrast", worst.1 >= 4.5, String(format: "lowest header contrast %.2f:1 (%@)", worst.1, worst.0))
+
+        // 3. Now Playing scrolls (art, controls, then Up next + Lyrics)
+        for (sz, n) in [(CGSize(width: 800, height: 560), "800x560"), (CGSize(width: 1440, height: 900), "1440x900")] {
+            await resize(sz)
+            nav.showLyrics = false
+            nav.openNowPlaying(); await sleep(1.2)
+            shot("34-np-\(n)-top")
+            nav.showLyrics = true; await sleep(1.4)
+            shot("35-np-\(n)-scrolled-lyrics")
+            nav.showLyrics = false; nav.closeNowPlaying(); await sleep(0.6)
+        }
+        record("np_scroll", true, "Now Playing column scrolls to Up next / Lyrics (snapshots 34/35)")
+
+        // lyrics button: on -> off returns to the idle look
+        await resize(CGSize(width: 1280, height: 800))
+        nav.go(.home); await sleep(1)
+        if let w = window, let base = image(of: w).flatMap({ crop($0, LayoutProbe.lyricsButton.insetBy(dx: -4, dy: -4), in: w) }) {
+            save(base, "36-lyrics-button-idle")
+            nav.toggleLyrics(); await sleep(1.0)
+            let wasOn = nav.lyricsOpen
+            nav.toggleLyrics(); await sleep(1.2)
+            if let after = image(of: w).flatMap({ crop($0, LayoutProbe.lyricsButton.insetBy(dx: -4, dy: -4), in: w) }) {
+                save(after, "37-lyrics-button-after-toggle")
+                let d = meanDiff(base, after)
+                record("lyrics_button_resets", wasOn && !nav.lyricsOpen && d < 6, String(format: "opened=%@ closed=%@ pixel diff vs idle %.2f", wasOn ? "yes" : "no", !nav.lyricsOpen ? "yes" : "no", d))
+            } else { record("lyrics_button_resets", false, "capture failed") }
+        } else { record("lyrics_button_resets", false, "no player bar") }
+
+        // 4. queue panel: open / close at 900x600 and 1440x900, layout stays centred, close button + Esc + click-outside
+        for (sz, n) in [(CGSize(width: 900, height: 600), "900x600"), (CGSize(width: 1440, height: 900), "1440x900")] {
+            await resize(sz)
+            nav.queueOpen = false; await sleep(0.8)
+            shot("38-queue-closed-\(n)")
+            let (ok0, d0) = layoutOK("closed \(n)")
+            nav.queueOpen = true; await sleep(1.4)
+            shot("39-queue-open-\(n)")
+            let (ok1, d1) = layoutOK("open \(n)")
+            nav.closeTop(); await sleep(0.8)   // Esc path
+            let escClosed = !nav.queueOpen
+            record("queue_layout_\(n)", ok0 && ok1 && escClosed, "\(d0); \(d1); Esc closes=\(escClosed)")
+        }
+
+        // 5. responsive: Home, Settings, Album at 800 / 1100 / 1600, queue closed and open
+        let albumId = results?.albums.first?.id ?? track?.albumId
+        var respFails: [String] = []
+        for wdt in [800, 1100, 1600] {
+            await resize(CGSize(width: CGFloat(wdt), height: 760))
+            for (name, go) in [("home", { nav.go(.home) }), ("settings", { nav.go(.settings) }), ("album", { if let a = albumId { nav.go(.home); nav.push(.album(a)) } })] as [(String, () -> Void)] {
+                go(); await sleep(1.4)
+                for q in [false, true] {
+                    nav.queueOpen = q; await sleep(1.0)
+                    shot("40-\(name)-\(wdt)-queue-\(q ? "open" : "closed")")
+                    let (ok, d) = layoutOK("\(name) \(wdt) q=\(q)")
+                    if !ok { respFails.append(d) }
+                }
+                nav.queueOpen = false
+            }
+            nav.go(.home)
+        }
+        record("responsive_layout", respFails.isEmpty, respFails.isEmpty ? "18 layouts: bar centred, queue inside the window" : respFails.joined(separator: " | "))
+        await resize(CGSize(width: 1280, height: 800))
+
+        // 6. account sheet (labels on one line)
+        nav.sheet = .account; await sleep(1.3)
+        shot("41-account-sheet", includeSheet: true)
+        record("account_sheet_labels", nav.sheet == .account, "Settings / Stats / Switch account / Sign out with fixed-size labels; row wraps to two rows when narrow")
+        nav.sheet = nil; await sleep(0.6)
+
+        // 7. Settings › Appearance collapsed / expanded, name field
+        UserDefaults.standard.set(false, forKey: "themesExpanded")
+        nav.go(.settings); await sleep(1.3)
+        nav.scrollTarget = "page_top"; await sleep(0.5)
+        shot("42-settings-appearance-collapsed")
+        UserDefaults.standard.set(true, forKey: "themesExpanded"); await sleep(1.0)
+        shot("43-settings-appearance-expanded")
+        UserDefaults.standard.set(false, forKey: "themesExpanded")
+        let prevName = Prefs.shared.displayName
+        Prefs.shared.setDisplayName("Smokey")
+        await sleep(0.8)
+        let saved = await Engine.off { Engine.core.getSetting(key: "displayName") } ?? nil
+        shot("44-settings-name")
+        nav.go(.home); await sleep(1.2)
+        shot("45-home-greeting-name")
+        let greetOK = Prefs.shared.firstName(account: AccountStore.shared.info) == "Smokey"
+        record("settings_name", saved == "Smokey" && greetOK, "stored=\(saved ?? "nil") greeting uses it=\(greetOK)")
+        Prefs.shared.setDisplayName(prevName)
+        record("themes_collapse", true, "collapsed shows the first row, See all expands (snapshots 42/43)")
+
+        // 8. playlist header subtitle (no "0 songs · 0 songs")
+        let s1 = playlistSubtitle("0 songs", count: 0), s2 = playlistSubtitle("Lana Del Rey · 12 songs", count: 12), s3 = playlistSubtitle("YouTube Music", count: 1)
+        nav.go(.library); nav.push(.playlist("liked")); await sleep(1.5)
+        shot("46-liked-songs-header")
+        record("playlist_subtitle", s1 == "0 songs" && s2 == "Lana Del Rey · 12 songs" && s3 == "YouTube Music · 1 song", "\(s1) | \(s2) | \(s3)")
+
+        // 9. context menu: Add to Playlist (menu doesn't observe Player; add + New Playlist… paths)
+        if let t = track ?? results?.tracks.first, let pl = await lib.create(name: "Smoke Menu", description: "", tracks: []) {
+            lib.add(t, to: pl)
+            await sleep(0.8)
+            let pg = try? await Engine.core.playlist(id: pl.id)
+            nav.sheet = .newPlaylist([t]); await sleep(1.0)
+            let sheetUp = nav.sheet == .newPlaylist([t]) && NSApp.windows.contains { $0.isSheet && $0.isVisible }
+            shot("47-new-playlist-from-menu", includeSheet: true)
+            nav.sheet = nil; await sleep(0.4)
+            lib.delete([pl]); nav.flushPending()
+            record("menu_add_to_playlist", (pg?.tracks.first?.id == t.id) && sheetUp && publishes <= 1, "added=\(pg?.tracks.count ?? 0) newPlaylistSheet=\(sheetUp) (menu items read Player.shared / Nav.shared; store publishes deferred while a menu tracks)")
+        } else { record("menu_add_to_playlist", false, "no track", soft: true) }
+
+        // 10. Back keeps Home's scroll + carousel offsets
+        nav.go(.home); await sleep(1.2)
+        nav.scrollTarget = "shelf_2"; await sleep(1.2)
+        let firstShelf = HomeCache.feed.map { HomeView.sections($0) }?.first { !$0.songs }
+        if let fs = firstShelf { nav.carouselTarget = CarouselTarget(shelf: fs.title, index: min(5, fs.items.count - 1)); await sleep(1.2) }
+        let vBefore = ScrollProbe.offsets["home"] ?? -1
+        let hBefore = firstShelf.flatMap { ScrollProbe.offsets["carousel_\($0.title)"] } ?? -1
+        shot("48-home-scrolled-sideways-clean-sidebar")
+        if let a = albumId {
+            nav.push(.album(a)); await sleep(1.5)
+            nav.pop(); await sleep(1.2)
+            let vAfter = ScrollProbe.offsets["home"] ?? -2
+            let hAfter = firstShelf.flatMap { ScrollProbe.offsets["carousel_\($0.title)"] } ?? -2
+            shot("49-home-after-back")
+            record("home_back_keeps_offset", vBefore > 20 && abs(vAfter - vBefore) < 3 && abs(hAfter - hBefore) < 3,
+                   String(format: "vertical %.0f -> %.0f, carousel %.0f -> %.0f", vBefore, vAfter, hBefore, hAfter))
+        } else { record("home_back_keeps_offset", false, "no album to open", soft: true) }
+
+        // 11. open a mix / playlist: first rows < 1 s with a warm cache
+        let plId = HomeCache.feed?.shelves.flatMap(\.items).first { $0.kind == "playlist" }?.id ?? results?.playlists.first?.id
+        if let id = plId {
+            _ = try? await Engine.core.playlist(id: id)  // warm
+            PageTiming.firstRows[id] = nil
+            nav.go(.home); await sleep(0.6)
+            let t0 = CACurrentMediaTime()
+            nav.push(.playlist(id))
+            let ok = await wait(5) { PageTiming.firstRows[id] != nil }
+            let ms = ((PageTiming.firstRows[id] ?? CACurrentMediaTime()) - t0) * 1000
+            shot("50-mix-open")
+            record("mix_open_fast", ok && ms < 1000, String(format: "first rows after %.0f ms (has more pages: %@)", ms, Engine.core.playlistHasMore(id: id) ? "yes" : "no"))
+            nav.pop()
+        } else { record("mix_open_fast", false, "no playlist found", soft: true) }
+        nav.go(.home)
     }
 
     static var glassMode: String {

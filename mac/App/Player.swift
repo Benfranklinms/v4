@@ -11,10 +11,22 @@ final class Player: ObservableObject {
 
     @Published var current: Track?
     @Published var isPlaying = false
-    @Published var position: Double = 0
-    @Published var duration: Double = 0
+    /// Position / duration live in their own small observable: only the scrubber, time labels and lyrics
+    /// observe it, so the 4 Hz tick never re-renders the window, lists or open menus.
+    let clock = PlayerClock()
+    var position: Double {
+        get { clock.position }
+        set { if clock.position != newValue { clock.position = newValue } }
+    }
+    var duration: Double {
+        get { clock.duration }
+        set { if clock.duration != newValue { clock.duration = newValue } }
+    }
     @Published var queue: QueueState?
+    /// Artwork downsampled to display size (decoded off-main) and a tiny pre-blurred copy for the backdrops
+    /// (no live blur filter over the window).
     @Published var artwork: NSImage?
+    @Published var backdrop: NSImage?
     @Published var error: String?
     @Published var volume: Float = (UserDefaults.standard.object(forKey: "volume") as? Float) ?? 1
     @Published var rate: Float = 1
@@ -45,6 +57,9 @@ final class Player: ObservableObject {
     private var advancing = false
     /// Consecutive tracks that failed to start; after 3 playback stops instead of skipping through the queue.
     private var failStreak = 0
+    /// Restored session: start here when Play resolves the stream.
+    private var resumeAt: Double = 0
+    private var lastSessionSave = Date.distantPast
 
     private init() {
         av.automaticallyWaitsToMinimizeStalling = true
@@ -82,11 +97,45 @@ final class Player: ObservableObject {
     }
 
     func toggle() {
-        if av.timeControlStatus == .playing { av.pause() } else {
-            if av.currentItem == nil, let c = current { load(c) } else { av.play() }
+        if av.timeControlStatus == .playing { av.pause(); saveSession() } else {
+            if av.currentItem == nil, let c = current { load(c, startAt: resumeAt) } else { av.play() }
         }
         isPlaying = av.rate != 0 || av.timeControlStatus == .waitingToPlayAtSpecifiedRate
         updateNowPlaying()
+    }
+
+    // MARK: session (restored paused after a relaunch)
+    /// Saves queue + position in the core (cheap: the queue is only rewritten when it changed).
+    func saveSession(sync: Bool = false) {
+        guard current != nil else { return }
+        lastSessionSave = Date()
+        let ms = UInt64(max(0, position) * 1000)
+        if sync { try? core.saveSession(positionMs: ms) } else { Engine.bg { try Engine.core.saveSession(positionMs: ms) } }
+    }
+
+    /// Shows the last session paused at its position: no stream is resolved until Play.
+    func restore(_ s: Session) {
+        guard current == nil, s.index >= 0, Int(s.index) < s.tracks.count else { return }
+        let t = s.tracks[Int(s.index)]
+        current = t
+        duration = Double(t.durationS)
+        trustedDuration = Double(t.durationS)
+        resumeAt = Double(s.positionMs) / 1000
+        position = resumeAt
+        isPlaying = false
+        buffering = false
+        publishQueue()
+        loadArtwork(t)
+        updateNowPlaying()
+        Smoke.trace("restored session \(t.title) at \(Int(resumeAt))s")
+    }
+
+    /// Append tracks that arrived later (playlist pages) when they belong to what is playing.
+    func extendQueue(_ tracks: [Track], source: String) {
+        guard !tracks.isEmpty, queue?.sourceTitle == source else { return }
+        let have = Set(queue?.tracks.map(\.id) ?? [])
+        for t in tracks where !have.contains(t.id) { core.queueAdd(track: t) }
+        publishQueue()
     }
 
     func next(user: Bool = true) {
@@ -114,6 +163,7 @@ final class Player: ObservableObject {
     }
 
     func seek(_ s: Double) {
+        if av.currentItem == nil { resumeAt = s }
         av.seek(to: CMTime(seconds: s, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         position = s
         updateNowPlaying()
@@ -131,7 +181,7 @@ final class Player: ObservableObject {
     private func publishQueue() { queue = core.queueState() }
 
     // MARK: loading
-    private func load(_ t: Track) {
+    private func load(_ t: Track, startAt: Double = 0) {
         loadTask?.cancel()
         // stop the previous item right away: no stale audio (or its end notification) while the next one resolves
         av.pause()
@@ -146,13 +196,15 @@ final class Player: ObservableObject {
         trustedDuration = Double(t.durationS)
         stallSince = nil
         advancing = false
-        position = 0
+        position = startAt
+        resumeAt = 0
         startedAt = Int64(Date().timeIntervalSince1970)
         listened = 0
         error = nil
         buffering = true
         loadArtwork(t)
         updateNowPlaying()
+        saveSession()
         Task { await Engine.core.lastfmNowPlaying(track: t) }
         loadTask = Task { [weak self] in
             guard let self else { return }
@@ -167,7 +219,7 @@ final class Player: ObservableObject {
                     if self.trustedDuration <= 0 || abs(sd - self.trustedDuration) / max(1, self.trustedDuration) < 0.08 { self.trustedDuration = sd }
                     self.duration = self.trustedDuration > 0 ? self.trustedDuration : sd
                 }
-                self.start(url: url, headers: headers, loudness: loud, track: t)
+                self.start(url: url, headers: headers, loudness: loud, track: t, at: startAt)
             } catch {
                 self.error = "Couldn't play \(t.title): \(Engine.message(error))"
                 Smoke.trace("resolve failed \(t.title): \(Engine.message(error).prefix(160))")
@@ -197,7 +249,7 @@ final class Player: ObservableObject {
         return (u, ["User-Agent": s.userAgent], s.loudnessDb, s.client, s.durationMs)
     }
 
-    private func start(url: URL, headers: [String: String], loudness: Float?, track: Track) {
+    private func start(url: URL, headers: [String: String], loudness: Float?, track: Track, at: Double = 0) {
         let asset = AVURLAsset(url: url, options: headers.isEmpty ? nil : ["AVURLAssetHTTPHeaderFieldsKey": headers])
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 30
@@ -209,6 +261,7 @@ final class Player: ObservableObject {
             MainActor.assumeIsolated { self?.advance() }
         }
         av.replaceCurrentItem(with: item)
+        if at > 0.5 { item.seek(to: CMTime(seconds: at, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero, completionHandler: nil) }
         startedId = track.id
         // ReplayGain-style: YouTube loudnessDb is relative to its target; attenuate loud tracks.
         if normalize, let db = loudness, db > 0 { loudGain = max(0.2, pow(10, -db / 20)) } else { loudGain = 1 }
@@ -292,6 +345,7 @@ final class Player: ObservableObject {
         } else if av.timeControlStatus == .playing { stallSince = nil }
         let playing = av.timeControlStatus == .playing
         if playing { listened += min(2, Date().timeIntervalSince(lastTick)) }
+        if playing && Date().timeIntervalSince(lastSessionSave) >= 5 { saveSession() }
         lastTick = Date()
         if isPlaying != (playing || av.timeControlStatus == .waitingToPlayAtSpecifiedRate) {
             isPlaying = playing || av.timeControlStatus == .waitingToPlayAtSpecifiedRate
@@ -310,19 +364,25 @@ final class Player: ObservableObject {
         Task { _ = try? await Engine.core.lastfmFlush() }
     }
 
-    // MARK: artwork + glow (decoded off-main)
+    // MARK: artwork + glow (decoded off-main, downsampled)
     private func loadArtwork(_ t: Track) {
-        guard let u = URL(string: t.thumb), u.scheme?.hasPrefix("http") == true else { artwork = nil; return }
+        guard let u = URL(string: t.thumb), u.scheme?.hasPrefix("http") == true else { artwork = nil; backdrop = nil; return }
         Task.detached(priority: .userInitiated) {
-            guard let (data, _) = try? await URLSession.shared.data(from: u), let img = NSImage(data: data) else { return }
-            let glow = Glow.color(of: img)
-            await MainActor.run {
-                guard Player.shared.current?.id == t.id else { return }
-                Player.shared.artwork = img
-                if let g = glow { withAnimation(Motion.glow) { Theme.shared.glow = g } }
-                Player.shared.updateNowPlaying()
-            }
+            var data = ArtDisk.read(t.thumb)
+            if data == nil, let (d, _) = try? await URLSession.shared.data(from: u), !d.isEmpty { ArtDisk.write(t.thumb, d); data = d }
+            guard let data else { return }
+            let art = ArtDecode.processed(data)
+            await MainActor.run { Player.shared.applyArtwork(art, for: t.id) }
         }
+    }
+
+    /// Publishes decoded artwork, backdrop and the adaptive colours (also used by the smoke test).
+    func applyArtwork(_ art: ArtDecode.Result?, for id: String?) {
+        guard let art, id == nil || current?.id == id else { return }
+        artwork = art.image
+        backdrop = art.backdrop
+        Theme.shared.setArtColors(glow: art.glow, average: art.average)
+        updateNowPlaying()
     }
 
     // MARK: Now Playing + media keys
@@ -357,28 +417,43 @@ final class Player: ObservableObject {
     }
 }
 
+@MainActor
+final class PlayerClock: ObservableObject {
+    @Published var position: Double = 0
+    @Published var duration: Double = 0
+}
+
 enum Glow {
-    /// Most vivid colour of a downscaled artwork (16x16), like Android's Palette vibrant swatch.
-    nonisolated static func color(of img: NSImage) -> Color? {
-        guard let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+    nonisolated private static func pixels(_ cg: CGImage) -> [UInt8]? {
         let w = 16, h = 16
         var px = [UInt8](repeating: 0, count: w * h * 4)
         guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return px
+    }
+
+    /// Most vivid colour of a downscaled artwork (16x16), like Android's Palette vibrant swatch.
+    nonisolated static func vivid(_ cg: CGImage) -> Color? {
+        guard let px = pixels(cg) else { return nil }
         var best: (Double, NSColor)? = nil
-        var avg = (0.0, 0.0, 0.0)
         for i in stride(from: 0, to: px.count, by: 4) {
-            let r = Double(px[i]) / 255, g = Double(px[i + 1]) / 255, b = Double(px[i + 2]) / 255
-            avg.0 += r; avg.1 += g; avg.2 += b
-            let c = NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+            let c = NSColor(srgbRed: Double(px[i]) / 255, green: Double(px[i + 1]) / 255, blue: Double(px[i + 2]) / 255, alpha: 1)
             var hh: CGFloat = 0, s: CGFloat = 0, v: CGFloat = 0, a: CGFloat = 0
             c.getHue(&hh, saturation: &s, brightness: &v, alpha: &a)
             let score = Double(s) * Double(v) * (v > 0.25 ? 1 : 0.3)
             if best == nil || score > best!.0 { best = (score, c) }
         }
         if let b = best, b.0 > 0.12 { return Color(nsColor: b.1) }
-        let n = Double(w * h)
-        return Color(red: avg.0 / n, green: avg.1 / n, blue: avg.2 / n)
+        return average(cg)
+    }
+
+    /// Mean colour (what the blurred backdrop looks like overall).
+    nonisolated static func average(_ cg: CGImage) -> Color? {
+        guard let px = pixels(cg) else { return nil }
+        var r = 0.0, g = 0.0, b = 0.0
+        for i in stride(from: 0, to: px.count, by: 4) { r += Double(px[i]); g += Double(px[i + 1]); b += Double(px[i + 2]) }
+        let n = Double(px.count / 4) * 255
+        return Color(.sRGB, red: r / n, green: g / n, blue: b / n, opacity: 1)
     }
 }
