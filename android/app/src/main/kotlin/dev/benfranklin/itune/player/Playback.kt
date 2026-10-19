@@ -462,9 +462,11 @@ object Playback {
                     withContext(Dispatchers.Main) {
                         if (r != null) Resolver.overrides[id] = r
                         player?.let {
+                            // resume only if the user still wants playback (a pause while resolving sticks)
+                            val resume = it.playWhenReady
                             it.prepare()
                             it.seekTo(idx, pos)
-                            it.play()
+                            if (resume) it.play()
                         }
                         delay(15_000)
                         Resolver.overrides.remove(id)
@@ -473,9 +475,10 @@ object Playback {
             } else {
                 _error.value = "Couldn't play this track ($msg). Skipping."
                 if (p.hasNextMediaItem()) {
+                    val resume = p.playWhenReady
                     p.seekToNextMediaItem()
                     p.prepare()
-                    p.play()
+                    if (resume) p.play()
                 }
             }
         }

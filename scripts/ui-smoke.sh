@@ -352,6 +352,10 @@ if id mini_player 0 12; then
   id np_more; tap text "Playback speed" 1 contains; shot speed; back
   id np_more; txt "Sleep timer"; txt "15m" 0
   id np_more; txt "Sleep timer"; txt "Turn off" 0
+  # pause first: on the CI runner every stream hits the bot check and a playing queue keeps auto-skipping,
+  # which shifts "Next in queue" under the reorder check and changes the song before the session check
+  dump; find_node content-desc "Pause" >/dev/null && { id np_play; log "paused for the queue/session checks"; }
+  sleep 3
   id np_queue
   shot queue
   # drag-to-reorder: drag the first "Next in queue" row's handle below the second, then check the order
@@ -365,7 +369,10 @@ if id mini_player 0 12; then
     dump
     mapfile -t QA < <(texts_of queue_user_title)
     shot queue-reordered
-    if [ "${QA[0]:-}" = "${QT[1]}" ] && [ "${QA[1]:-}" = "${QT[0]}" ]; then log "queue reorder ok (${QT[0]} <-> ${QT[1]})"
+    # the two dragged songs must now be in swapped order (relative, in case the list moved meanwhile)
+    I0=-1; I1=-1
+    for k in "${!QA[@]}"; do [ "${QA[$k]}" = "${QT[0]}" ] && [ $I0 -lt 0 ] && I0=$k; [ "${QA[$k]}" = "${QT[1]}" ] && [ $I1 -lt 0 ] && I1=$k; done
+    if [ $I0 -ge 0 ] && [ $I1 -ge 0 ] && [ $I1 -lt $I0 ]; then log "queue reorder ok (${QT[0]} <-> ${QT[1]})"
     else log "MISSING (required): queue reorder (before: ${QT[0]} | ${QT[1]}; after: ${QA[0]:-?} | ${QA[1]:-?})"; FAILS=$((FAILS + 1)); fi
   else
     log "MISSING (required): two Next in queue rows to reorder (${#QT[@]} found)"; FAILS=$((FAILS + 1)); shot missing-queue-rows
