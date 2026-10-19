@@ -263,6 +263,7 @@ tab Library
 shot library
 # show the soft keyboard even with the emulator's hardware keyboard, so the sheet-above-IME check is real
 timeout 10 adb shell settings put secure show_ime_with_hard_keyboard 1
+timeout 10 adb logcat -c >/dev/null 2>&1
 id lib_create
 # the name field focuses itself and the sheet rides above the keyboard: type straight away, then tap Create
 # while the keyboard is still up (a sheet hidden behind the IME would make this tap miss)
@@ -270,15 +271,15 @@ sleep 1.5
 dump; find_node resource-id name_field >/dev/null || id name_field
 type_text "Smoke list"
 shot name-sheet-ime
-if adb shell dumpsys input_method | grep -q "mInputShown=true"; then
-  dump
-  if XY=$(find_node resource-id name_save); then
-    read _ SY <<< "$XY"
-    if [ "$SY" -lt $(py 62) ]; then log "name sheet rides above the keyboard (Create at y=$SY)"
-    else log "MISSING (required): name sheet above the keyboard (Create at y=$SY of $SH)"; FAILS=$((FAILS + 1)); fi
-  fi
+sleep 2
+IME=$(timeout 10 adb logcat -d -s itune-ime:I 2>/dev/null | grep -oE 'ime=[0-9]+' | tail -1 | cut -d= -f2)
+dump
+if [ -n "$IME" ] && [ "$IME" -gt 0 ] && XY=$(find_node resource-id name_save); then
+  read _ SY <<< "$XY"
+  if [ "$SY" -lt $(( SH - IME )) ]; then log "name sheet rides above the keyboard (keyboard ${IME}px, Create at y=$SY)"; shot name-sheet-ime-up
+  else log "MISSING (required): name sheet above the keyboard (keyboard ${IME}px, Create at y=$SY of $SH)"; FAILS=$((FAILS + 1)); shot missing-ime; fi
 else
-  log "WARN: soft keyboard not shown for the name field"
+  log "WARN: no soft keyboard inset reported for the name field (ime='${IME:-}')"
 fi
 id name_save
 sleep 2

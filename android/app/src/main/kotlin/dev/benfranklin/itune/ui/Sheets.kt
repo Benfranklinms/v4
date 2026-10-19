@@ -106,6 +106,7 @@ import dev.benfranklin.itune.ui.theme.LocalColors
 import dev.benfranklin.itune.ui.theme.T
 import dev.benfranklin.itune.update.Updater
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun SheetHost(s: AppState) {
@@ -126,6 +127,15 @@ fun SheetHost(s: AppState) {
     val dragScope = rememberCoroutineScope()
     val reduceM = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
     LaunchedEffect(open) { if (open) drag.snapTo(0f) }
+    // the keyboard height the sheet rides on, logged once it settles (read off-composition: no recomposition per frame)
+    val imeInsets = WindowInsets.ime
+    val dens = androidx.compose.ui.platform.LocalDensity.current
+    LaunchedEffect(open) {
+        if (open) androidx.compose.runtime.snapshotFlow { imeInsets.getBottom(dens) }.collectLatest { v ->
+            kotlinx.coroutines.delay(400)
+            android.util.Log.i("itune-ime", "ime=$v")
+        }
+    }
     // a sheet never reaches under the status bar (its close button stays tappable on short screens)
     Box(Modifier.fillMaxSize().statusBarsPadding().padding(top = 8.dp), contentAlignment = Alignment.BottomCenter) {
         AnimatedVisibility(
