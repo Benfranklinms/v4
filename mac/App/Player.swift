@@ -19,6 +19,11 @@ final class Player: ObservableObject {
     @Published var volume: Float = (UserDefaults.standard.object(forKey: "volume") as? Float) ?? 1
     @Published var rate: Float = 1
     @Published var buffering = false
+    /// Track whose audio item actually started (nil while a new track is still resolving).
+    @Published var startedId: String?
+    /// Length of the resolved stream (ms, 0 = unknown) and AVPlayer's own item duration, for diagnostics.
+    var lastStreamMs: UInt64 = 0
+    var itemDuration: Double = 0
     @AppStorage("normalize") var normalize = true
     @AppStorage("autoplay") var autoplay = true
 
@@ -128,6 +133,14 @@ final class Player: ObservableObject {
     // MARK: loading
     private func load(_ t: Track) {
         loadTask?.cancel()
+        // stop the previous item right away: no stale audio (or its end notification) while the next one resolves
+        av.pause()
+        av.replaceCurrentItem(with: nil)
+        if let e = endObs { NotificationCenter.default.removeObserver(e); endObs = nil }
+        statusObs = nil
+        startedId = nil
+        lastStreamMs = 0
+        itemDuration = 0
         current = t
         duration = Double(t.durationS)
         trustedDuration = Double(t.durationS)
@@ -148,6 +161,7 @@ final class Player: ObservableObject {
                 if Task.isCancelled { return }
                 self.clientFor[t.id] = client
                 Smoke.trace("resolved \(t.title) via \(client), stream \(streamMs) ms, metadata \(t.durationS) s")
+                self.lastStreamMs = streamMs
                 if streamMs > 0 {
                     let sd = Double(streamMs) / 1000
                     if self.trustedDuration <= 0 || abs(sd - self.trustedDuration) / max(1, self.trustedDuration) < 0.08 { self.trustedDuration = sd }
@@ -195,6 +209,7 @@ final class Player: ObservableObject {
             MainActor.assumeIsolated { self?.advance() }
         }
         av.replaceCurrentItem(with: item)
+        startedId = track.id
         // ReplayGain-style: YouTube loudnessDb is relative to its target; attenuate loud tracks.
         if normalize, let db = loudness, db > 0 { loudGain = max(0.2, pow(10, -db / 20)) } else { loudGain = 1 }
         av.volume = volume * loudGain
@@ -211,6 +226,7 @@ final class Player: ObservableObject {
             buffering = false
             failStreak = 0
             let d = item.duration.seconds
+            itemDuration = d.isFinite ? d : 0
             // Trust metadata / stream length over AVPlayer's value when they disagree by more than 5 %.
             if d.isFinite && d > 0 {
                 if trustedDuration <= 0 { trustedDuration = d }

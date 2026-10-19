@@ -148,7 +148,7 @@ enum Smoke {
         say("start, args \(CommandLine.arguments.dropFirst().joined(separator: " "))")
         let systemRT = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         // CI VMs report Reduce Transparency (no GPU); snapshots use glass, one extra snapshot checks the solid path.
-        if ProcessInfo.processInfo.environment["ITUNE_FORCE_GLASS"] != "0" { GlassEnv.forceGlass = true }
+        if ProcessInfo.processInfo.environment["ITUNE_FORCE_GLASS"] != "0" { GlassEnv.forceGlass = true; Theme.shared.objectWillChange.send() }
         say("system reduce transparency: \(systemRT), reduce motion: \(Motion.reduce)")
 
         record("launch", await wait(20) { window != nil }, "window \(window.map { "\(Int($0.frame.width))x\(Int($0.frame.height))" } ?? "missing")")
@@ -210,10 +210,10 @@ enum Smoke {
             let tb = Track(id: "local:" + b.absoluteString, title: "Smoke tone B", artists: "Smoke", artistId: nil, album: nil, albumId: nil, durationS: 12, thumb: "")
             player.setAutoplay(false)
             player.play([ta, tb], index: 0, source: "Smoke tones")
-            let ok = await wait(20) { player.isPlaying && player.position > 0.3 }
+            let ok = await wait(20) { player.startedId == ta.id && player.isPlaying && player.position > 0.3 }
             record("local_playback", ok, ok ? "playing local file at \(String(format: "%.1f", player.position))s" : "not playing: \(player.error ?? "-")")
             let durOK = abs(player.duration - 12) / 12 <= 0.05
-            record("duration_local", ok && durOK, String(format: "player %.2fs vs file 12s", player.duration))
+            record("duration_local", ok && durOK, String(format: "shown %.2fs, AVPlayer item %.2fs, file 12s", player.duration, player.itemDuration))
             if ok {
                 player.seek(8)
                 let adv = await wait(20) { player.current?.id == tb.id }
@@ -241,12 +241,14 @@ enum Smoke {
             say("step: play")
             player.play([t], index: 0, source: "Smoke")
             say("step: waiting for playback")
-            let playing = await wait(40) { player.isPlaying && !player.buffering && player.position > 0.5 }
+            // only counts when this track's own stream started (not leftover audio)
+            let playing = await wait(40) { player.startedId == t.id && player.isPlaying && !player.buffering && player.position > 0.5 }
             let err = player.error ?? ""
-            record("playback", playing, playing ? "playing at \(Int(player.position))s" : "not playing: \(err)", soft: !playing)
+            record("playback", playing, playing ? "streaming \(t.title) at \(Int(player.position))s" : "stream not available here: \(err.prefix(200))", soft: !playing)
             let meta = Double(t.durationS)
-            let durOK = meta > 0 && player.duration > 0 && abs(player.duration - meta) / meta <= 0.05
-            record("duration", playing && durOK, String(format: "player %.1fs vs metadata %.0fs", player.duration, meta), soft: !playing)
+            let streamS = Double(player.lastStreamMs) / 1000
+            let durOK = meta > 0 && abs(player.duration - meta) / meta <= 0.05 && (streamS == 0 || abs(streamS - meta) / meta <= 0.05)
+            record("duration", playing && durOK, String(format: "shown %.1fs, stream %.1fs, AVPlayer item %.1fs, metadata %.0fs", player.duration, streamS, player.itemDuration, meta), soft: !playing)
             nav.go(.home)
             await sleep(1)
             shot("11-player-bar")
@@ -306,7 +308,7 @@ enum Smoke {
             // auto-advance at the real end of the track
             // fresh start of the searched track, then jump near its real end
             player.play([t], index: 0, source: "Smoke advance")
-            let again = await wait(40) { player.current?.id == t.id && player.isPlaying && player.position > 0.5 }
+            let again = await wait(40) { player.startedId == t.id && player.isPlaying && player.position > 0.5 }
             if again {
                 _ = await wait(20) { (player.queue?.tracks.count ?? 0) > 1 }
                 player.seek(max(0, player.duration - 4))

@@ -57,6 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         CrashReporter.install()
         Theme.registerBundledFonts()
+        // Reduce Transparency / Reduce Motion changes re-render the glass and motion right away.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { _ in
+            Theme.shared.objectWillChange.send()
+        }
         // Lean storage: images capped at 64 MB on disk / 32 MB in memory; stream cache LRU-trimmed by the core.
         URLCache.shared = URLCache(memoryCapacity: 32 * 1024 * 1024, diskCapacity: 64 * 1024 * 1024)
         Task.detached(priority: .userInitiated) {
