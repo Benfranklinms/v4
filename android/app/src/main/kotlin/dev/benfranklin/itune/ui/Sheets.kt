@@ -87,6 +87,13 @@ import kotlinx.coroutines.launch
 fun SheetHost(s: AppState) {
     val c = LocalColors.current
     val open = s.sheet != null
+    // a menu sheet never sits under the keyboard: close it when a non-text sheet opens
+    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    LaunchedEffect(s.sheet) {
+        val sh = s.sheet
+        if (sh != null && sh !is Sheet.NamePlaylist) { focus.clearFocus(); kb?.hide() }
+    }
     val scrim by animateFloatAsState(if (open) 0.55f else 0f, tween(260), label = "scrim")
     if (scrim > 0.01f) {
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim / 0.55f }.background(Color.Black.copy(alpha = 0.55f)).plainClick { s.sheet = null })
