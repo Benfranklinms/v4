@@ -353,6 +353,7 @@ impl Yt {
                             is_hls: false,
                             loudness_db: None,
                             client: "rustypipe".into(),
+                            duration_ms: p.details.duration as u64 * 1000,
                         });
                     }
                     errs.push("rustypipe: no audio".into());
@@ -449,8 +450,10 @@ pub fn pick_stream(v: &Value, ua: &str, client: &str, prefer_mp4: bool) -> Resul
             }
             let br = f.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
             let mp4 = mime.starts_with("audio/mp4");
+            // HE-AAC (mp4a.40.5 / .29, SBR) makes AVPlayer report a doubled duration: AAC-LC (itag 140) first.
+            let he = mime.contains("40.5") || mime.contains("40.29");
             let score = if prefer_mp4 {
-                if mp4 { 1_000_000 + br } else { -1 }
+                if mp4 { (if he { 500_000 } else { 1_000_000 }) + br } else { -1 }
             } else if mime.contains("opus") {
                 2_000_000 + br
             } else {
@@ -480,6 +483,9 @@ pub fn pick_stream(v: &Value, ua: &str, client: &str, prefer_mp4: bool) -> Resul
             is_hls: false,
             loudness_db: loud,
             client: client.to_string(),
+            duration_ms: f.get("approxDurationMs").and_then(|x| x.as_str()).and_then(|x| x.parse().ok())
+                .or_else(|| v.pointer("/videoDetails/lengthSeconds").and_then(|x| x.as_str()).and_then(|x| x.parse::<u64>().ok()).map(|x| x * 1000))
+                .unwrap_or(0),
         });
     }
     if let Some(h) = sd.get("hlsManifestUrl").and_then(|h| h.as_str()) {
@@ -493,6 +499,7 @@ pub fn pick_stream(v: &Value, ua: &str, client: &str, prefer_mp4: bool) -> Resul
             is_hls: true,
             loudness_db: loud,
             client: client.to_string(),
+            duration_ms: v.pointer("/videoDetails/lengthSeconds").and_then(|x| x.as_str()).and_then(|x| x.parse::<u64>().ok()).map(|x| x * 1000).unwrap_or(0),
         });
     }
     Err("no playable audio format".into())

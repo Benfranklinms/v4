@@ -5376,7 +5376,11 @@ data class StreamInfo (
     var `expiresAt`: kotlin.Long, 
     var `isHls`: kotlin.Boolean, 
     var `loudnessDb`: kotlin.Float?, 
-    var `client`: kotlin.String
+    var `client`: kotlin.String, 
+    /**
+     * Real length of the resolved stream (0 = unknown). UIs show this instead of player-reported durations.
+     */
+    var `durationMs`: kotlin.ULong
 ) {
     
     companion object
@@ -5397,6 +5401,7 @@ public object FfiConverterTypeStreamInfo: FfiConverterRustBuffer<StreamInfo> {
             FfiConverterBoolean.read(buf),
             FfiConverterOptionalFloat.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
         )
     }
 
@@ -5409,7 +5414,8 @@ public object FfiConverterTypeStreamInfo: FfiConverterRustBuffer<StreamInfo> {
             FfiConverterLong.allocationSize(value.`expiresAt`) +
             FfiConverterBoolean.allocationSize(value.`isHls`) +
             FfiConverterOptionalFloat.allocationSize(value.`loudnessDb`) +
-            FfiConverterString.allocationSize(value.`client`)
+            FfiConverterString.allocationSize(value.`client`) +
+            FfiConverterULong.allocationSize(value.`durationMs`)
     )
 
     override fun write(value: StreamInfo, buf: ByteBuffer) {
@@ -5422,6 +5428,7 @@ public object FfiConverterTypeStreamInfo: FfiConverterRustBuffer<StreamInfo> {
             FfiConverterBoolean.write(value.`isHls`, buf)
             FfiConverterOptionalFloat.write(value.`loudnessDb`, buf)
             FfiConverterString.write(value.`client`, buf)
+            FfiConverterULong.write(value.`durationMs`, buf)
     }
 }
 

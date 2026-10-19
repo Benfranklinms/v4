@@ -154,6 +154,8 @@ pub struct StreamInfo {
     pub is_hls: bool,
     pub loudness_db: Option<f32>,
     pub client: String,
+    /// Real length of the resolved stream (0 = unknown). UIs show this instead of player-reported durations.
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
