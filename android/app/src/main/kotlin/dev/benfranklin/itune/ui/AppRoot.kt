@@ -142,6 +142,7 @@ fun AppRoot(s: AppState) {
         val c = LocalColors.current
         val density = LocalDensity.current
         val haze = remember { HazeState() }
+        val sheetHaze = remember { HazeState() }
         val chrome = remember(density) { with(density) { ChromeState(thresholdPx = 72.dp.toPx(), hidePx = 18.dp.toPx(), showPx = 10.dp.toPx()) } }
         val key: Any = s.stack.lastOrNull() ?: s.tab
         LaunchedEffect(key) { chrome.reset() }
@@ -158,16 +159,19 @@ fun AppRoot(s: AppState) {
             AnimatedContent(targetState = "$font|$customPath|$customNum", transitionSpec = { fadeIn(tween(320)) togetherWith fadeOut(tween(220)) }, label = "font") { _ ->
                 SharedTransitionLayout(Modifier.fillMaxSize().background(c.bg).semantics { testTagsAsResourceId = true }) {
                     Box(Modifier.fillMaxSize()) {
-                        // everything that scrolls is the haze source: the floating glass blurs it
-                        Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(haze) else Modifier).nestedScroll(chrome.connection)) {
-                            AmbientWash(Modifier.fillMaxSize())
-                            Content(s)
+                        // everything under the sheets (pages, chrome, Now Playing) is the sheets' haze source
+                        Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(sheetHaze) else Modifier)) {
+                            // everything that scrolls is the haze source: the floating glass blurs it
+                            Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(haze) else Modifier).nestedScroll(chrome.connection)) {
+                                AmbientWash(Modifier.fillMaxSize())
+                                Content(s)
+                            }
+                            StatusEdge(chrome, haze)
+                            TopGlassBar(s, chrome)
+                            OfflineBanner()
+                            PlayerLayer(s, chrome, this@SharedTransitionLayout)
                         }
-                        StatusEdge(chrome, haze)
-                        TopGlassBar(s, chrome)
-                        OfflineBanner()
-                        PlayerLayer(s, chrome, this@SharedTransitionLayout)
-                        SheetHost(s)
+                        androidx.compose.runtime.CompositionLocalProvider(dev.benfranklin.itune.ui.components.LocalSheetHaze provides sheetHaze) { SheetHost(s) }
                         Toast(s, chrome)
                         CrashReportDialog(s)
                         FpsLayer()

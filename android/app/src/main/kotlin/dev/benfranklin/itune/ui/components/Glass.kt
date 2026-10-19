@@ -61,6 +61,8 @@ import dev.benfranklin.itune.ui.theme.LocalColors
  * Every glass surface gets a specular top sheen and a thin light rim; colour only comes from album art.
  */
 val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
+/** Haze over everything under the sheets (content, chrome and Now Playing): sheets blur what they cover. */
+val LocalSheetHaze = staticCompositionLocalOf<HazeState?> { null }
 
 /**
  * Live RenderEffect blur is off on the Android emulator only: the CI emulator's software GPU (SwiftShader /
@@ -108,14 +110,17 @@ fun Modifier.glass(
     sheen: Float = 0.08f,
     rim: Float = 0.6f,
     blur: Dp = 22.dp,
+    hazeState: HazeState? = null,
+    /** Fill alpha when there is no live blur (emulator, old phones): sheets stay opaque enough that nothing ghosts through. */
+    fallbackAlpha: Float? = null,
 ): Modifier {
     val c = LocalColors.current
-    val haze = LocalHaze.current
+    val haze = hazeState ?: LocalHaze.current
     val base = glassBase(c)
     val rimColor = if (c.light) Color.Black else Color.White
     var m = this.clip(shape)
     m = if (backdrop && haze != null && liveBlur) m.hazeEffect(haze, glassStyle(c, dark, blur))
-    else m.background(base.copy(alpha = (dark + 0.22f).coerceAtMost(0.96f)))
+    else m.background(base.copy(alpha = fallbackAlpha ?: (dark + 0.22f).coerceAtMost(0.96f)))
     if (liteGfx) return m
     return m.drawWithContent {
         val outline = shape.createOutline(size, layoutDirection, this)
@@ -263,7 +268,7 @@ fun GlassDialog(
             androidx.compose.foundation.layout.Column(
                 Modifier
                     .androidx_graphicsLayerScale { appear.value }
-                    .glass(androidx.compose.foundation.shape.RoundedCornerShape(28.dp), dark = 0.78f, sheen = 0.10f, rim = 0.8f)
+                    .glass(androidx.compose.foundation.shape.RoundedCornerShape(28.dp), dark = 0.78f, sheen = 0.10f, rim = 0.8f, fallbackAlpha = 1f)
                     .then(if (tag != null) Modifier.testTag(tag) else Modifier)
                     .padding(20.dp),
             ) {

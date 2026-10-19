@@ -84,6 +84,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
@@ -127,8 +129,8 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
     val tr = t ?: return
     val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
     val liked = tr.id in likedIds
-    var downloaded by remember(tr.id) { mutableStateOf(false) }
-    LaunchedEffect(tr.id) { downloaded = dev.benfranklin.itune.data.io { App.core.isDownloaded(tr.id) } ?: false }
+    val dlIds by dev.benfranklin.itune.data.Library.downloadIds.collectAsState()
+    val downloaded = tr.id in dlIds
     var showLyrics by remember { mutableStateOf(false) }
     val sleepAt by Playback.sleepAt.collectAsState()
     var heartBurst by remember { mutableStateOf(0) }
@@ -137,27 +139,45 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
     val h = LocalHapticFeedback.current
     val cs = rememberCoroutineScope()
 
+    // Swipe down to minimise: a drag down anywhere (once the content is at the top) moves the sheet with the
+    // finger while it scales and rounds toward the mini player; released past 25% of the height or flung down,
+    // it collapses with the same shared-element animation as the chevron, otherwise it springs back.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var heightPx by remember { mutableFloatStateOf(1f) }
+    val swipe = remember(reduce, s) { NpSwipe(drag, cs, reduce, h, density.density) { s.nowPlaying = false } }
+    swipe.heightPx = heightPx
+    // predictive back drives the same motion (the system back gesture previews the minimise)
+    androidx.activity.compose.PredictiveBackHandler(enabled = s.sheet == null && s.nowPlaying) { progress ->
+        try {
+            progress.collect { e -> if (!reduce) swipe.set(e.progress * heightPx * 0.12f) }
+            swipe.collapse()
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            swipe.springBack()
+            throw e
+        }
+    }
+
     with(shared) {
         Box(
             Modifier.fillMaxSize()
+                .androidx_onHeight { heightPx = it }
                 .sharedBounds(rememberSharedContentState("player-bg"), scope, resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds)
-                .graphicsLayer { translationY = drag.value.coerceAtLeast(0f); val k = 1f - (drag.value / 3000f).coerceIn(0f, 0.08f); scaleX = k; scaleY = k }
-                .background(c.bg)
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onDragEnd = {
-                            if (drag.value > 260f) s.nowPlaying = false
-                            else cs.launch { drag.animateTo(0f, dev.benfranklin.itune.ui.components.glassSpring(reduce)) }
-                        },
-                        onDragCancel = { cs.launch { drag.animateTo(0f, dev.benfranklin.itune.ui.components.glassSpring(reduce)) } },
-                    ) { _, d -> cs.launch { drag.snapTo((drag.value + d).coerceAtLeast(0f)) } }
+                .graphicsLayer {
+                    val d = drag.value.coerceAtLeast(0f)
+                    translationY = d
+                    if (!reduce && d > 0f) {
+                        val p = (d / heightPx).coerceIn(0f, 1f)
+                        val k = 1f - 0.12f * p
+                        scaleX = k; scaleY = k
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                        shape = RoundedCornerShape((36f * (p * 4f).coerceAtMost(1f)).dp)
+                        clip = true
+                    }
                 }
+                .background(c.bg)
+                .androidx_nestedScroll(swipe.connection)
                 .testTag("now_playing"),
         ) {
-            // full-screen album art, blurred into bokeh: the only colour on this screen
-            AnimatedContent(tr.thumb, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "backdrop") { url ->
-                dev.benfranklin.itune.ui.components.BlurredArt(url, Modifier.fillMaxSize())
-            }
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val artSize = minOf(maxWidth - 48.dp, maxHeight * 0.40f, 312.dp)
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState())) {
@@ -177,7 +197,12 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                         Box(
                             Modifier
                                 .sharedElement(rememberSharedContentState("art"), scope, boundsTransform = { _, _ -> spring(dampingRatio = 0.82f, stiffness = 300f) })
-                                .graphicsLayer { translationX = swipeA; rotationZ = swipeA / 90f; val k = if (playing || reduce) 1f else 0.92f; scaleX = k; scaleY = k }
+                                .graphicsLayer {
+                                    translationX = swipeA; rotationZ = swipeA / 90f
+                                    val dp = if (reduce) 0f else (drag.value / heightPx).coerceIn(0f, 0.5f)
+                                    val k = (if (playing || reduce) 1f else 0.92f) * (1f - 0.36f * dp)
+                                    scaleX = k; scaleY = k
+                                }
                                 .shadow(28.dp, RoundedCornerShape(20.dp), ambientColor = Color.Black, spotColor = Color.Black)
                                 .pointerInput(tr.id) {
                                     detectTapGestures(onDoubleTap = {
@@ -248,12 +273,16 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                             size = 48.dp, iconSize = 22.dp, selected = downloaded, tag = "np_download",
                         ) {
                             if (downloaded) {
-                                downloaded = false
-                                dev.benfranklin.itune.data.Bg.run { App.core.removeDownload(tr.id) }
-                                s.snack = dev.benfranklin.itune.ui.Snack("Removed download", "Undo") { downloaded = true; App.scope.launch { dev.benfranklin.itune.data.io { App.core.download(tr) } } }
+                                val ids = listOf(tr.id)
+                                s.undoable(
+                                    "Removed download",
+                                    apply = { dev.benfranklin.itune.data.Library.hideDownloads(ids) },
+                                    undo = { dev.benfranklin.itune.data.Library.restoreDownloads() },
+                                    commit = { dev.benfranklin.itune.data.Library.commitRemoveDownloads(ids) },
+                                )
                             } else cs.launch {
                                 s.toast("Downloading…")
-                                dev.benfranklin.itune.data.ioResult { App.core.download(tr) }.onSuccess { downloaded = true; s.toast("Downloaded") }.onFailure { s.toast("Couldn't download. Check your connection.") }
+                                dev.benfranklin.itune.data.Library.download(tr).onSuccess { s.toast("Downloaded") }.onFailure { s.toast("Couldn't download. Check your connection.") }
                             }
                         }
                         val hs by animateFloatAsState(if (liked) 1f else 0.9f, spring(dampingRatio = 0.4f, stiffness = 600f), label = "heart")
@@ -448,4 +477,103 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
         }
     }
     @Suppress("UNUSED_EXPRESSION") Color.Unspecified
+}
+
+
+private fun Modifier.androidx_onHeight(onHeight: (Float) -> Unit): Modifier =
+    this.then(Modifier.onSizeChanged { if (it.height > 0) onHeight(it.height.toFloat()) })
+
+private fun Modifier.androidx_nestedScroll(c: androidx.compose.ui.input.nestedscroll.NestedScrollConnection): Modifier =
+    this.then(Modifier.nestedScroll(c))
+
+/**
+ * Drag-to-minimise for Now Playing, fed by the content's nested scroll: only a downward drag the content can't
+ * use (it is at the top) moves the sheet, and while the sheet is pulled down an upward drag first pushes it
+ * back before the content scrolls. Release decides: past [THRESHOLD] of the height or a downward fling collapses.
+ */
+private class NpSwipe(
+    val drag: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+    val scope: kotlinx.coroutines.CoroutineScope,
+    val reduce: Boolean,
+    val haptics: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    val density: Float,
+    val onCollapse: () -> Unit,
+) {
+    var heightPx = 1f
+    /** Current pull (px); the source of truth, mirrored into [drag] for drawing. */
+    private var pos = 0f
+    private var armed = false
+    private var collapsing = false
+
+    fun set(v: Float) {
+        val nv = v.coerceAtLeast(0f)
+        pos = nv
+        scope.launch { drag.snapTo(nv) }
+        val over = nv > heightPx * THRESHOLD
+        if (over != armed) {
+            armed = over
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
+
+    fun collapse() {
+        if (collapsing) return
+        collapsing = true
+        onCollapse()
+        pos = 0f
+        // the shared bounds shrink to the mini player while the drag offset eases out: one continuous motion
+        scope.launch { if (reduce) drag.snapTo(0f) else drag.animateTo(0f, spring(dampingRatio = 0.82f, stiffness = 300f)) }
+    }
+
+    private fun settle(velocityY: Float) {
+        val d = pos
+        if (d <= 0f) return
+        if (d > heightPx * THRESHOLD || (velocityY > FLING_DP * density && d > 12f * density)) collapse()
+        else {
+            springBack()
+        }
+    }
+
+    fun springBack() {
+        armed = false
+        pos = 0f
+        scope.launch { drag.animateTo(0f, dev.benfranklin.itune.ui.components.glassSpring(reduce)) }
+    }
+
+    val connection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
+            if (collapsing) return available
+            val d = pos
+            if (d > 0f && source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) {
+                // sheet is pulled down: it takes the whole drag (up pushes it back first, down keeps pulling)
+                val nv = (d + available.y).coerceAtLeast(0f)
+                set(nv)
+                return Offset(0f, nv - d)
+            }
+            return Offset.Zero
+        }
+
+        override fun onPostScroll(consumed: Offset, available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
+            if (collapsing) return available
+            if (available.y > 0f && source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) {
+                set(pos + available.y)
+                return Offset(0f, available.y)
+            }
+            return Offset.Zero
+        }
+
+        override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+            if (collapsing) return available
+            if (pos > 0f) {
+                settle(available.y)
+                return available
+            }
+            return androidx.compose.ui.unit.Velocity.Zero
+        }
+    }
+
+    companion object {
+        const val THRESHOLD = 0.25f
+        const val FLING_DP = 1100f
+    }
 }

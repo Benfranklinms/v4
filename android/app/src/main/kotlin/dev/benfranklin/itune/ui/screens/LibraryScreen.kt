@@ -149,8 +149,8 @@ fun LibraryScreen(s: AppState) {
             if (!selecting) {
                 item(key = "shortcuts") {
                     Column(Modifier.padding(top = 10.dp)) {
-                        Shortcut(Icons.Rounded.Favorite, "Liked Songs", "$liked songs", 0) { s.push(Dest.Playlist("liked")) }
-                        Shortcut(Icons.Rounded.DownloadDone, "Downloads", "$downloads songs · offline", 1) { s.push(Dest.Downloads) }
+                        Shortcut(Icons.Rounded.Favorite, "Liked Songs", dev.benfranklin.itune.ui.components.withSongs("", liked), 0, "lib_liked") { s.push(Dest.Playlist("liked")) }
+                        Shortcut(Icons.Rounded.DownloadDone, "Downloads", dev.benfranklin.itune.ui.components.withSongs("", downloads) + " · offline", 1, "lib_downloads") { s.push(Dest.Downloads) }
                         Shortcut(Icons.Rounded.PhoneAndroid, "On this phone", "Local files", 2) { s.push(Dest.Local) }
                     }
                 }
@@ -233,7 +233,7 @@ fun LibraryScreen(s: AppState) {
         // multi-select action bar
         AnimatedVisibility(selecting, modifier = Modifier.align(Alignment.BottomCenter), enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut(tween(120))) {
             Row(
-                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 160.dp).fillMaxWidth().height(56.dp).glass(RoundedCornerShape(28.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f).padding(horizontal = 8.dp),
+                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 160.dp).fillMaxWidth().height(56.dp).glass(RoundedCornerShape(28.dp), dark = 0.34f, backdrop = true, sheen = 0.08f, rim = 0.65f, fallbackAlpha = 1f).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -278,15 +278,15 @@ fun EmptyState(title: String, body: String, action: String, onAction: () -> Unit
 }
 
 @Composable
-private fun Shortcut(icon: ImageVector, title: String, sub: String, i: Int, onClick: () -> Unit) {
+private fun Shortcut(icon: ImageVector, title: String, sub: String, i: Int, tag: String? = null, onClick: () -> Unit) {
     val c = LocalColors.current
-    Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().enter(i).press(scaleTo = 0.98f, onClick = onClick).then(if (tag != null) Modifier.testTag(tag) else Modifier).padding(horizontal = 16.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(52.dp).glass(RoundedCornerShape(8.dp), dark = 0.34f, sheen = 0.08f, rim = 0.65f), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = c.txt, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.padding(start = 14.dp)) {
             Text(title, style = T.ui(14.5.sp, FontWeight.SemiBold))
-            Text(sub, style = T.ui(12.sp, FontWeight.Medium, c.t3))
+            Text(sub, style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = if (tag != null) Modifier.testTag(tag + "_count") else Modifier)
         }
     }
 }

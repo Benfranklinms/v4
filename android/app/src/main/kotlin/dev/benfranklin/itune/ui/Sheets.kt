@@ -16,6 +16,17 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.verticalDrag
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +39,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -119,8 +135,17 @@ fun SheetHost(s: AppState) {
             if (s.sheet != null) current.value = s.sheet
             Column(
                 Modifier.fillMaxWidth().graphicsLayer { translationY = drag.value }
-                    .glass(RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp), dark = 0.72f, sheen = 0.06f, rim = 0.65f)
-                    .navigationBarsPadding().padding(bottom = 12.dp)
+                    // Liquid Glass: blurs what the sheet covers (Now Playing's art glow under the queue); without live
+                    // blur (emulator / old phones) an almost opaque fill, so no rows ghost through from behind
+                    .glass(
+                        RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp), dark = if (current.value == Sheet.Queue) 0.50f else 0.60f,
+                        backdrop = true, sheen = 0.07f, rim = 0.65f, blur = 32.dp,
+                        hazeState = dev.benfranklin.itune.ui.components.LocalSheetHaze.current, fallbackAlpha = 1f,
+                    )
+                    // the sheet rides above the keyboard (edge-to-edge: the IME inset, which includes the nav bar,
+                    // animates with the keyboard), so a focused field is never hidden behind it
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+                    .padding(bottom = 12.dp)
                     .testTag("sheet"),
             ) {
                 Box(
@@ -213,16 +238,21 @@ private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, positio
                     Playback.play(ctx, listOf(t) + r, 0, "${t.title} radio")
                 }
             }
-            var isDl by remember(t.id) { mutableStateOf(false) }
-            LaunchedEffect(t.id) { isDl = dev.benfranklin.itune.data.io { App.core.isDownloaded(t.id) } ?: false }
-            if (isDl) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove download", 5) {
+            val dlIds by dev.benfranklin.itune.data.Library.downloadIds.collectAsState()
+            if (t.id in dlIds) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove download", 5) {
                 s.sheet = null
-                s.undoable("Removed download", apply = {}, undo = {}, commit = { dev.benfranklin.itune.data.Bg.run { App.core.removeDownload(t.id) } })
+                val ids = listOf(t.id)
+                s.undoable(
+                    "Removed download",
+                    apply = { dev.benfranklin.itune.data.Library.hideDownloads(ids) },
+                    undo = { dev.benfranklin.itune.data.Library.restoreDownloads() },
+                    commit = { dev.benfranklin.itune.data.Library.commitRemoveDownloads(ids) },
+                )
             } else MenuRow(Icons.Rounded.Download, "Download", 5) {
                 s.sheet = null
                 s.toast("Downloading…")
                 App.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                    dev.benfranklin.itune.data.ioResult { App.core.download(t) }.onSuccess { s.toast("Downloaded") }.onFailure { s.toast("Couldn't download. Check your connection.") }
+                    dev.benfranklin.itune.data.Library.download(t).onSuccess { s.toast("Downloaded") }.onFailure { s.toast("Couldn't download. Check your connection.") }
                 }
             }
         }
@@ -252,8 +282,7 @@ private fun AddToPlaylist(s: AppState, t: Track) {
         LazyColumn(Modifier.heightIn(max = 360.dp)) {
             itemsIndexed(lists, key = { _, p -> p.id }) { i, p ->
                 Row(Modifier.fillMaxWidth().enter(i + 1).press(scaleTo = 0.98f) {
-                    dev.benfranklin.itune.data.Library.replace(p.copy(trackCount = (p.trackCount ?: 0uL) + 1uL))
-                    dev.benfranklin.itune.data.Bg.run { App.core.addToPlaylist(p.id, t) }
+                    dev.benfranklin.itune.data.Library.addToPlaylist(p, t)
                     s.sheet = null
                     s.toast("Added to ${p.title}")
                 }.padding(horizontal = 24.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -266,6 +295,206 @@ private fun AddToPlaylist(s: AppState, t: Track) {
         }
     }
 }
+
+/** A queue row with a key that survives reordering: track id + which repeat of that id it is in the queue. */
+@androidx.compose.runtime.Immutable
+private data class QEntry(val key: String, val track: Track)
+
+private fun entriesOf(tracks: List<Track>, range: IntRange): List<QEntry> {
+    val seen = HashMap<String, Int>()
+    val out = ArrayList<QEntry>()
+    tracks.forEachIndexed { i, t ->
+        val n = seen.merge(t.id, 1, Int::plus)!!
+        if (i in range) out += QEntry("${t.id}#$n", t)
+    }
+    return out
+}
+
+/**
+ * Drag-to-reorder for "Next in queue". The lifted row follows the finger 1:1 (translation drawn from layout
+ * info, no recomposition per move), neighbours slide with animateItem springs as it passes their middle, the
+ * list auto-scrolls near the edges, and the drop settles with a spring. The local order changes during the drag;
+ * the queue is committed once, on drop.
+ */
+@androidx.compose.runtime.Stable
+private class QueueReorder(
+    val list: androidx.compose.foundation.lazy.LazyListState,
+    val scope: kotlinx.coroutines.CoroutineScope,
+    val haptics: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    val reduce: Boolean,
+    val density: Float,
+) {
+    val entries = androidx.compose.runtime.mutableStateListOf<QEntry>()
+    /** Queue index of entries[0]. */
+    var base = 0
+    var dragKey by mutableStateOf<String?>(null)
+        private set
+    private var delta by mutableFloatStateOf(0f)
+    private var startOffset = 0
+    private var fromIndex = -1
+    val lift = androidx.compose.animation.core.Animatable(0f)
+    /** Queue state the local order is waiting on after a commit (no resync back to the old order meanwhile). */
+    var awaiting: Any? = null
+    private var awaitingAt = 0L
+    var onCommit: (from: Int, to: Int) -> Unit = { _, _ -> }
+    private var autoJob: kotlinx.coroutines.Job? = null
+    private var settleJob: kotlinx.coroutines.Job? = null
+
+    fun lazyKey(e: QEntry) = "u:" + e.key
+
+    fun sync(st: Any, fresh: List<QEntry>, newBase: Int) {
+        if (dragKey != null) return
+        if (awaiting != null && st === awaiting && System.currentTimeMillis() - awaitingAt < 2_000) return
+        awaiting = null
+        base = newBase
+        if (entries.map { it.key } != fresh.map { it.key } || entries.toList() != fresh) {
+            entries.clear(); entries.addAll(fresh)
+        }
+    }
+
+    private fun item(key: String) = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }
+
+    /** How far the lifted row is drawn from its slot (read in graphicsLayer, so only the layer redraws). */
+    fun displacement(e: QEntry): Float {
+        if (dragKey != e.key) return 0f
+        val cur = item(lazyKey(e)) ?: return 0f
+        return startOffset + delta - cur.offset
+    }
+
+    fun start(e: QEntry) {
+        if (dragKey != null) return
+        val info = item(lazyKey(e)) ?: return
+        settleJob?.cancel()
+        dragKey = e.key
+        startOffset = info.offset
+        delta = 0f
+        fromIndex = entries.indexOfFirst { it.key == e.key }
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        scope.launch { if (reduce) lift.snapTo(1f) else lift.animateTo(1f, spring(dampingRatio = 0.7f, stiffness = 600f)) }
+        autoJob = scope.launch { autoScroll() }
+    }
+
+    fun drag(dy: Float) {
+        if (dragKey == null) return
+        delta += dy
+        swapIfPassed()
+    }
+
+    private fun swapIfPassed() {
+        val key = dragKey ?: return
+        val cur = item("u:$key") ?: return
+        val top = startOffset + delta
+        val center = top + cur.size / 2f
+        val from = entries.indexOfFirst { it.key == key }
+        if (from < 0) return
+        val target = list.layoutInfo.visibleItemsInfo.firstOrNull { inf ->
+            val k = inf.key as? String ?: return@firstOrNull false
+            k.startsWith("u:") && k != "u:$key" && center > inf.offset && center < inf.offset + inf.size &&
+                // only once the row's middle passes the neighbour's middle (no flip-flopping at the edge)
+                (if (inf.offset > cur.offset) center > inf.offset + inf.size / 2f else center < inf.offset + inf.size / 2f)
+        } ?: return
+        val to = entries.indexOfFirst { "u:" + it.key == target.key }
+        if (to < 0 || to == from) return
+        // keep the list anchored when the first visible item takes part in the move
+        val first = list.firstVisibleItemIndex
+        val firstOff = list.firstVisibleItemScrollOffset
+        val anchor = cur.index == first || target.index == first
+        entries.add(to, entries.removeAt(from))
+        if (anchor) scope.launch { list.scrollToItem(first, firstOff) }
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+    }
+
+    private suspend fun autoScroll() {
+        while (dragKey != null) {
+            androidx.compose.runtime.withFrameNanos { }
+            val key = dragKey ?: break
+            val cur = item("u:$key") ?: continue
+            val li = list.layoutInfo
+            val top = startOffset + delta
+            val bottom = top + cur.size
+            val zone = cur.size * 0.9f
+            val pos = entries.indexOfFirst { it.key == key }
+            val speed = when {
+                top < li.viewportStartOffset + zone && pos > 0 -> -((li.viewportStartOffset + zone - top) / zone).coerceIn(0f, 1f) * 7f * density
+                bottom > li.viewportEndOffset - zone && pos < entries.lastIndex -> ((bottom - (li.viewportEndOffset - zone)) / zone).coerceIn(0f, 1f) * 7f * density
+                else -> 0f
+            }
+            if (speed != 0f) {
+                list.scrollBy(speed)
+                swapIfPassed()
+            }
+        }
+    }
+
+    fun drop() {
+        val key = dragKey ?: return
+        autoJob?.cancel()
+        val to = entries.indexOfFirst { it.key == key }
+        val from = fromIndex
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        if (from >= 0 && to >= 0 && from != to) onCommit(base + from, base + to)
+        settleJob = scope.launch {
+            val cur = item("u:$key")
+            if (cur != null && !reduce) {
+                val target = (cur.offset - startOffset).toFloat()
+                launch { lift.animateTo(0f, spring(dampingRatio = 0.75f, stiffness = 500f)) }
+                androidx.compose.animation.core.animate(delta, target, animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f)) { v, _ -> delta = v }
+            } else lift.snapTo(0f)
+            dragKey = null
+            delta = 0f
+        }
+    }
+
+    fun markCommitted(st: Any) {
+        awaiting = st
+        awaitingAt = System.currentTimeMillis()
+    }
+}
+
+/** Long-press on a queue row lifts it for reordering; released without moving it opens the track menu. */
+private fun Modifier.liftOnLongPress(onLift: () -> Unit, onDrag: (Float) -> Unit, onDrop: (moved: Boolean) -> Unit): Modifier =
+    pointerInput(Unit) {
+        val slop = viewConfiguration.touchSlop
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            if (down.isConsumed) return@awaitEachGesture // the drag handle took it
+            val lp = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+            onLift()
+            var moved = 0f
+            // after the lift every move and the release are taken in the Initial pass, so neither the list's
+            // scroll, the sideways swipe nor the row's tap ever sees them
+            while (true) {
+                val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                val ch = ev.changes.firstOrNull { it.id == lp.id } ?: break
+                if (!ch.pressed) { ch.consume(); break }
+                val d = ch.position.y - ch.previousPosition.y
+                moved += kotlin.math.abs(d)
+                onDrag(d)
+                ch.consume()
+            }
+            onDrop(moved > slop)
+        }
+    }
+
+/** The drag handle lifts its row straight away (no long press) and drags it until release. */
+private fun Modifier.handleDrag(key: Any, onLift: () -> Unit, onDrag: (Float) -> Unit, onDrop: () -> Unit): Modifier =
+    pointerInput(key) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            down.consume()
+            var start: androidx.compose.ui.input.pointer.PointerInputChange? = null
+            var over = 0f
+            start = awaitVerticalTouchSlopOrCancellation(down.id) { ch, o -> ch.consume(); over = o }
+            val first = start ?: return@awaitEachGesture
+            onLift()
+            onDrag(over)
+            verticalDrag(first.id) { ch ->
+                onDrag(ch.position.y - ch.previousPosition.y)
+                ch.consume()
+            }
+            onDrop()
+        }
+    }
 
 @Composable
 private fun QueueSheet(s: AppState) {
@@ -281,22 +510,35 @@ private fun QueueSheet(s: AppState) {
     var ap by remember { mutableStateOf(App.prefs.autoplay.value) }
     val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
     val lens = androidx.compose.animation.core.animateFloatAsState(tab.toFloat(), dev.benfranklin.itune.ui.components.glassSpring(reduce), label = "qlens")
+    val scope = rememberCoroutineScope()
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val apFrom = if (st.autoplayFrom >= 0) st.autoplayFrom else st.tracks.size
+    val userRange = (st.index + 1) until apFrom
+    val userEntries = remember(st) { entriesOf(st.tracks, userRange) }
+    val ro = remember(list) { QueueReorder(list, scope, haptics, reduce, density).also { it.sync(st, userEntries, st.index + 1) } }
+    // local order follows the queue, except mid-drag and while a dropped move is being committed
+    LaunchedEffect(st, ro.dragKey) { ro.sync(st, userEntries, st.index + 1) }
+    ro.onCommit = { from, to -> ro.markCommitted(st); Playback.move(from, to) }
     Column(Modifier.testTag("queue_sheet")) {
-        // tabs: Queue | Recently played with a sliding mono underline
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        // tabs: Queue | Recently played as a glass segmented control with a sliding lens
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(44.dp)
+                .glass(RoundedCornerShape(22.dp), dark = 0.22f, sheen = 0.07f, rim = 0.55f),
+        ) {
             val half = maxWidth / 2
-            Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.padding(4.dp).width(half - 8.dp).fillMaxHeight().graphicsLayer { translationX = lens.value * half.toPx() }
+                    .glass(RoundedCornerShape(18.dp), dark = 0.0f, sheen = 0.16f, rim = 0.8f)
+                    .background(c.txt.copy(alpha = 0.10f), RoundedCornerShape(18.dp)),
+            )
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 listOf("Queue", "Recently played").forEachIndexed { i, l ->
                     Box(Modifier.weight(1f).fillMaxHeight().press(scaleTo = 0.96f) { tab = i }.testTag("queue_tab_$i"), contentAlignment = Alignment.Center) {
-                        Text(l, style = T.ui(15.sp, if (tab == i) FontWeight.Bold else FontWeight.SemiBold, if (tab == i) c.txt else c.t3))
+                        Text(l, style = T.ui(14.5.sp, if (tab == i) FontWeight.Bold else FontWeight.SemiBold, if (tab == i) c.txt else c.t3))
                     }
                 }
             }
-            Box(Modifier.padding(top = 40.dp).fillMaxWidth().height(0.6.dp).background(c.line3))
-            Box(
-                Modifier.padding(top = 39.dp).width(half).height(3.dp).graphicsLayer { translationX = lens.value * half.toPx() },
-                contentAlignment = Alignment.Center,
-            ) { Box(Modifier.width(56.dp).height(3.dp).clip(RoundedCornerShape(1.5.dp)).background(c.acc)) }
         }
         Spacer(Modifier.height(8.dp))
         if (tab == 1) {
@@ -310,8 +552,8 @@ private fun QueueSheet(s: AppState) {
             }
             return@Column
         }
-        val apFrom = if (st.autoplayFrom >= 0) st.autoplayFrom else st.tracks.size
         LaunchedEffect(Unit) { list.scrollToItem(0) }
+        val autoEntries = remember(st, ap) { if (ap) entriesOf(st.tracks, maxOf(apFrom, st.index + 1) until st.tracks.size) else emptyList() }
         LazyColumn(Modifier.heightIn(max = 540.dp), state = list) {
             st.tracks.getOrNull(st.index)?.let { cur ->
                 item(key = "h_now") { QHeader("Now playing") }
@@ -322,16 +564,50 @@ private fun QueueSheet(s: AppState) {
                     }
                 }
             }
-            val user = (st.index + 1 until apFrom).toList()
-            if (user.isNotEmpty()) {
+            if (ro.entries.isNotEmpty()) {
                 item(key = "h_user") {
-                    QHeader("Next in queue", "Clear") { user.reversed().forEach { Playback.remove(it) } }
+                    QHeader("Next in queue", "Clear") { userRange.reversed().forEach { Playback.remove(it) } }
                 }
-                items(user.size, key = { k -> "u${user[k]}-${st.tracks[user[k]].id}" }) { k ->
-                    val i = user[k]
-                    Box(Modifier.animateItem()) {
-                        QRow(st.tracks[i], false, onClick = { Playback.jump(i) }, onLong = { s.sheet = Sheet.TrackMenu(st.tracks[i], queueIndex = i) }) {
-                            DragHandle(i, st.index + 1, apFrom - 1)
+                itemsIndexed(ro.entries, key = { _, e -> ro.lazyKey(e) }) { i, e ->
+                    val lifted = ro.dragKey == e.key
+                    val qi = ro.base + i
+                    SwipeToRemove(
+                        enabled = ro.dragKey == null,
+                        modifier = Modifier
+                            .then(if (lifted) Modifier.zIndex(1f) else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = tween(160), placementSpec = spring(dampingRatio = 0.82f, stiffness = 420f)))
+                            .graphicsLayer {
+                                translationY = ro.displacement(e)
+                                val l = if (lifted) ro.lift.value else 0f
+                                val k = 1f + 0.03f * l
+                                scaleX = k; scaleY = k
+                                shadowElevation = 18.dp.toPx() * l
+                                shape = RoundedCornerShape(16.dp)
+                            }
+                            .drawBehind {
+                                val l = if (lifted) ro.lift.value else 0f
+                                if (l > 0.001f) drawRoundRect(c.surf3.copy(alpha = 0.96f * l), cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()))
+                            }
+                            .liftOnLongPress(
+                                onLift = { ro.start(e) },
+                                onDrag = { ro.drag(it) },
+                                onDrop = { moved ->
+                                    ro.drop()
+                                    if (!moved) s.sheet = Sheet.TrackMenu(e.track, queueIndex = ro.base + ro.entries.indexOf(e))
+                                },
+                            ),
+                        onRemove = {
+                            val idx = ro.base + ro.entries.indexOf(e)
+                            ro.entries.remove(e)
+                            ro.markCommitted(st)
+                            Playback.remove(idx)
+                        },
+                    ) {
+                        QRow(e.track, false, onClick = { Playback.jump(qi) }, titleTag = "queue_user_title") {
+                            Icon(
+                                Icons.Rounded.DragHandle, "Reorder", tint = c.t2,
+                                modifier = Modifier.size(40.dp).padding(9.dp).testTag("queue_handle")
+                                    .handleDrag(e.key, onLift = { ro.start(e) }, onDrag = { ro.drag(it) }, onDrop = { ro.drop() }),
+                            )
                         }
                     }
                 }
@@ -344,15 +620,17 @@ private fun QueueSheet(s: AppState) {
                     }
                 }
             }
-            if (ap) {
-                val auto = (maxOf(apFrom, st.index + 1) until st.tracks.size).toList()
-                if (auto.isEmpty()) item(key = "auto_empty") { Text("Similar songs appear here as the queue runs low.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
-                items(auto.size, key = { k -> "a${auto[k]}-${st.tracks[auto[k]].id}" }) { k ->
-                    val i = auto[k]
-                    Box(Modifier.animateItem()) {
-                        QRow(st.tracks[i], false, onClick = { Playback.jump(i) }, onLong = { s.sheet = Sheet.TrackMenu(st.tracks[i], queueIndex = i) }) {
-                            Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.sheet = Sheet.TrackMenu(st.tracks[i], queueIndex = i) }.padding(10.dp))
-                        }
+            if (ap && autoEntries.isEmpty()) item(key = "auto_empty") { Text("Similar songs appear here as the queue runs low.", style = T.ui(12.5.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) }
+            val apStart = maxOf(apFrom, st.index + 1)
+            itemsIndexed(autoEntries, key = { _, e -> "a:" + e.key }) { k, e ->
+                val i = apStart + k
+                SwipeToRemove(
+                    enabled = ro.dragKey == null,
+                    modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = spring(dampingRatio = 0.82f, stiffness = 420f)),
+                    onRemove = { Playback.remove(i) },
+                ) {
+                    QRow(e.track, false, onClick = { Playback.jump(i) }, onLong = { s.sheet = Sheet.TrackMenu(e.track, queueIndex = i) }) {
+                        Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.sheet = Sheet.TrackMenu(e.track, queueIndex = i) }.padding(10.dp))
                     }
                 }
             }
@@ -366,6 +644,44 @@ private fun QueueSheet(s: AppState) {
     }
 }
 
+/** Swipe a queue row sideways to remove it: it follows the finger, past ~35% it slides out, otherwise springs back. */
+@Composable
+private fun SwipeToRemove(enabled: Boolean, modifier: Modifier, onRemove: () -> Unit, content: @Composable () -> Unit) {
+    val c = LocalColors.current
+    val x = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val reduce = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
+    var width by remember { mutableFloatStateOf(1f) }
+    Box(modifier.onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }) {
+        if (x.value != 0f) {
+            Text(
+                "Remove", style = T.ui(13.sp, FontWeight.SemiBold, c.t2),
+                modifier = Modifier.align(if (x.value < 0f) Alignment.CenterEnd else Alignment.CenterStart).padding(horizontal = 24.dp)
+                    .graphicsLayer { alpha = (kotlin.math.abs(x.value) / (width * 0.35f)).coerceIn(0f, 1f) },
+            )
+        }
+        Box(
+            Modifier.graphicsLayer { translationX = x.value }.pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        val past = kotlin.math.abs(x.value) > width * 0.35f
+                        scope.launch {
+                            if (past) {
+                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                if (!reduce) x.animateTo(kotlin.math.sign(x.value) * width, tween(160))
+                                onRemove()
+                            } else x.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 500f))
+                        }
+                    },
+                    onDragCancel = { scope.launch { x.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 500f)) } },
+                ) { ch, d -> ch.consume(); scope.launch { x.snapTo(x.value + d) } }
+            },
+        ) { content() }
+    }
+}
+
 @Composable
 private fun QHeader(t: String, action: String? = null, onAction: (() -> Unit)? = null) {
     val c = LocalColors.current
@@ -376,7 +692,7 @@ private fun QHeader(t: String, action: String? = null, onAction: (() -> Unit)? =
 }
 
 @Composable
-private fun QRow(t: Track, current: Boolean, onClick: () -> Unit, onLong: (() -> Unit)? = null, trailing: @Composable () -> Unit = {}) {
+private fun QRow(t: Track, current: Boolean, onClick: () -> Unit, onLong: (() -> Unit)? = null, titleTag: String? = null, trailing: @Composable () -> Unit = {}) {
     val c = LocalColors.current
     Row(
         Modifier.fillMaxWidth().height(60.dp).press(scaleTo = 0.98f, onLongClick = onLong, onClick = onClick).padding(start = 20.dp, end = 8.dp),
@@ -389,7 +705,7 @@ private fun QRow(t: Track, current: Boolean, onClick: () -> Unit, onLong: (() ->
             }
         }
         Column(Modifier.weight(1f).padding(start = 14.dp)) {
-            Text(t.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(t.title, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = if (titleTag != null) Modifier.testTag(titleTag) else Modifier)
             Text(t.artists, style = T.ui(12.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         dev.benfranklin.itune.ui.components.fmtDur(t.durationS.toInt()).takeIf { it.isNotEmpty() }?.let { Text(it, style = T.num(11.5.sp, color = c.t3), modifier = Modifier.padding(horizontal = 6.dp)) }

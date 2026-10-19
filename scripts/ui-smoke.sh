@@ -42,6 +42,36 @@ for n in root.iter('node'):
 sys.exit(1)
 PY
 }
+# nth_node <resource-id> <n> -> "x y" of the n-th match (1-based, document order)
+nth_node() {
+  python3 - "$O/ui.xml" "$1" "$2" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(1)
+k = 0
+for n in r.iter('node'):
+    if n.get('resource-id','').split('/')[-1] != sys.argv[2]: continue
+    m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+    if len(m) == 4 and m[2] > m[0] and m[3] > m[1]:
+        k += 1
+        if k == int(sys.argv[3]): print((m[0]+m[2])//2, (m[1]+m[3])//2); sys.exit(0)
+sys.exit(1)
+PY
+}
+# texts of every node with <resource-id>, top to bottom, one per line
+texts_of() {
+  python3 - "$O/ui.xml" "$1" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(0)
+out = []
+for n in r.iter('node'):
+    if n.get('resource-id','').split('/')[-1] != sys.argv[2]: continue
+    m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+    if len(m) == 4: out.append((m[1], n.get('text','')))
+for _, t in sorted(out): print(t)
+PY
+}
 shot() { STEP=$((STEP + 1)); timeout 20 adb exec-out screencap -p > "$O/$(printf %02d $STEP)-$1.png" 2>/dev/null; }
 alive() { timeout 15 adb shell pidof $PKG >/dev/null 2>&1; }
 # adb on the CI emulator sometimes drops for a few seconds under load: reconnect before calling anything dead
@@ -232,12 +262,18 @@ log "== Library / playlists"
 tab Library
 shot library
 id lib_create
-id name_field
+# the name field focuses itself and the sheet rides above the keyboard: type straight away, then tap Create
+# while the keyboard is still up (a sheet hidden behind the IME would make this tap miss)
+sleep 1.5
+dump; find_node resource-id name_field >/dev/null || id name_field
 type_text "Smoke list"
+shot name-sheet-ime
 id name_save
 sleep 2
 shot playlist-new
 back
+if wait_for resource-id "pl_Smoke list" 6; then log "new playlist in Library live"; shot library-new-playlist
+else log "MISSING (required): new playlist in Library without a relaunch"; FAILS=$((FAILS + 1)); shot missing-new-playlist; fi
 id lib_create
 id name_cancel          # cancel creates nothing
 id lib_sort; id lib_sort; id lib_sort
@@ -270,10 +306,24 @@ if wait_for resource-id track_row 30; then
     2) log "add to playlist ok (toast logged; gone before the screen dump)";;
     *) log "MISSING (required): Added to Smoke list toast"; FAILS=$((FAILS + 1)); shot missing-added;;
   esac
+  # like the first song from its menu (checked live in Library after Now Playing)
+  id track_more
+  txt "Like"
+  back
   # play the first song
   id track_row
   sleep 6
   shot playing
+  # two more songs into "Next in queue" (for the reorder check)
+  QADD=0
+  for n in 2 3; do
+    dump
+    if XY=$(nth_node track_more $n); then
+      adb shell input tap $XY; sleep 1.2
+      tap text "Add to queue" 0 && QADD=$((QADD + 1))
+    fi
+  done
+  log "added $QADD songs to the queue"
 else
   log "MISSING (required): search results"; FAILS=$((FAILS + 1))
 fi
@@ -290,15 +340,72 @@ if id mini_player 0 12; then
   id np_more; txt "Sleep timer"; txt "Turn off" 0
   id np_queue
   shot queue
+  # drag-to-reorder: drag the first "Next in queue" row's handle below the second, then check the order
+  dump
+  mapfile -t QT < <(texts_of queue_user_title)
+  if [ ${#QT[@]} -ge 2 ] && H1=$(nth_node queue_handle 1) && H2=$(nth_node queue_handle 2); then
+    read X1 Y1 <<< "$H1"; read X2 Y2 <<< "$H2"
+    Y3=$(( Y2 + (Y2 - Y1) * 6 / 10 ))
+    adb shell input swipe $X1 $Y1 $X1 $Y3 1400
+    sleep 2.5; crash_check "queue reorder"
+    dump
+    mapfile -t QA < <(texts_of queue_user_title)
+    shot queue-reordered
+    if [ "${QA[0]:-}" = "${QT[1]}" ] && [ "${QA[1]:-}" = "${QT[0]}" ]; then log "queue reorder ok (${QT[0]} <-> ${QT[1]})"
+    else log "MISSING (required): queue reorder (before: ${QT[0]} | ${QT[1]}; after: ${QA[0]:-?} | ${QA[1]:-?})"; FAILS=$((FAILS + 1)); fi
+  else
+    log "MISSING (required): two Next in queue rows to reorder (${#QT[@]} found)"; FAILS=$((FAILS + 1)); shot missing-queue-rows
+  fi
   id queue_tab_1; shot queue-recent; id queue_tab_0
   id sheet_close            # obvious close on the queue sheet
   # Now Playing scrolls on to lyrics + up next
   scroll_down; scroll_down; shot np-scrolled
   dump; find_node resource-id np_upnext >/dev/null && log "np up next visible" || log "WARN: up next not visible after scrolling NP"
-  scroll_up; scroll_up
-  back
+  # back to the top with short, slow drags (each < 25% of the height, so at the top they spring back and never
+  # minimise Now Playing)
+  for _ in 1 2 3 4 5 6 7; do adb shell input swipe $(px 50) $(py 40) $(px 50) $(py 56) 450; sleep 0.6; done
+  crash_check "np scroll to top"
+  # swipe down anywhere on Now Playing minimises it to the mini player
+  dump
+  if find_node resource-id np_close >/dev/null; then
+    adb shell input swipe $(px 50) $(py 24) $(px 50) $(py 82) 300
+    sleep 2; crash_check "np swipe down"
+    dump
+    if find_node resource-id mini_player >/dev/null && ! find_node resource-id np_close >/dev/null; then log "np swipe down -> mini player ok"; shot np-swiped
+    else log "MISSING (required): swipe down on Now Playing back to the mini player"; FAILS=$((FAILS + 1)); shot missing-np-swipe; close_np; fi
+  else
+    log "MISSING (required): Now Playing top not reachable for the swipe check"; FAILS=$((FAILS + 1)); close_np
+  fi
 else
   log "WARN: mini player not shown (stream unavailable on the emulator?)"
+fi
+
+# ---------------------------------------------------------------- liked song shows in Library live (no relaunch)
+log "== Liked Songs live"
+tab Library
+LIKED=""
+for _ in 1 2 3 4 5 6; do
+  dump
+  LIKED=$(python3 - "$O/ui.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(0)
+for n in r.iter('node'):
+    if n.get('resource-id','').endswith('lib_liked_count'): print(n.get('text','')); break
+PY
+)
+  [ -n "$LIKED" ] && break
+  scroll_up
+done
+N=$(echo "$LIKED" | grep -oE '^[0-9]+' || true)
+if [ -n "$N" ] && [ "$N" -ge 1 ]; then
+  log "liked songs tile live: $LIKED"
+  id lib_liked
+  wait_for resource-id track_row 8 && log "liked songs list shows the song" || { log "MISSING (required): liked song in Liked Songs list"; FAILS=$((FAILS + 1)); }
+  shot liked-songs
+  back
+else
+  log "MISSING (required): Liked Songs count >= 1 without relaunch (got '$LIKED')"; FAILS=$((FAILS + 1)); shot missing-liked
 fi
 
 # ---------------------------------------------------------------- session restore: force-stop + relaunch keeps the song

@@ -96,7 +96,7 @@ private fun isLocalList(p: Playlist) = p.id.startsWith("local:") || p.id.startsW
 /** Playlist mutations shared by menus, the Library and the playlist page. All optimistic, with undo. */
 object PlaylistEdits {
     /** Notified when a playlist's tracks change (playlist page reloads its diffed list). */
-    val trackChanges = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val trackChanges get() = Library.trackChanges
 
     fun delete(s: AppState, lists: List<Playlist>) {
         if (lists.isEmpty()) return
@@ -114,7 +114,7 @@ object PlaylistEdits {
             apply = {},
             undo = { PendingRemovals.unhide(playlistId, position) },
             commit = {
-                Bg.run {
+                Library.write {
                     App.core.removeFromPlaylist(playlistId, position.toUInt())
                     PendingRemovals.clear(playlistId)
                     trackChanges.value++
@@ -131,31 +131,6 @@ object PendingRemovals {
     fun hide(id: String, pos: Int) { hidden.value = hidden.value + (id to (hidden.value[id].orEmpty() + pos)) }
     fun unhide(id: String, pos: Int) { hidden.value = hidden.value + (id to (hidden.value[id].orEmpty() - pos)) }
     fun clear(id: String) { hidden.value = hidden.value - id }
-}
-
-/** Drag handle for the queue: long-press and drag up/down to reorder. */
-@Composable
-fun DragHandle(index: Int, min: Int, max: Int) {
-    val c = LocalColors.current
-    val h = LocalHapticFeedback.current
-    var acc by remember { mutableFloatStateOf(0f) }
-    var cur by remember(index) { mutableStateOf(index) }
-    Icon(
-        Icons.Rounded.DragHandle, "Reorder", tint = c.t2,
-        modifier = Modifier.size(40.dp).padding(9.dp).testTag("queue_handle").pointerInput(index) {
-            val step = 60.dp.toPx()
-            detectVerticalDragGestures(
-                onDragStart = { acc = 0f; cur = index; h.performHapticFeedback(HapticFeedbackType.LongPress) },
-                onDragEnd = { acc = 0f },
-                onDragCancel = { acc = 0f },
-            ) { change, dy ->
-                change.consume()
-                acc += dy
-                while (acc > step && cur < max) { Playback.move(cur, cur + 1); cur++; acc -= step; h.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
-                while (acc < -step && cur > min) { Playback.move(cur, cur - 1); cur--; acc += step; h.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
-            }
-        },
-    )
 }
 
 @Composable
@@ -195,14 +170,14 @@ internal fun PlaylistMenu(s: AppState, p: Playlist) {
                 s.toast("Downloading ${l.size} songs…")
                 App.scope.launch(Dispatchers.Main) {
                     var ok = 0
-                    l.forEach { t -> if (io { App.core.download(t) } != null) ok++ }
+                    l.forEach { t -> if (Library.download(t).isSuccess) ok++ }
                     s.toast(if (ok == l.size) "Downloaded ${p.title}" else "Downloaded $ok of ${l.size}")
                 }
             }
         }
         MenuRow(Icons.Rounded.FileDownloadOff, "Remove download", 6) {
             s.sheet = null
-            withTracks { l -> Bg.run { App.core.removeDownloads(l.map { it.id }) }; s.toast("Removed downloads"); Library.refresh() }
+            withTracks { l -> Library.removeDownloads(l.map { it.id }); s.toast("Removed downloads") }
         }
         MenuRow(Icons.Rounded.Share, "Share", 7) {
             s.sheet = null
@@ -250,9 +225,9 @@ internal fun AlbumMenu(s: AppState, a: Album) {
         }
         MenuRow(Icons.Rounded.Download, "Download", 5) {
             s.sheet = null
-            withTracks { l -> s.toast("Downloading ${l.size} songs…"); App.scope.launch(Dispatchers.Main) { l.forEach { io { App.core.download(it) } }; s.toast("Downloaded ${a.title}") } }
+            withTracks { l -> s.toast("Downloading ${l.size} songs…"); App.scope.launch(Dispatchers.Main) { l.forEach { Library.download(it) }; s.toast("Downloaded ${a.title}") } }
         }
-        MenuRow(Icons.Rounded.FileDownloadOff, "Remove download", 6) { s.sheet = null; withTracks { l -> Bg.run { App.core.removeDownloads(l.map { it.id }) }; s.toast("Removed downloads") } }
+        MenuRow(Icons.Rounded.FileDownloadOff, "Remove download", 6) { s.sheet = null; withTracks { l -> Library.removeDownloads(l.map { it.id }); s.toast("Removed downloads") } }
         MenuRow(Icons.Rounded.Share, "Share", 7) { s.sheet = null; shareText(ctx, a.title + " · " + a.artists, "https://music.youtube.com/browse/" + a.id) }
     }
 }
@@ -264,7 +239,13 @@ internal fun NamePlaylistSheet(s: AppState, tracks: List<Track>, edit: Playlist?
     var name by remember { mutableStateOf(edit?.title ?: "") }
     var desc by remember { mutableStateOf(edit?.subtitle?.takeIf { it != "Playlist" && !it.startsWith("Imported") } ?: "") }
     val fr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
+    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(Unit) {
+        // focus the name once the sheet has sprung in, and ask for the keyboard explicitly
+        kotlinx.coroutines.delay(120)
+        runCatching { fr.requestFocus() }
+        kb?.show()
+    }
     val ok = name.isNotBlank()
     fun save() {
         if (!ok) return

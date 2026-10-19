@@ -275,7 +275,7 @@ fun SettingsScreen(s: AppState) {
                         if (!confirmAll) { confirmAll = true; return@SRow }
                         confirmAll = false
                         s.undoable("Removed all downloads", apply = {}, undo = {}, commit = {
-                            scope.launch(Dispatchers.IO) { runCatching { App.core.removeAllDownloads() }; storage = Storage.measure(ctx); dev.benfranklin.itune.data.Library.refresh() }
+                            dev.benfranklin.itune.data.Library.removeAllDownloads(); scope.launch(Dispatchers.IO) { kotlinx.coroutines.delay(400); storage = Storage.measure(ctx) }
                         })
                     })
                 }

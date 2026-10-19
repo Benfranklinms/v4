@@ -10,6 +10,7 @@ import dev.benfranklin.itune.core.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -29,49 +30,157 @@ suspend fun <T> io(block: suspend () -> T): T? = withContext(Dispatchers.IO) {
 
 suspend fun <T> ioResult(block: suspend () -> T): Result<T> = withContext(Dispatchers.IO) { runCatching { block() } }
 
-/** Liked track ids in memory, so rows and buttons never query SQLite on the main thread. */
+/**
+ * Liked track ids in memory, so rows and buttons never query SQLite on the main thread. Every like/unlike goes
+ * through [set], which updates the ids, the Liked Songs list and its count at once (optimistic), then writes to
+ * the core on the library's serial queue and re-reads the authoritative list.
+ */
 object Likes {
-    private val _ids = MutableStateFlow<Set<String>>(emptySet())
+    internal val _ids = MutableStateFlow<Set<String>>(emptySet())
     val ids: StateFlow<Set<String>> = _ids
+    private val pending = java.util.concurrent.atomic.AtomicInteger(0)
 
-    fun load() = Bg.run { _ids.value = App.core.liked().map { it.id }.toSet() }
+    fun load() = Library.write { if (pending.get() == 0) Library.applyLikes(App.core.liked()) }
     fun isLiked(id: String) = id in _ids.value
     fun set(t: Track, liked: Boolean) {
-        _ids.value = if (liked) _ids.value + t.id else _ids.value - t.id
-        Bg.run { App.core.setLiked(t, liked) }
+        _ids.update { if (liked) it + t.id else it - t.id }
+        val cur = Library.likedTracks.value
+        if (cur != null) {
+            val next = if (liked) listOf(t) + cur.filter { it.id != t.id } else cur.filter { it.id != t.id }
+            Library.likedTracks.value = next
+            Library.liked.value = next.size
+        } else {
+            Library.liked.update { (it + if (liked) 1 else -1).coerceAtLeast(0) }
+        }
+        pending.incrementAndGet()
+        Library.write {
+            try { App.core.setLiked(t, liked) } finally {
+                // only the last of a burst of toggles re-reads, so an older write never flips the UI back
+                if (pending.decrementAndGet() == 0) Library.applyLikes(App.core.liked())
+            }
+        }
     }
     fun toggle(t: Track): Boolean {
         val now = !isLiked(t.id)
         set(t, now)
         return now
     }
+    internal fun idle() = pending.get() == 0
 }
 
 /**
- * Library lists as flows. Mutations update the flow first (optimistic, the LazyColumn diffs by key and animates),
- * then persist in the Rust core on IO.
+ * Library state as observable flows (the single source the Library tiles, Liked Songs, Downloads, playlist
+ * pages, Now Playing and menus read). Mutations update the flows first (optimistic, LazyColumns diff by key and
+ * animate), then persist in the Rust core on one serial IO queue (FIFO, so a re-read never overtakes a write)
+ * and re-read what they changed.
  */
 object Library {
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val writeQ = Dispatchers.IO.limitedParallelism(1)
+
+    /** Run a core write (then its re-read) on the library's serial queue, errors logged. */
+    fun write(block: () -> Unit) {
+        App.scope.launch(writeQ) { runCatching(block).onFailure { Log.w("iTune", "library write failed", it) } }
+    }
+
     val playlists = MutableStateFlow<List<Playlist>?>(null)
     val savedPlaylists = MutableStateFlow<List<Playlist>>(emptyList())
     val albums = MutableStateFlow<List<Album>>(emptyList())
     val artists = MutableStateFlow<List<Artist>>(emptyList())
+    /** Liked Songs, newest first (null until first read). */
+    val likedTracks = MutableStateFlow<List<Track>?>(null)
     val liked = MutableStateFlow(0)
+    /** Downloaded tracks, newest first (null until first read), and their ids for row/button state. */
+    val downloadTracks = MutableStateFlow<List<Track>?>(null)
+    val downloadIds = MutableStateFlow<Set<String>>(emptySet())
     val downloads = MutableStateFlow(0)
+    /** Bumped whenever a playlist's tracks change; open playlist pages reload their list. */
+    val trackChanges = MutableStateFlow(0)
     /** Ids hidden while their delete is waiting for the undo window to pass. */
     val hidden = MutableStateFlow<Set<String>>(emptySet())
     val pinned = MutableStateFlow<Set<String>>(emptySet())
 
-    fun refresh() = Bg.run {
+    private inline fun step(name: String, block: () -> Unit) {
+        runCatching(block).onFailure { Log.w("iTune", "library refresh: $name failed", it) }
+    }
+
+    /** Re-read everything; each part on its own, so one failing read never leaves the counts stale. */
+    fun refresh() = write {
         val c = App.core
-        playlists.value = c.playlists()
-        savedPlaylists.value = c.savedPlaylists()
-        albums.value = c.savedAlbums()
-        artists.value = c.savedArtists()
-        val n = c.libraryCounts()
-        liked.value = n.liked.toInt()
-        downloads.value = n.downloads.toInt()
-        pinned.value = (c.getSetting("pinned") ?: "").split('\n').filter { it.isNotBlank() }.toSet()
+        step("playlists") { playlists.value = c.playlists() }
+        step("saved") { savedPlaylists.value = c.savedPlaylists() }
+        step("albums") { albums.value = c.savedAlbums() }
+        step("artists") { artists.value = c.savedArtists() }
+        step("liked") { if (Likes.idle()) applyLikes(c.liked()) }
+        step("downloads") { applyDownloads(c.downloads().map { it.track }) }
+        step("pinned") { pinned.value = (c.getSetting("pinned") ?: "").split('\n').filter { it.isNotBlank() }.toSet() }
+    }
+
+    internal fun applyLikes(l: List<Track>) {
+        likedTracks.value = l
+        liked.value = l.size
+        Likes._ids.value = l.mapTo(HashSet()) { it.id }
+    }
+
+    private fun applyDownloads(l: List<Track>) {
+        downloadTracks.value = l
+        downloadIds.value = l.mapTo(HashSet()) { it.id }
+        downloads.value = l.size
+    }
+
+    private fun reloadDownloads() = step("downloads") { applyDownloads(App.core.downloads().map { it.track }) }
+
+    /** Download one track (suspends while it downloads); Library tiles, Downloads and buttons update on success. */
+    suspend fun download(t: Track): Result<Unit> {
+        val r = ioResult { App.core.download(t) }
+        if (r.isSuccess) {
+            downloadIds.update { it + t.id }
+            downloadTracks.update { cur -> cur?.let { listOf(t) + it.filter { x -> x.id != t.id } } }
+            downloads.value = downloadTracks.value?.size ?: downloadIds.value.size
+            write { reloadDownloads() }
+        }
+        return r.map { }
+    }
+
+    /** Drop downloads from every list now (optimistic, e.g. during an undo window); [commitRemoveDownloads] deletes. */
+    fun hideDownloads(ids: Collection<String>) {
+        val set = ids.toSet()
+        if (set.isEmpty()) return
+        downloadIds.update { it - set }
+        downloadTracks.update { cur -> cur?.filter { it.id !in set } }
+        downloads.value = downloadTracks.value?.size ?: downloadIds.value.size
+    }
+
+    /** Undo of [hideDownloads]: re-read the files that are still there. */
+    fun restoreDownloads() = write { reloadDownloads() }
+
+    fun commitRemoveDownloads(ids: Collection<String>) {
+        val list = ids.toList()
+        if (list.isEmpty()) return
+        write {
+            App.core.removeDownloads(list)
+            reloadDownloads()
+        }
+    }
+
+    fun removeDownloads(ids: Collection<String>) {
+        hideDownloads(ids)
+        commitRemoveDownloads(ids)
+    }
+
+    fun removeAllDownloads() {
+        applyDownloads(emptyList())
+        write { App.core.removeAllDownloads(); reloadDownloads() }
+    }
+
+    /** Add a track to a local playlist: count and cover update now, the page reloads after the write. */
+    fun addToPlaylist(p: Playlist, t: Track) {
+        replace(p.copy(trackCount = (p.trackCount ?: 0uL) + 1uL, thumb = p.thumb.ifEmpty { t.thumb }))
+        write {
+            App.core.addToPlaylist(p.id, t)
+            step("playlists") { playlists.value = App.core.playlists() }
+            trackChanges.update { it + 1 }
+        }
     }
 
     fun upsert(p: Playlist) {
@@ -92,7 +201,7 @@ object Library {
         val saved = savedPlaylists.value.filter { it.id in list }
         savedPlaylists.value = savedPlaylists.value.filter { it.id !in list }
         hidden.value = hidden.value - list.toSet()
-        Bg.run {
+        write {
             App.core.deletePlaylists(list.filter { it.startsWith("local:") || it.startsWith("import:") || it.startsWith("isa:") })
             saved.forEach { App.core.savePlaylist(it, false) }
         }
@@ -101,7 +210,7 @@ object Library {
     fun togglePin(id: String) {
         val now = if (id in pinned.value) pinned.value - id else pinned.value + id
         pinned.value = now
-        Bg.run { App.core.setSetting("pinned", now.joinToString("\n")) }
+        write { App.core.setSetting("pinned", now.joinToString("\n")) }
     }
 }
 

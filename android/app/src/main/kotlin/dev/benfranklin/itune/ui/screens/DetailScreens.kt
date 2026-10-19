@@ -207,8 +207,16 @@ fun PlaylistScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek?
     val scope = rememberCoroutineScope()
     val changes by dev.benfranklin.itune.ui.PlaylistEdits.trackChanges.collectAsState()
     val libLists by dev.benfranklin.itune.data.Library.playlists.collectAsState()
+    val likedList by dev.benfranklin.itune.data.Library.likedTracks.collectAsState()
     LaunchedEffect(id) { saved = dev.benfranklin.itune.data.io { App.core.isSaved("playlist", id) } ?: false }
+    // Liked Songs follows the library flow: a like/unlike anywhere shows here at once (no reload)
+    LaunchedEffect(id, likedList, page == null) {
+        val l = likedList
+        val cur = page
+        if (id == "liked" && l != null && cur != null && cur.tracks != l) page = cur.copy(tracks = l, playlist = cur.playlist.copy(trackCount = l.size.toULong()))
+    }
     LaunchedEffect(id, changes) {
+        if (id == "liked") { likedList?.let { l -> if (page == null) page = dev.benfranklin.itune.core.PlaylistPage(dev.benfranklin.itune.core.Playlist("liked", "Liked Songs", "Playlist", l.firstOrNull()?.thumb ?: "", l.size.toULong(), "local"), l) } }
         if (!local && page == null) dev.benfranklin.itune.data.io { App.core.playlistCached(id) }?.let { if (page == null) page = it }
         // remote playlists / mixes: the first page comes back at once, the rest pages in while scrolling
         val fresh = dev.benfranklin.itune.data.io { App.core.playlist(id) }
@@ -219,6 +227,7 @@ fun PlaylistScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek?
                 val seen = fresh.tracks.mapTo(HashSet()) { it.id }
                 fresh.copy(tracks = fresh.tracks + old.tracks.filter { seen.add(it.id) })
             } else fresh
+            if (id == "liked") dev.benfranklin.itune.data.Library.likedTracks.value?.let { l -> page = page?.copy(tracks = l) }
         }
         hasMore = !local && (dev.benfranklin.itune.data.io { App.core.playlistHasMore(id) } ?: false)
     }
@@ -351,19 +360,18 @@ fun AlbumRow(s: AppState, albums: List<Album>) {
 @Composable
 fun DownloadsScreen(s: AppState) {
     val c = LocalColors.current
-    var items by remember { mutableStateOf<List<Track>?>(null) }
+    val items by dev.benfranklin.itune.data.Library.downloadTracks.collectAsState()
     var selecting by remember { mutableStateOf(false) }
     var sel by remember { mutableStateOf(setOf<String>()) }
-    var hidden by remember { mutableStateOf(setOf<String>()) }
-    LaunchedEffect(Unit) { items = dev.benfranklin.itune.data.io { App.core.downloads().map { it.track } }.orEmpty() }
-    val shown = items?.filter { it.id !in hidden }
+    LaunchedEffect(Unit) { dev.benfranklin.itune.data.Library.refresh() }
+    val shown = items
     fun remove(ids: Set<String>) {
         if (ids.isEmpty()) return
         s.undoable(
             if (ids.size == 1) "Removed download" else "Removed ${ids.size} downloads",
-            apply = { hidden = hidden + ids },
-            undo = { hidden = hidden - ids },
-            commit = { dev.benfranklin.itune.data.Bg.run { App.core.removeDownloads(ids.toList()) }; dev.benfranklin.itune.data.Library.refresh() },
+            apply = { dev.benfranklin.itune.data.Library.hideDownloads(ids) },
+            undo = { dev.benfranklin.itune.data.Library.restoreDownloads() },
+            commit = { dev.benfranklin.itune.data.Library.commitRemoveDownloads(ids) },
         )
         selecting = false
         sel = emptySet()
