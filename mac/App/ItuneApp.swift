@@ -246,20 +246,21 @@ final class Nav: ObservableObject {
         if backStack.count > 60 { backStack.removeFirst(backStack.count - 60) }
         fwdStack = []
     }
+    // Every navigation mutates history and section in ONE animated transaction: withAnimation flushes
+    // changes made just before it, which rendered the sidebar with the previous page.
     func back() {
-        guard let s = backStack.popLast() else { return }
-        fwdStack.append(snap)
-        apply(s)
+        guard !backStack.isEmpty else { return }
+        apply { let s = self.backStack.removeLast(); self.fwdStack.append(self.snap); return s }
     }
     func forward() {
-        guard let s = fwdStack.popLast() else { return }
-        backStack.append(snap)
-        apply(s)
+        guard !fwdStack.isEmpty else { return }
+        apply { let s = self.fwdStack.removeLast(); self.backStack.append(self.snap); return s }
     }
-    private func apply(_ s: NavSnap) {
+    private func apply(_ pick: @escaping () -> NavSnap) {
         Enter.navigatedAt = Date()
-        closeNowPlaying()
         withAnimation(Motion.spring) {
+            if showNowPlaying { showNowPlaying = false }
+            let s = pick()
             stacks[s.section] = s.path
             section = s.section
         }
@@ -267,17 +268,17 @@ final class Nav: ObservableObject {
 
     func go(_ s: Section) {
         Enter.navigatedAt = Date()
-        if section != s || !(stacks[s] ?? []).isEmpty { record() }
         withAnimation(Motion.spring) {
-            closeNowPlaying()
+            if section != s || !(stacks[s] ?? []).isEmpty { record() }
+            if showNowPlaying { showNowPlaying = false }
             if section == s { stacks[s] = [] } else { section = s }
         }
     }
     /// Sidebar playlist: Library section with that playlist on top.
     func openFromSidebar(playlist id: String) {
         Enter.navigatedAt = Date()
+        if showNowPlaying { withAnimation(Motion.spring) { showNowPlaying = false } }
         record()
-        closeNowPlaying()
         section = .library
         stacks[.library] = [.playlist(id)]
     }

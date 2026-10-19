@@ -251,6 +251,9 @@ enum Smoke {
         nav.go(.stats); await sleep(1.5)
         let sb = RenderProbe.sidebar, tb = RenderProbe.topBar
         shot("05b-stats-selection")
+        if let w = window { w.contentView?.needsDisplay = true; w.displayIfNeeded() }
+        await sleep(0.5)
+        shot("05c-stats-selection-redrawn")
         record("chrome_follows_nav", sb.contains("stats") && tb.contains("stats"), "after Library -> Stats: sidebar rendered \(sb), top bar rendered \(tb)")
 
         // import: loading state + progress

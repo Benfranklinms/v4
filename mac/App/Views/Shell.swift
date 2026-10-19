@@ -23,7 +23,7 @@ struct RootView: View {
         let wide = width >= RootView.inspectorMinWidth
         ZStack {
             HStack(spacing: 0) {
-                Sidebar()
+                Sidebar(selected: Sidebar.selection(nav))
                     .frame(width: nav.sidebarCollapsed ? Sidebar.railWidth : Sidebar.fullWidth)
                     .padding(.leading, RootView.inset).padding(.vertical, RootView.inset)
                     .background(FrameProbe { LayoutProbe.sidebar = $0 })
@@ -48,8 +48,6 @@ struct RootView: View {
                 }
             }
             .background(ArtBackdrop(strength: 0.5).ignoresSafeArea())
-            // blurred while the Isa card is up (radius 0 = no filter otherwise)
-            .blur(radius: nav.isaOpen ? 18 : 0, opaque: true)
             .allowsHitTesting(!nav.isaOpen)
             .accessibilityHidden(nav.isaOpen)
 
@@ -212,7 +210,10 @@ struct Sidebar: View {
     static let fullWidth: CGFloat = 224
     static let railWidth: CGFloat = 72
 
-    private var selected: SideItem? {
+    /// Passed in by RootView (an explicit input, so the selection always re-renders with navigation).
+    let selected: SideItem?
+
+    @MainActor static func selection(_ nav: Nav) -> SideItem? {
         if nav.section == .library, case .playlist(let id)? = nav.stacks[.library]?.first { return .playlist(id) }
         return nav.section == .search || nav.section == .diagnostics ? nil : .section(nav.section)
     }
@@ -480,7 +481,15 @@ struct IsaOverlay: View {
     @State private var shown = false
     var body: some View {
         ZStack {
-            Color.black.opacity(GlassEnv.reduceTransparency ? 0.6 : 0.4)
+            // blurred, dimmed backdrop (a material blurs what's under it; solid with Reduce Transparency)
+            ZStack {
+                if GlassEnv.reduceTransparency {
+                    Color.black.opacity(0.6)
+                } else {
+                    Rectangle().fill(.thinMaterial)
+                    Color.black.opacity(0.28)
+                }
+            }
                 .opacity(shown ? 1 : 0)
                 .contentShape(Rectangle())
                 .onTapGesture { nav.closeIsa() }
