@@ -245,6 +245,7 @@ private fun StatusEdge(chrome: ChromeState, haze: HazeState) {
     val reduce = LocalReduceMotion.current
     val a = animateFloatAsState(if (chrome.scrolled) 1f else 0f, glassSpring(reduce), label = "edge")
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    if (!dev.benfranklin.itune.ui.components.liveBlur) return
     Box(
         Modifier.fillMaxWidth().height(top + 22.dp)
             .graphicsLayer { alpha = a.value }

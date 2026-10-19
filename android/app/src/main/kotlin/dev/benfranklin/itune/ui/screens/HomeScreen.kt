@@ -99,7 +99,11 @@ fun HomeScreen(s: AppState) {
             .onFailure { if (feed == null) error = "Couldn't load your home feed. Check your connection." }
         loading = false
     }
-    LaunchedEffect(Unit) { load(false) }
+    LaunchedEffect(Unit) {
+        // instant: the last saved feed from the core first, then refresh in the background (same keys: no jump)
+        if (feed == null) io { App.core.homeCached(tzMin()) }?.let { if (feed == null) { feed = it; HomeCache.feed = it } }
+        load(false)
+    }
     LaunchedEffect(feed) {
         val f = feed ?: return@LaunchedEffect
         val loader = coil.Coil.imageLoader(ctx)

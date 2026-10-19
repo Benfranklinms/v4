@@ -440,7 +440,7 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
                         style = T.ui(((if (isActive) 20f else 17f) * scale).sp, FontWeight.Bold),
                         modifier = Modifier.padding(vertical = 6.dp)
                             .graphicsLayer { scaleX = sc; scaleY = sc; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
-                            .then(if (Build.VERSION.SDK_INT >= 31 && blur > 0.05f) Modifier.blur(blur.dp) else Modifier)
+                            .then(if (Build.VERSION.SDK_INT >= 31 && blur > 0.05f && dev.benfranklin.itune.ui.components.liveBlur) Modifier.blur(blur.dp) else Modifier)
                             .press(haptic = false, scaleTo = 0.98f) { if (synced) Playback.seek(l.startMs.toLong()) },
                     )
                 }

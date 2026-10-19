@@ -58,6 +58,17 @@ import dev.benfranklin.itune.ui.theme.LocalColors
  * Every glass surface gets a specular top sheen and a thin light rim; colour only comes from album art.
  */
 val LocalHaze = staticCompositionLocalOf<HazeState?> { null }
+
+/**
+ * Live RenderEffect blur is off on the Android emulator only: the CI emulator's software GPU (SwiftShader /
+ * gfxstream) crashed the whole emulator mid-animation with blur layers. Phones always get the real blur;
+ * the emulator draws the same glass with the translucent fallback tint.
+ */
+val liveBlur: Boolean by lazy {
+    val h = Build.HARDWARE.lowercase()
+    val f = Build.FINGERPRINT.lowercase()
+    !(h.contains("ranchu") || h.contains("goldfish") || f.contains("generic") || f.contains("emulator") || Build.PRODUCT.contains("sdk_gphone"))
+}
 val LocalChrome = staticCompositionLocalOf<ChromeState?> { null }
 
 /** Shared spring for chrome motion: soft, no bounce, medium-low stiffness. */
@@ -91,7 +102,7 @@ fun Modifier.glass(
     val base = glassBase(c)
     val rimColor = if (c.light) Color.Black else Color.White
     var m = this.clip(shape)
-    m = if (backdrop && haze != null) m.hazeEffect(haze, glassStyle(c, dark, blur))
+    m = if (backdrop && haze != null && liveBlur) m.hazeEffect(haze, glassStyle(c, dark, blur))
     else m.background(base.copy(alpha = (dark + 0.22f).coerceAtMost(0.96f)))
     return m.drawWithContent {
         val outline = shape.createOutline(size, layoutDirection, this)
@@ -150,7 +161,7 @@ fun BlurredArt(url: String?, modifier: Modifier = Modifier, dark: Float = 0.30f)
                 model = ImageRequest.Builder(LocalContext.current).data(url).size(48, 48).crossfade(500).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(36.dp) else Modifier),
+                modifier = Modifier.fillMaxSize().then(if (Build.VERSION.SDK_INT >= 31 && liveBlur) Modifier.blur(36.dp) else Modifier),
             )
         }
         Box(
