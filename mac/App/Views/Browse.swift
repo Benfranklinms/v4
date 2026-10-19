@@ -12,6 +12,7 @@ struct Page<Content: View>: View {
     var lazy = true
     @ViewBuilder let content: () -> Content
     var body: some View {
+        GeometryReader { geo in
         ScrollViewReader { proxy in
             ScrollView {
                 Group {
@@ -23,7 +24,9 @@ struct Page<Content: View>: View {
                 }
                 .padding(.leading, 32 + insets.leading).padding(.trailing, 32 + insets.trailing)
                 .padding(.top, 40 + insets.top).padding(.bottom, 32 + insets.bottom)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // exactly the column width: a wide row can never widen the detail column (that pushed the
+                // queue overlay and player bar past the window edge)
+                .frame(width: max(0, geo.size.width), alignment: .leading)
             }
             .coordinateSpace(name: "page_scroll")
             .scrollIndicators(.never)
@@ -31,6 +34,7 @@ struct Page<Content: View>: View {
                 guard let t else { return }
                 withAnimation(Motion.spring) { proxy.scrollTo(t, anchor: .top) }
             }
+        }
         }
     }
 }

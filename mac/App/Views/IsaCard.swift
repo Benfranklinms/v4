@@ -144,11 +144,15 @@ struct IsaCommandCard: View {
             .scaleEffect(expanded && !Motion.reduce ? 1.0 : 0.995)
             .animation(Motion.bouncy, value: expanded)
             .onTapGesture { focused = true }
-            HStack(spacing: 14) {
-                ForEach(MoodTile.Kind.allCases, id: \.self) { k in
-                    MoodTile(kind: k) { m.text = k.prompt; Task { await m.submit() } }
+            ScrollView(.horizontal) {
+                HStack(spacing: 14) {
+                    ForEach(MoodTile.Kind.allCases, id: \.self) { k in
+                        MoodTile(kind: k) { m.text = k.prompt; Task { await m.submit() } }
+                    }
                 }
+                .padding(.vertical, 4)
             }
+            .carousel()
         }
         .onChange(of: nav.focusIsa) { _, _ in focused = true }
         .accessibilityIdentifier("isa_card")
