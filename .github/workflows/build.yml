@@ -86,9 +86,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gpu: [swiftshader_indirect, guest]
-    # the guest-renderer leg is a fallback probe for the software GPU; the main leg gates the build
-    continue-on-error: ${{ matrix.gpu == 'guest' }}
+        api: [34, 30]
+    # the API 30 leg is a fallback probe for the software-GPU emulator; the API 34 leg gates the build
+    continue-on-error: ${{ matrix.api != 34 }}
     env:
       APP_ABIS: arm64-v8a,x86_64
       CORE_ABIS: arm64-v8a x86_64
@@ -123,7 +123,7 @@ jobs:
       - name: Emulator run
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api }}
           arch: x86_64
           target: google_apis
           disable-animations: true
@@ -132,12 +132,12 @@ jobs:
           cores: 3
           disk-size: 6000M
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu ${{ matrix.gpu }} -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
           script: bash scripts/smoke-all.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.gpu == 'guest' && 'smoke-guest' || 'smoke' }}
+          name: ${{ matrix.api == 34 && 'smoke' || format('smoke-api{0}', matrix.api) }}
           path: out/smoke
 
   mac:

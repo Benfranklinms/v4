@@ -151,6 +151,7 @@ done
 log "home shelves visible: $SHELVES"
 # frame stats while flinging Home (emulator renders in software, so recorded, not gated)
 gfx() { timeout 20 adb shell dumpsys gfxinfo $PKG > "$O/gfx-$1.txt" 2>&1; log "gfx $1: $(grep -E 'Total frames rendered|Janky frames:' "$O/gfx-$1.txt" | tr -s ' ' | tr '\n' ' ')"; }
+timeout 20 adb shell dumpsys meminfo $PKG > "$O/meminfo-home.txt" 2>&1
 timeout 10 adb shell dumpsys gfxinfo $PKG reset >/dev/null 2>&1
 for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 80) $(px 50) $(py 20) 150; sleep 0.4; done
 for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 20) $(px 50) $(py 80) 150; sleep 0.4; done

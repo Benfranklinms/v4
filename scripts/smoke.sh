@@ -15,6 +15,8 @@ adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 ||
 adb shell dumpsys deviceidle whitelist +$PKG >/dev/null 2>&1 || true
 adb shell settings put secure show_ime_with_hard_keyboard 0 >/dev/null 2>&1 || true
 adb logcat -c
+# host-side evidence in case the emulator process itself goes away (OOM killer, crash): memory + qemu RSS
+( while true; do echo "== $(date +%T)"; free -m | sed -n 2,3p; ps -eo pid,rss,vsz,pcpu,comm --sort=-rss | head -4; sleep 3; done > "$O/host.txt" 2>&1 & echo $! > /tmp/host.pid )
 # stream logcat + CPU samples to files from the start, so a hung emulator still leaves evidence
 ( adb logcat -v threadtime > "$O/logcat-live.txt" 2>&1 & echo $! > /tmp/logcat.pid )
 ( while true; do echo "== $(date +%T)"; timeout 10 adb shell top -b -n 1 -m 8 2>&1; sleep 20; done > "$O/top.txt" 2>&1 & echo $! > /tmp/top.pid )
@@ -27,7 +29,10 @@ timeout 30 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/n
 timeout 600 adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 -v 600 > "$O/monkey.txt" 2>&1 || true
 sleep 5
 timeout 30 adb exec-out screencap -p > "$O/after.png"
-timeout 60 adb logcat -d -v threadtime > "$O/logcat.txt"; kill $(cat /tmp/logcat.pid /tmp/top.pid) 2>/dev/null
+timeout 60 adb logcat -d -v threadtime > "$O/logcat.txt"; kill $(cat /tmp/logcat.pid /tmp/top.pid /tmp/host.pid) 2>/dev/null
+sudo dmesg -T 2>/dev/null | tail -120 > "$O/host-dmesg.txt" || true
+ls -la /tmp/android-runner/ "$HOME/.android/avd/test.avd/" > "$O/host-emu-files.txt" 2>&1 || true
+pgrep -af qemu > "$O/host-qemu.txt" 2>&1 || echo "no qemu process" > "$O/host-qemu.txt"
 # ANR stack traces (google_apis images allow adb root)
 timeout 30 adb root >/dev/null 2>&1; sleep 2
 timeout 30 adb shell 'ls /data/anr' > "$O/anr-list.txt" 2>&1 || true
