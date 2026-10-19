@@ -474,7 +474,8 @@ object Playback {
                 }
             } else {
                 _error.value = "Couldn't play this track ($msg). Skipping."
-                if (p.hasNextMediaItem()) {
+                // paused: stay on the failing track (no skipping through the queue while nothing should play)
+                if (p.playWhenReady && p.hasNextMediaItem()) {
                     val resume = p.playWhenReady
                     p.seekToNextMediaItem()
                     p.prepare()

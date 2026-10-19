@@ -354,14 +354,18 @@ if id mini_player 0 12; then
   id np_more; txt "Sleep timer"; txt "Turn off" 0
   # pause first: on the CI runner every stream hits the bot check and a playing queue keeps auto-skipping,
   # which shifts "Next in queue" under the reorder check and changes the song before the session check
-  dump; find_node content-desc "Pause" >/dev/null && { id np_play; log "paused for the queue/session checks"; }
+  timeout 10 adb shell input keyevent KEYCODE_MEDIA_PAUSE; log "paused for the queue/session checks"
   sleep 3
   id np_queue
   shot queue
   # drag-to-reorder: drag the first "Next in queue" row's handle below the second, then check the order
   dump
   mapfile -t QT < <(texts_of queue_user_title)
-  if [ ${#QT[@]} -ge 2 ] && H1=$(nth_node queue_handle 1) && H2=$(nth_node queue_handle 2); then
+  # first adjacent pair with different titles (several covers share a title), dragged k below k+1
+  K=0
+  while [ $((K + 1)) -lt ${#QT[@]} ] && [ "${QT[$K]}" = "${QT[$((K + 1))]}" ]; do K=$((K + 1)); done
+  if [ $((K + 1)) -lt ${#QT[@]} ]; then QT=("${QT[$K]}" "${QT[$((K + 1))]}"); else QT=(); fi
+  if [ ${#QT[@]} -ge 2 ] && H1=$(nth_node queue_handle $((K + 1))) && H2=$(nth_node queue_handle $((K + 2))); then
     read X1 Y1 <<< "$H1"; read X2 Y2 <<< "$H2"
     Y3=$(( Y2 + (Y2 - Y1) * 6 / 10 ))
     adb shell input swipe $X1 $Y1 $X1 $Y3 1400
@@ -385,7 +389,11 @@ if id mini_player 0 12; then
   dump; find_node resource-id np_upnext >/dev/null && log "np up next visible" || log "WARN: up next not visible after scrolling NP"
   # back to the top with short, slow drags (each < 25% of the height, so at the top they spring back and never
   # minimise Now Playing)
-  for _ in 1 2 3 4 5 6 7; do adb shell input swipe $(px 50) $(py 40) $(px 50) $(py 56) 450; sleep 0.6; done
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    for _ in 1 2 3; do adb shell input swipe $(px 50) $(py 40) $(px 50) $(py 56) 450; sleep 0.5; done
+    dump; find_node resource-id np_close >/dev/null && break
+    np_open || break
+  done
   crash_check "np scroll to top"
   # swipe down anywhere on Now Playing minimises it to the mini player
   dump
@@ -396,7 +404,7 @@ if id mini_player 0 12; then
     if find_node resource-id mini_player >/dev/null && ! find_node resource-id np_close >/dev/null; then log "np swipe down -> mini player ok"; shot np-swiped
     else log "MISSING (required): swipe down on Now Playing back to the mini player"; FAILS=$((FAILS + 1)); shot missing-np-swipe; close_np; fi
   else
-    log "MISSING (required): Now Playing top not reachable for the swipe check"; FAILS=$((FAILS + 1)); close_np
+    log "MISSING (required): Now Playing top not reachable for the swipe check"; FAILS=$((FAILS + 1)); shot missing-np-top; close_np
   fi
 else
   log "WARN: mini player not shown (stream unavailable on the emulator?)"
