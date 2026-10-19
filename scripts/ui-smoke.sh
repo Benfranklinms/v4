@@ -116,11 +116,15 @@ scroll_down() { adb shell input swipe $(px 50) $(py 80) $(px 50) $(py 30) 300; s
 scroll_up() { adb shell input swipe $(px 50) $(py 30) $(px 50) $(py 80) 300; sleep 1; crash_check scroll; }
 tap_at() { adb shell input tap $(px $1) $(py $2); sleep 0.6; }
 # hide the soft keyboard if it is showing (BACK only when it is, so we never navigate by accident)
-hide_kb() { if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 0.8; fi; }
+fg() { timeout 10 adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | grep -q "$PKG"; }
+# if a BACK meant for the keyboard left the app (IME state misreported on some images), bring it back
+refocus() { fg || { log "app left the foreground: relaunching"; timeout 20 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 2; }; }
+hide_kb() { if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 0.8; refocus; fi; }
 # glass chrome: the bottom nav hides while scrolling down and Now Playing covers it. Close NP, then tap the
 # tab; if the nav is hidden, a small scroll up springs it back and we retry.
 close_np() { dump; if find_node resource-id np_close >/dev/null; then local xy; xy=$(find_node resource-id np_close); adb shell input tap $xy; sleep 1.2; fi; }
 tab() {
+  refocus
   close_np
   if wait_for resource-id "tab_$1" 3; then id "tab_$1"; return; fi
   adb shell input swipe $(px 50) $(py 45) $(px 50) $(py 60) 250; sleep 1
