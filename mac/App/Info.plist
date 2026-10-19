@@ -18,6 +18,8 @@
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSLocalNetworkUsageDescription</key><string>Find your phone to continue playback.</string>
 	<key>NSBonjourServices</key><array><string>_itune._tcp</string></array>
+	<key>NSSpeechRecognitionUsageDescription</key><string>Ask Isa for music by voice.</string>
+	<key>NSMicrophoneUsageDescription</key><string>Ask Isa for music by voice.</string>
 	<key>ATSApplicationFontsPath</key><string>.</string>
 	<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoadsForMedia</key><true/></dict>
 </dict>

@@ -159,6 +159,10 @@ struct TrackRow: View {
     let t: Track
     let index: Int
     var number: Int? = nil
+    var showAlbum = true
+    /// Set on the user's own playlists (enables "Remove from this playlist").
+    var playlistId: String? = nil
+    var position: Int? = nil
     let onPlay: () -> Void
     @State private var hover = false
 
@@ -166,67 +170,123 @@ struct TrackRow: View {
         let p = theme.p
         let playing = player.current?.id == t.id
         HStack(spacing: 12) {
-            if let n = number { Text("\(n)").font(theme.num(11)).foregroundStyle(p.t3).frame(width: 22) }
+            if let n = number {
+                ZStack {
+                    if playing { EqBars(on: player.isPlaying).frame(width: 12, height: 12).foregroundStyle(theme.accent) }
+                    else if hover { Image(systemName: "play.fill").font(.system(size: 10)).foregroundStyle(p.txt) }
+                    else { Text("\(n)").font(theme.num(11)).foregroundStyle(p.t3) }
+                }.frame(width: 22)
+            }
             ArtView(url: t.thumb, size: 40, radius: 6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(t.title).font(theme.ui(13.5, .semibold)).foregroundStyle(playing ? theme.accent : p.txt).lineLimit(1)
                 Text(t.artists).font(theme.ui(11.5, .medium)).foregroundStyle(p.t3).lineLimit(1)
             }
-            Spacer()
-            if let a = t.album { Text(a).font(theme.ui(11.5, .medium)).foregroundStyle(p.t3).lineLimit(1).frame(width: 200, alignment: .leading) }
-            Text(t.durationS > 0 ? fmt(Double(t.durationS)) : "").font(theme.num(11)).foregroundStyle(p.t3).frame(width: 44)
-            TrackMenu(t: t).opacity(hover ? 1 : 0.4)
+            Spacer(minLength: 8)
+            if showAlbum, let a = t.album, !a.isEmpty {
+                Text(a).font(theme.ui(11.5, .medium)).foregroundStyle(p.t3).lineLimit(1).frame(width: 200, alignment: .leading)
+            }
+            Text(t.durationS > 0 ? fmt(Double(t.durationS)) : "").font(theme.num(11)).foregroundStyle(p.t3).frame(width: 44, alignment: .trailing)
+            TrackMenu(t: t, playlistId: playlistId, position: position).opacity(hover ? 1 : 0)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? p.surf2 : .clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(hover ? Color.white.opacity(0.06) : .clear))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { onPlay() }
         .onTapGesture { onPlay() }
         .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
-        .contextMenu { TrackMenuItems(t: t) }
+        .contextMenu { TrackMenuItems(t: t, playlistId: playlistId, position: position) }
         .enter(index)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 
 struct TrackMenu: View {
     @EnvironmentObject var theme: Theme
     let t: Track
+    var playlistId: String? = nil
+    var position: Int? = nil
     var body: some View {
-        Menu { TrackMenuItems(t: t) } label: { Image(systemName: "ellipsis").foregroundStyle(theme.p.t2) }
+        Menu { TrackMenuItems(t: t, playlistId: playlistId, position: position) } label: { Image(systemName: "ellipsis").foregroundStyle(theme.p.t2) }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 26)
+            .help("More")
     }
 }
 
+/// Track context menu. Reads library state from the store (no core calls while the menu builds).
 struct TrackMenuItems: View {
     @EnvironmentObject var player: Player
     @EnvironmentObject var nav: Nav
+    @EnvironmentObject var lib: LibraryStore
     let t: Track
+    var playlistId: String? = nil
+    var position: Int? = nil
     var body: some View {
         Button("Play Next") { player.playNext(t); nav.show("Playing next") }
         Button("Add to Queue") { player.addToQueue(t); nav.show("Added to queue") }
-        let liked = (try? Engine.core.isLiked(id: t.id)) ?? false
-        Button(liked ? "Remove from Liked" : "Like") { try? Engine.core.setLiked(track: t, liked: !liked) }
+        Button(lib.isLiked(t.id) ? "Remove from Liked" : "Like") { lib.toggleLike(t) }
         Menu("Add to Playlist") {
-            Button("New Playlist") { _ = try? Engine.core.createPlaylist(title: String(t.title.prefix(24)), tracks: [t]); nav.show("Playlist created") }
-            ForEach(((try? Engine.core.playlists()) ?? []).filter { $0.source != "yt" }, id: \.id) { pl in
-                Button(pl.title) { try? Engine.core.addToPlaylist(playlistId: pl.id, track: t); nav.show("Added to \(pl.title)") }
+            Button("New Playlist…") { nav.sheet = .newPlaylist([t]) }
+            Divider()
+            ForEach((lib.playlists ?? []).filter { LibraryStore.isLocal($0.id) && !lib.hidden.contains($0.id) }, id: \.id) { pl in
+                Button(pl.title) { lib.add(t, to: pl) }
             }
+        }
+        if let pid = playlistId, let pos = position {
+            Button("Remove from This Playlist") { lib.removeFromPlaylist(pid, position: pos, track: t) }
         }
         if !t.id.hasPrefix("local:") {
             Button("Start Radio") {
                 Task { let r = (try? await Engine.core.radio(videoId: t.id)) ?? []; player.play([t] + r, index: 0, source: "\(t.title) radio") }
             }
-            Button("Download") {
-                nav.show("Downloading…")
-                Task { do { _ = try await Engine.core.download(track: t); nav.show("Downloaded") } catch { nav.show("Download failed") } }
+            if lib.downloaded.contains(t.id) {
+                Button("Remove Download") { lib.removeDownloads([t.id]) }
+            } else {
+                Button("Download") { lib.download([t], label: t.title) }
             }
         }
+        Divider()
         if let a = t.artistId { Button("Go to Artist") { nav.push(.artist(a)) } }
         if let a = t.albumId { Button("Go to Album") { nav.push(.album(a)) } }
         Divider()
         Button("Copy Link") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString("https://music.youtube.com/watch?v=\(t.id)", forType: .string)
+            nav.show("Link copied")
+        }
+    }
+}
+
+struct AlbumMenuItems: View {
+    @EnvironmentObject var player: Player
+    @EnvironmentObject var nav: Nav
+    @EnvironmentObject var lib: LibraryStore
+    let a: Album
+    var body: some View {
+        Button("Play") { Task { if let pg = try? await Engine.core.album(id: a.id) { player.play(pg.tracks, index: 0, source: a.title) } } }
+        Button("Shuffle") { Task { if let pg = try? await Engine.core.album(id: a.id) { player.playShuffled(pg.tracks, source: a.title) } } }
+        Button("Add to Queue") { Task { if let pg = try? await Engine.core.album(id: a.id) { pg.tracks.forEach { player.addToQueue($0) }; nav.show("Added to queue") } } }
+        Divider()
+        Button(lib.isSaved(album: a.id) ? "Remove from Library" : "Save to Library") { lib.toggleSaved(album: a) }
+        Button("Download") { Task { if let pg = try? await Engine.core.album(id: a.id) { lib.download(pg.tracks, label: a.title) } } }
+        Button("Remove Download") { Task { if let pg = try? await Engine.core.album(id: a.id) { lib.removeDownloads(pg.tracks.map(\.id).filter { lib.downloaded.contains($0) }) } } }
+        Divider()
+        Button("Go to Album") { nav.push(.album(a.id)) }
+    }
+}
+
+/// Animated equaliser bars for the playing row.
+struct EqBars: View {
+    let on: Bool
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 20, paused: !on || Motion.reduce)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            HStack(alignment: .bottom, spacing: 1.5) {
+                ForEach(0..<3, id: \.self) { i in
+                    Capsule().frame(width: 2.5, height: on ? 3 + 9 * abs(sin(t * (3 + Double(i)) + Double(i))) : 4)
+                }
+            }
         }
     }
 }

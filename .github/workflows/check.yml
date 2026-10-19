@@ -1,0 +1,46 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+    paths: ['mac/**', 'core/**', 'scripts/build-mac.sh', 'scripts/mac-smoke.sh', '.github/workflows/check.yml', 'Cargo.lock']
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac:
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      APP_VERSION_NAME: 0.0.0
+      APP_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mac
+      - name: Tools
+        run: |
+          brew install xcodegen
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$X" ] && sudo xcode-select -s "$X"
+          xcodebuild -version; sw_vers
+      - name: Core tests
+        run: cargo test -p itune-core --lib
+      - name: Build
+        run: bash scripts/build-mac.sh
+      - name: Smoke
+        run: bash scripts/mac-smoke.sh "out/v4-${APP_VERSION_NAME}.dmg"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-smoke
+          path: |
+            out/mac-smoke
+            mac/build/xcodebuild.log

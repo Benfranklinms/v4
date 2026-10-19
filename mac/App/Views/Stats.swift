@@ -91,12 +91,13 @@ struct StatsView: View {
                 Shimmer(count: 3).padding(.top, 20)
             }
         }
-        .task(id: range) { load() }
+        .task(id: range) { await load() }
     }
 
-    private func load() {
+    private func load() async {
         shown = false
-        s = try? Engine.core.stats(range: range, tzOffsetMin: Engine.tzMinutes)
+        let r = range
+        s = await Engine.off { try Engine.core.stats(range: r, tzOffsetMin: Engine.tzMinutes) }
         withAnimation(Motion.soft.delay(0.05)) { shown = true }
     }
 

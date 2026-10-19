@@ -15,8 +15,9 @@ final class Player: ObservableObject {
     @Published var duration: Double = 0
     @Published var queue: QueueState?
     @Published var artwork: NSImage?
-    @Published var showNowPlaying = false
     @Published var error: String?
+    @Published var volume: Float = (UserDefaults.standard.object(forKey: "volume") as? Float) ?? 1
+    @Published var rate: Float = 1
     @Published var buffering = false
     @AppStorage("normalize") var normalize = true
     @AppStorage("autoplay") var autoplay = true
@@ -32,6 +33,11 @@ final class Player: ObservableObject {
     private var startedAt: Int64 = 0
     private var listened: Double = 0
     private var lastTick = Date()
+    /// Duration we trust (metadata / stream length); AVPlayer misreports some formats (2x).
+    private var trustedDuration: Double = 0
+    private var stallSince: Date?
+    private var loudGain: Float = 1
+    private var advancing = false
 
     private init() {
         av.automaticallyWaitsToMinimizeStalling = true
@@ -39,7 +45,17 @@ final class Player: ObservableObject {
             MainActor.assumeIsolated { self?.tick(t.seconds) }
         }
         setupRemote()
-        core.setAutoplay(on: autoplay)
+        let ap = autoplay
+        Engine.bg { Engine.core.setAutoplay(on: ap) }
+        NotificationCenter.default.addObserver(forName: AVPlayerItem.playbackStalledNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stallSince = Date() }
+        }
+    }
+
+    func setVolume(_ v: Float) {
+        volume = max(0, min(1, v))
+        UserDefaults.standard.set(volume, forKey: "volume")
+        av.volume = volume * loudGain
     }
 
     private var core: Core { Engine.core }
@@ -99,7 +115,9 @@ final class Player: ObservableObject {
     func playNext(_ t: Track) { if current == nil { play([t], index: 0, source: "Queue") } else { core.queuePlayNext(track: t); publishQueue() } }
     func addToQueue(_ t: Track) { if current == nil { play([t], index: 0, source: "Queue") } else { core.queueAdd(track: t); publishQueue() } }
     func remove(_ i: Int) { core.queueRemove(index: Int32(i)); publishQueue() }
-    func setRate(_ r: Float) { av.rate = r; av.defaultRate = r }
+    func setRate(_ r: Float) { rate = r; av.defaultRate = r; if isPlaying { av.rate = r } }
+    func move(_ from: Int, _ to: Int) { core.queueMove(from: Int32(from), to: Int32(to)); publishQueue() }
+    func setAutoplay(_ on: Bool) { autoplay = on; core.setAutoplay(on: on); publishQueue(); if on { Task { _ = try? await core.ensureAutoplay(); publishQueue() } } }
 
     private func publishQueue() { queue = core.queueState() }
 
@@ -108,6 +126,9 @@ final class Player: ObservableObject {
         loadTask?.cancel()
         current = t
         duration = Double(t.durationS)
+        trustedDuration = Double(t.durationS)
+        stallSince = nil
+        advancing = false
         position = 0
         startedAt = Int64(Date().timeIntervalSince1970)
         listened = 0
@@ -119,9 +140,14 @@ final class Player: ObservableObject {
         loadTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let (url, headers, loud, client) = try await self.resolve(t)
+                let (url, headers, loud, client, streamMs) = try await self.resolve(t)
                 if Task.isCancelled { return }
                 self.clientFor[t.id] = client
+                if streamMs > 0 {
+                    let sd = Double(streamMs) / 1000
+                    if self.trustedDuration <= 0 || abs(sd - self.trustedDuration) / max(1, self.trustedDuration) < 0.08 { self.trustedDuration = sd }
+                    self.duration = self.trustedDuration > 0 ? self.trustedDuration : sd
+                }
                 self.start(url: url, headers: headers, loudness: loud, track: t)
             } catch {
                 self.error = "Couldn't play \(t.title): \(Engine.message(error))"
@@ -132,16 +158,17 @@ final class Player: ObservableObject {
         }
     }
 
-    private func resolve(_ t: Track) async throws -> (URL, [String: String], Float?, String) {
+    private func resolve(_ t: Track) async throws -> (URL, [String: String], Float?, String, UInt64) {
         if t.id.hasPrefix("local:") {
             let s = String(t.id.dropFirst(6))
-            return (URL(string: s) ?? URL(fileURLWithPath: s), [:], nil, "local")
+            return (URL(string: s) ?? URL(fileURLWithPath: s), [:], nil, "local", 0)
         }
-        if let p = core.offlinePath(id: t.id) { return (URL(fileURLWithPath: p), [:], nil, "offline") }
-        if let p = core.cachedPath(id: t.id) { return (URL(fileURLWithPath: p), [:], nil, "cache") }
+        let id = t.id
+        if let p = await Engine.off({ Engine.core.offlinePath(id: id) }) ?? nil { return (URL(fileURLWithPath: p), [:], nil, "offline", 0) }
+        if let p = await Engine.off({ Engine.core.cachedPath(id: id) }) ?? nil { return (URL(fileURLWithPath: p), [:], nil, "cache", 0) }
         let s = try await core.stream(id: t.id)
         guard let u = URL(string: s.url) else { throw CoreError.Invalid(msg: "bad url") }
-        return (u, ["User-Agent": s.userAgent], s.loudnessDb, s.client)
+        return (u, ["User-Agent": s.userAgent], s.loudnessDb, s.client, s.durationMs)
     }
 
     private func start(url: URL, headers: [String: String], loudness: Float?, track: Track) {
@@ -153,12 +180,14 @@ final class Player: ObservableObject {
         }
         if let e = endObs { NotificationCenter.default.removeObserver(e) }
         endObs = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.next(user: false) }
+            MainActor.assumeIsolated { self?.advance() }
         }
         av.replaceCurrentItem(with: item)
         // ReplayGain-style: YouTube loudnessDb is relative to its target; attenuate loud tracks.
-        if normalize, let db = loudness, db > 0 { av.volume = max(0.2, pow(10, -db / 20)) } else { av.volume = 1 }
+        if normalize, let db = loudness, db > 0 { loudGain = max(0.2, pow(10, -db / 20)) } else { loudGain = 1 }
+        av.volume = volume * loudGain
         av.play()
+        if rate != 1 { av.rate = rate }
         isPlaying = true
         lastTick = Date()
         Task { await self.afterStart() }
@@ -169,7 +198,11 @@ final class Player: ObservableObject {
         case .readyToPlay:
             buffering = false
             let d = item.duration.seconds
-            if d.isFinite && d > 0 { duration = d }
+            // Trust metadata / stream length over AVPlayer's value when they disagree by more than 5 %.
+            if d.isFinite && d > 0 {
+                if trustedDuration <= 0 { trustedDuration = d }
+                duration = abs(d - trustedDuration) / max(1, trustedDuration) > 0.05 ? trustedDuration : d
+            }
             updateNowPlaying()
         case .failed:
             let msg = item.error?.localizedDescription ?? "playback failed"
@@ -199,7 +232,7 @@ final class Player: ObservableObject {
 
     /// Autoplay top-up and pre-caching of the next 2 tracks (survives short outages, instant skips).
     private func afterStart() async {
-        if autoplay, let q = queue, q.tracks.count - Int(q.index) <= 3 {
+        if autoplay, let q = queue, q.tracks.count - Int(q.index) <= 5 {
             _ = try? await core.ensureAutoplay()
             publishQueue()
         }
@@ -210,9 +243,22 @@ final class Player: ObservableObject {
         }
     }
 
+    /// Auto-advance exactly once per track (end notification, watchdog at the real end, or a stall there).
+    private func advance() {
+        guard !advancing else { return }
+        advancing = true
+        next(user: false)
+    }
+
     private func tick(_ s: Double) {
         guard s.isFinite else { return }
-        position = s
+        position = min(s, duration > 0 ? duration : s)
+        // watchdog: the real end of the track (AVPlayer may report a longer item and never fire didPlayToEnd)
+        if duration > 1, s >= duration - 0.3, current != nil { advance() }
+        if av.timeControlStatus == .waitingToPlayAtSpecifiedRate, duration > 1, s >= duration - 2 {
+            if stallSince == nil { stallSince = Date() }
+            if let st = stallSince, Date().timeIntervalSince(st) > 3 { advance() }
+        } else if av.timeControlStatus == .playing { stallSince = nil }
         let playing = av.timeControlStatus == .playing
         if playing { listened += min(2, Date().timeIntervalSince(lastTick)) }
         lastTick = Date()
@@ -228,7 +274,8 @@ final class Player: ObservableObject {
         let dur = max(1, Double(t.durationS))
         let wasSkip = skipped && listened < 30 && listened < dur / 2
         listened = 0
-        try? core.recordPlay(track: t, startedAt: startedAt, listenedMs: ms, skipped: wasSkip, tzOffsetMin: Engine.tzMinutes, source: "macos")
+        let st = startedAt
+        Engine.bg { try Engine.core.recordPlay(track: t, startedAt: st, listenedMs: ms, skipped: wasSkip, tzOffsetMin: Engine.tzMinutes, source: "macos") }
         Task { _ = try? await Engine.core.lastfmFlush() }
     }
 
@@ -268,7 +315,7 @@ final class Player: ObservableObject {
             MPMediaItemPropertyArtist: t.artists,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
-            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? Double(rate) : 0.0,
         ]
         if let a = t.album { info[MPMediaItemPropertyAlbumTitle] = a }
         if let img = artwork {

@@ -6,7 +6,13 @@ struct SettingsView: View {
     @EnvironmentObject var theme: Theme
     @EnvironmentObject var player: Player
     @EnvironmentObject var nav: Nav
+    @EnvironmentObject var account: AccountStore
+    @EnvironmentObject var lib: LibraryStore
     @ObservedObject var up = Updater.shared
+    @State private var loaded = false
+    @State private var signedIn = false
+    @State private var showDiag = false
+    @State private var confirmRemoveAll = false
     @State private var health: StreamingHealth?
     @State private var testing = false
     @State private var cacheMb: UInt32 = 256
@@ -22,7 +28,25 @@ struct SettingsView: View {
     var body: some View {
         let p = theme.p
         Page {
-            Text("Settings").font(theme.ui(30, .bold)).foregroundStyle(p.txt).padding(.bottom, 6)
+            LargeTitle(text: "Settings").padding(.bottom, 6)
+
+            group("Account") {
+                Button { nav.sheet = .account } label: {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle().fill(p.surf3)
+                            if let a = account.info?.avatar, !a.isEmpty { ArtView(url: a, size: 36, circle: true) }
+                            else { Image(systemName: "person.fill").foregroundStyle(p.t2) }
+                        }.frame(width: 36, height: 36)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(account.info?.name ?? (account.signedIn ? "Google account" : "Sign in with Google")).font(theme.ui(13.5, .semibold)).foregroundStyle(p.txt)
+                            Text(account.signedIn ? (account.info?.handle ?? "Signed in") : "Sync likes and playlists. Optional.").font(theme.ui(11.5)).foregroundStyle(p.t2)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(p.t3)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(PressStyle(scale: 0.99)).accessibilityIdentifier("settings_account")
+            }
 
             group("Appearance") {
                 VStack(alignment: .leading, spacing: 10) {
@@ -64,7 +88,7 @@ struct SettingsView: View {
 
             group("Playback") {
                 row("Normalise loudness") { Toggle2(on: $player.normalize) }
-                row("Autoplay similar when the queue ends") { Toggle2(on: Binding(get: { player.autoplay }, set: { player.autoplay = $0; Engine.core.setAutoplay(on: $0) })) }
+                row("Autoplay similar when the queue ends") { Toggle2(on: Binding(get: { player.autoplay }, set: { player.setAutoplay($0) })) }
             }
 
             group("Storage") {
@@ -75,39 +99,47 @@ struct SettingsView: View {
                         Text(cacheMb == 0 ? "Off" : cacheMb >= 1024 ? "1 GB" : "\(cacheMb) MB").font(theme.num(12)).foregroundStyle(p.t2)
                     }
                     Slider(value: Binding(get: { Double(cacheSteps.firstIndex(of: cacheMb) ?? 2) },
-                                          set: { cacheMb = cacheSteps[Int($0.rounded())]; try? Engine.core.setCacheLimitMb(mb: cacheMb); refreshSizes() }),
+                                          set: { cacheMb = cacheSteps[Int($0.rounded())]; let mb = cacheMb; Task { _ = await Engine.off { try Engine.core.setCacheLimitMb(mb: mb) }; await refreshSizes() } }),
                            in: 0...4, step: 1).tint(theme.accent)
                 }
                 HStack(spacing: 18) {
                     stat("Cache", sizes.cache); stat("Images", sizes.images); stat("Downloads", sizes.downloads); stat("Data", sizes.data)
                     Spacer()
                     Chip(label: "Clear cache", icon: "trash") {
-                        Engine.core.clearCache(); URLCache.shared.removeAllCachedResponses(); refreshSizes(); nav.show("Cache cleared")
+                        URLCache.shared.removeAllCachedResponses()
+                        Task { _ = await Engine.off { Engine.core.clearCache() }; await refreshSizes(); nav.show("Cache cleared") }
                     }
+                }
+                row("Downloads (\(lib.downloaded.count) songs)") {
+                    Chip(label: "Remove all downloads", icon: "trash") { confirmRemoveAll = true }
+                        .disabled(lib.downloaded.isEmpty)
                 }
             }
 
-            group("Streaming") {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Streaming health").font(theme.ui(13, .medium)).foregroundStyle(p.txt)
-                        Text(healthText).font(theme.ui(11.5)).foregroundStyle(p.t2).lineLimit(2)
+            group("Playback health") {
+                HStack(spacing: 10) {
+                    Circle().fill(healthDot).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(healthTitle).font(theme.ui(13, .medium)).foregroundStyle(p.txt)
+                        if healthBroken { Text("Tap Fix to try again").font(theme.ui(11.5)).foregroundStyle(p.t2) }
                     }
                     Spacer()
-                    Button { retry() } label: {
-                        Group { if testing { ProgressView().controlSize(.small) } else { Text("Retry").font(theme.ui(12, .semibold)) } }
-                            .foregroundStyle(p.txt).padding(.horizontal, 14).frame(height: 28).background(Capsule().fill(p.surf3))
-                    }.buttonStyle(PressStyle())
-                }
-                if Engine.core.isSignedIn() {
-                    row("Signed in") { Chip(label: "Sign out") { Task { try? await Engine.core.signOut(); nav.show("Signed out") } } }
-                } else {
-                    HStack {
-                        SecureField("Optional: paste a music.youtube.com cookie to sync your library", text: $cookie).textFieldStyle(.plain)
-                            .font(theme.ui(12)).padding(.horizontal, 12).frame(height: 30).background(Capsule().fill(p.surf2))
-                        Chip(label: signingIn ? "…" : "Sign in") { signIn() }
+                    if healthBroken || testing {
+                        Button { retry() } label: {
+                            Group { if testing { ProgressView().controlSize(.small) } else { Text("Fix").font(theme.ui(12, .semibold)) } }
+                                .foregroundStyle(p.txt).padding(.horizontal, 14).frame(height: 28).background(Capsule().fill(p.surf3))
+                        }.buttonStyle(PressStyle()).accessibilityIdentifier("health_fix")
                     }
                 }
+                DisclosureGroup(isExpanded: $showDiag) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let h = health {
+                            Text("Client: \(h.workingClient.isEmpty ? "—" : h.workingClient) · recent failures: \(h.failures)").font(theme.num(11)).foregroundStyle(p.t3)
+                            if !h.lastError.isEmpty { Text(h.lastError).font(theme.num(11)).foregroundStyle(p.t3).lineLimit(3) }
+                        }
+                        Button("Open Diagnostics") { nav.go(.diagnostics) }.buttonStyle(.plain).font(theme.ui(12, .semibold)).foregroundStyle(p.t2)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
+                } label: { Text("Diagnostics").font(theme.ui(12, .medium)).foregroundStyle(p.t2) }
             }
 
             if let lf = lastfm, lf.available {
@@ -118,9 +150,9 @@ struct SettingsView: View {
                         }
                     } else {
                         row("Scrobbling as \(lf.username)\(lf.pending > 0 ? " · \(lf.pending) queued" : "")") {
-                            Toggle2(on: Binding(get: { lf.enabled }, set: { try? Engine.core.lastfmSetEnabled(on: $0); lastfm = Engine.core.lastfmState() }))
+                            Toggle2(on: Binding(get: { lf.enabled }, set: { v in Task { lastfm = await Engine.off { try Engine.core.lastfmSetEnabled(on: v); return Engine.core.lastfmState() } ?? lastfm } }))
                         }
-                        row("") { Chip(label: "Disconnect") { try? Engine.core.lastfmSignOut(); lastfm = Engine.core.lastfmState() } }
+                        row("") { Chip(label: "Disconnect") { Task { lastfm = await Engine.off { try Engine.core.lastfmSignOut(); return Engine.core.lastfmState() } ?? lastfm } } }
                     }
                 }
             }
@@ -129,7 +161,7 @@ struct SettingsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("iTune").font(theme.ui(13, .semibold)).foregroundStyle(p.txt)
-                        Text("Version \(up.currentVersion) · core \(Engine.core.version())").font(theme.num(11.5)).foregroundStyle(p.t2)
+                        Text("Version \(up.currentVersion) · core \(Engine.coreVersion)").font(theme.num(11.5)).foregroundStyle(p.t2)
                     }
                     Spacer()
                     Button { Task { await up.check(manual: true) } } label: {
@@ -157,7 +189,18 @@ struct SettingsView: View {
                 }
             }
         }
-        .task { health = Engine.core.streamingHealth(); cacheMb = Engine.core.cacheLimitMb(); lastfm = Engine.core.lastfmState(); refreshSizes() }
+        // Everything the page shows is read off the main thread (the page renders at once, values fade in).
+        .task {
+            let r = await Engine.off { (Engine.core.streamingHealth(), Engine.core.cacheLimitMb(), Engine.core.lastfmState(), Engine.core.isSignedIn()) }
+            if let r { health = r.0; cacheMb = r.1; lastfm = r.2; signedIn = r.3 }
+            loaded = true
+            await refreshSizes()
+        }
+        .confirmationDialog("Remove all downloads?", isPresented: $confirmRemoveAll) {
+            Button("Remove all", role: .destructive) { lib.removeAllDownloads() }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("You can undo this for a few seconds.") }
+        .accessibilityIdentifier("settings")
         .sheet(isPresented: $keyEntry) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Access key").font(theme.ui(16, .bold)).foregroundStyle(theme.p.txt)
@@ -182,11 +225,9 @@ struct SettingsView: View {
         return items
     }
 
-    private var healthText: String {
-        guard let h = health else { return "—" }
-        if h.failures == 0 { return "Working · \(h.workingClient)" }
-        return "\(h.failures) recent failures · \(h.lastError)"
-    }
+    private var healthBroken: Bool { (health?.failures ?? 0) >= 3 && (health?.lastErrorAt ?? 0) > (health?.lastOkAt ?? 0) }
+    private var healthTitle: String { !loaded || testing ? "Checking…" : healthBroken ? "Can't reach streams, tap to fix" : "Playback ready" }
+    private var healthDot: Color { !loaded || testing ? theme.p.t3 : healthBroken ? theme.p.t2.opacity(0.5) : theme.p.txt }
 
     private func lastfmStep() {
         Task {
@@ -200,13 +241,16 @@ struct SettingsView: View {
                     if let u = URL(string: a.url) { NSWorkspace.shared.open(u) }
                 } catch { nav.show("Couldn't reach Last.fm") }
             }
-            lastfm = Engine.core.lastfmState()
+            lastfm = await Engine.off { Engine.core.lastfmState() } ?? lastfm
         }
     }
 
     private func retry() {
         testing = true
-        Task { health = (try? await Engine.core.streamingSelftest()) ?? Engine.core.streamingHealth(); testing = false }
+        Task {
+            if let h = try? await Engine.core.streamingSelftest() { health = h } else { health = await Engine.off { Engine.core.streamingHealth() } ?? health }
+            testing = false
+        }
     }
 
     private func signIn() {
@@ -214,8 +258,7 @@ struct SettingsView: View {
         guard !c.isEmpty else { return }
         signingIn = true
         Task {
-            do { try await Engine.core.signInCookie(cookie: c); _ = try? await Engine.core.syncLibrary(); cookie = ""; nav.show("Signed in") }
-            catch { nav.show(Engine.message(error)) }
+            if await account.signIn(cookie: c) { cookie = ""; nav.show("Signed in") } else { nav.show("Couldn't sign in with that cookie") }
             signingIn = false
         }
     }
@@ -229,15 +272,19 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshSizes() {
-        let h = Engine.core.streamingHealth()
-        let dl = ((try? Engine.core.downloads()) ?? []).reduce(UInt64(0)) { $0 + $1.bytes }
+    /// Directory sizes are walked on a background thread.
+    private func refreshSizes() async {
         let imgs = UInt64(URLCache.shared.currentDiskUsage)
-        let data = dirSize(Engine.supportDir.appendingPathComponent("core"))
-        sizes = (h.cacheBytes, imgs, dl, data > h.cacheBytes + dl ? data - h.cacheBytes - dl : data)
+        let r = await Engine.off { () -> (UInt64, UInt64, UInt64) in
+            let h = Engine.core.streamingHealth()
+            let dl = ((try? Engine.core.downloads()) ?? []).reduce(UInt64(0)) { $0 + $1.bytes }
+            let data = SettingsView.dirSize(Engine.supportDir.appendingPathComponent("core"))
+            return (h.cacheBytes, dl, data)
+        }
+        if let (c, dl, data) = r { sizes = (c, imgs, dl, data > c + dl ? data - c - dl : data) }
     }
 
-    private func dirSize(_ u: URL) -> UInt64 {
+    nonisolated static func dirSize(_ u: URL) -> UInt64 {
         guard let e = FileManager.default.enumerator(at: u, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         var n: UInt64 = 0
         for case let f as URL in e { n += UInt64((try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
