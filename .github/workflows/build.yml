@@ -86,9 +86,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [34, 30]
-    # the API 30 leg is a fallback probe for the software-GPU emulator; the API 34 leg gates the build
-    continue-on-error: ${{ matrix.api != 34 }}
+        include:
+          - { api: 34, gpu: swiftshader_indirect, art: smoke }
+          - { api: 34, gpu: swangle_indirect, art: smoke-swangle }
+          - { api: 30, gpu: swiftshader_indirect, art: smoke-api30 }
+          - { api: 34, gpu: swiftshader_indirect, art: smoke-lite, lite: '1' }
+    # the extra legs probe other software-GPU paths (the emulator process crashed on the glass UI);
+    # the first leg gates the build
+    continue-on-error: ${{ matrix.art != 'smoke' }}
     env:
       APP_ABIS: arm64-v8a,x86_64
       CORE_ABIS: arm64-v8a x86_64
@@ -132,12 +137,12 @@ jobs:
           cores: 3
           disk-size: 6000M
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
-          script: bash scripts/smoke-all.sh
+          emulator-options: -no-window -gpu ${{ matrix.gpu }} -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
+          script: SMOKE_LITE=${{ matrix.lite || '0' }} bash scripts/smoke-all.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ${{ matrix.api == 34 && 'smoke' || format('smoke-api{0}', matrix.api) }}
+          name: ${{ matrix.art }}
           path: out/smoke
 
   mac:

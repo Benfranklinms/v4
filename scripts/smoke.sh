@@ -33,6 +33,9 @@ timeout 60 adb logcat -d -v threadtime > "$O/logcat.txt"; kill $(cat /tmp/logcat
 sudo dmesg -T 2>/dev/null | tail -120 > "$O/host-dmesg.txt" || true
 ls -la /tmp/android-runner/ "$HOME/.android/avd/test.avd/" > "$O/host-emu-files.txt" 2>&1 || true
 pgrep -af qemu > "$O/host-qemu.txt" 2>&1 || echo "no qemu process" > "$O/host-qemu.txt"
+# emulator crash reports (crashpad minidumps) if qemu went away
+cp -r /tmp/android-runner/emu-crash-*.db "$O/emu-crash" 2>/dev/null || true
+find "$O/emu-crash" -type f -size +1k 2>/dev/null | head -20 > "$O/emu-crash-files.txt"
 # ANR stack traces (google_apis images allow adb root)
 timeout 30 adb root >/dev/null 2>&1; sleep 2
 timeout 30 adb shell 'ls /data/anr' > "$O/anr-list.txt" 2>&1 || true

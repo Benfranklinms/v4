@@ -72,6 +72,15 @@ val liveBlur: Boolean by lazy {
     val f = Build.FINGERPRINT.lowercase()
     !(h.contains("ranchu") || h.contains("goldfish") || f.contains("generic") || f.contains("emulator") || Build.PRODUCT.contains("sdk_gphone"))
 }
+/**
+ * Emulator-only diagnostic switch (`adb shell setprop debug.itune.lite 1`): glass draws as flat translucent
+ * fills without gradient sheen/rim and the ambient wash is off. Never on for phones (requires !liveBlur).
+ */
+val liteGfx: Boolean by lazy {
+    !liveBlur && runCatching {
+        Class.forName("android.os.SystemProperties").getMethod("get", String::class.java).invoke(null, "debug.itune.lite") as String
+    }.getOrNull() == "1"
+}
 val LocalChrome = staticCompositionLocalOf<ChromeState?> { null }
 
 /** Shared spring for chrome motion: soft, no bounce, medium-low stiffness. */
@@ -107,6 +116,7 @@ fun Modifier.glass(
     var m = this.clip(shape)
     m = if (backdrop && haze != null && liveBlur) m.hazeEffect(haze, glassStyle(c, dark, blur))
     else m.background(base.copy(alpha = (dark + 0.22f).coerceAtMost(0.96f)))
+    if (liteGfx) return m
     return m.drawWithContent {
         val outline = shape.createOutline(size, layoutDirection, this)
         if (sheen > 0f) {
@@ -184,6 +194,7 @@ fun BlurredArt(url: String?, modifier: Modifier = Modifier, dark: Float = 0.30f)
 @Composable
 fun AmbientWash(modifier: Modifier = Modifier) {
     val c = LocalColors.current
+    if (liteGfx) { Box(modifier); return }
     Box(modifier) {
         Glow(c.glow, Modifier.fillMaxSize(), alpha = if (c.light) 0.14f else 0.30f, centerY = 0.08f, radiusFrac = 0.62f)
         Glow(c.glow, Modifier.fillMaxSize().padding(start = 120.dp), alpha = if (c.light) 0.06f else 0.12f, centerY = 0.55f, radiusFrac = 0.45f)
