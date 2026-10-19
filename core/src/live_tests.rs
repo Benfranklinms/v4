@@ -200,6 +200,8 @@ fn home_cached_returns_saved_feed() {
     let f = HomeFeed { greeting: "x".into(), mixes: vec![], recent: vec![], trending: vec![tr("t")], suggestions: vec![], shelves: vec![HomeShelf { title: "Quick picks".into(), layout: "songs".into(), items: vec![] }], on_repeat: vec![], discover: vec![] };
     c.db.kv_set("home_feed", &serde_json::to_string(&f).unwrap()).unwrap();
     let g = c.home_cached(330).expect("cached feed");
+    let peek = home_cached_peek(c.data_dir.clone(), 330).expect("peek");
+    assert_eq!(peek.shelves[0].title, "Quick picks");
     assert_eq!(g.shelves[0].title, "Quick picks");
     assert_eq!(g.trending[0].id, "t");
     assert_ne!(g.greeting, "x");

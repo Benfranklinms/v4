@@ -56,6 +56,12 @@ struct ItuneApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Cold-launch fast path: read the saved Home feed straight from the DB file while the core starts.
+        let dir = Engine.supportDir.appendingPathComponent("core").path
+        let tz = Engine.tzMinutes
+        HomeCache.peekTask = Task.detached(priority: .userInitiated) { homeCachedPeek(dataDir: dir, tzOffsetMin: tz) }
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         CrashReporter.install()
         Theme.registerBundledFonts()

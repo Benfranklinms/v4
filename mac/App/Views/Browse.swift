@@ -55,6 +55,8 @@ enum HomeCache {
     /// When the cached feed was first on screen (CACurrentMediaTime), for the cold-launch smoke check.
     @MainActor static var cachedShownAt: CFTimeInterval = 0
     @MainActor static var source = "none"
+    /// Started in applicationWillFinishLaunching (DB read without constructing the core).
+    @MainActor static var peekTask: Task<HomeFeed?, Never>?
 }
 
 struct HomeView: View {
@@ -139,6 +141,13 @@ struct HomeView: View {
     /// Stale-while-revalidate: the last saved feed renders at once (no network), then the fresh feed is
     /// swapped in without animation (same section ids, so nothing jumps). Skeletons only with no cache at all.
     private func load(force: Bool) async {
+        if feed == nil, let t = HomeCache.peekTask, let c = await t.value, !HomeView.sections(c).isEmpty {
+            feed = c
+            HomeCache.feed = c
+            HomeCache.source = "cache"
+            if HomeCache.cachedShownAt == 0 { HomeCache.cachedShownAt = CACurrentMediaTime() }
+            HomeView.prefetchArt(c)
+        }
         if feed == nil, let c = await Engine.off({ Engine.core.homeCached(tzOffsetMin: Engine.tzMinutes) }) ?? nil, !HomeView.sections(c).isEmpty {
             feed = c
             HomeCache.feed = c

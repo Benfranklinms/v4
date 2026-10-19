@@ -134,6 +134,25 @@ impl Core {
     }
 }
 
+/// Cold-launch fast path: the last saved Home feed read straight from the DB file (read-only, no network,
+/// no `Core` construction), so the UI can paint shelves before the core is even up. None if nothing saved.
+/// `data_dir` is the same folder passed to `Core::new`.
+#[uniffi::export]
+pub fn home_cached_peek(data_dir: String, tz_offset_min: i32) -> Option<HomeFeed> {
+    guard(move || {
+        let conn = rusqlite::Connection::open_with_flags(
+            format!("{data_dir}/itune.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .ok()?;
+        let j: String = conn.query_row("SELECT v FROM kv WHERE k='home_feed'", [], |r| r.get(0)).ok()?;
+        let mut f: HomeFeed = serde_json::from_str(&j).ok()?;
+        let local = now() + tz_offset_min as i64 * 60;
+        f.greeting = greeting_for((local.rem_euclid(86_400)) / 3600);
+        Some(f)
+    })
+}
+
 fn greeting_for(hour: i64) -> String {
     match hour {
         5..=11 => "Good morning",
