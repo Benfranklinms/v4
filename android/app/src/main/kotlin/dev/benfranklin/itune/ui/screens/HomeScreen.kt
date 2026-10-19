@@ -260,7 +260,7 @@ fun HomeScreen(s: AppState) {
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                             itemsIndexed(sh.items, key = { k, v -> "$k:" + v.hashCode() }) { i, it ->
                                 val circle = it.kind == "artist"
-                                Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { homeItemMenu(s, it) }) { openHomeItem(s, ctx, it, sh) }.testTag("shelf_item")) {
+                                Column(Modifier.width(150.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { homeItemMenu(s, it) }) { openHomeItem(s, ctx, it, sh) }.testTag(if (it.kind == "album" || it.kind == "playlist" || it.kind == "artist") "shelf_item" else "shelf_song")) {
                                     Artwork(it.thumb, 150.dp, 16.dp, circle = circle)
                                     Text(it.title, style = T.ui(13.5.sp, FontWeight.SemiBold), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 9.dp))
                                     Text(it.subtitle, style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)

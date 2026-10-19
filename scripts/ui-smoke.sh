@@ -273,24 +273,55 @@ else
   log "WARN: no mini player title to compare (stream unavailable?)"
 fi
 
+# ---------------------------------------------------------------- cached Home: offline cold start still shows the shelves
+log "== Cached Home"
+if [ $SHELVES = 1 ]; then
+  timeout 10 adb shell input keyevent KEYCODE_HOME; sleep 1
+  timeout 15 adb shell am force-stop $PKG; sleep 1
+  timeout 10 adb shell svc wifi disable; timeout 10 adb shell svc data disable; sleep 2
+  timeout 30 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null; sleep 3
+  crash_check "offline relaunch"
+  CACHED=0
+  for _ in 1 2 3 4 5 6 7 8; do
+    dump
+    if find_node text "Quick picks" >/dev/null || find_node text "Recently played" >/dev/null || find_node text "Daily Mixes" >/dev/null || find_node resource-id shelf_item >/dev/null || find_node text "Trending" >/dev/null; then CACHED=1; break; fi
+    adb shell input swipe $(px 50) $(py 75) $(px 50) $(py 35) 300; sleep 1
+  done
+  shot home-cached-offline
+  timeout 10 adb shell svc wifi enable; timeout 10 adb shell svc data enable; sleep 3
+  [ $CACHED = 1 ] && log "cached home shown offline" || { log "MISSING (required): cached Home shelves offline"; FAILS=$((FAILS + 1)); }
+  for _ in 1 2 3 4 5 6; do scroll_up; done
+else
+  log "WARN: cached Home not checked (no shelves were loaded online first)"
+fi
+
 # ---------------------------------------------------------------- scroll position kept across push/pop
 log "== Scroll restore"
 home_tab
 for _ in 1 2 3; do scroll_down; done
+for _ in 1 2 3 4 5 6 7 8; do dump; find_node resource-id shelf_item >/dev/null && break; scroll_down; done
 dump; cp "$O/ui.xml" "$O/ui-before-push.xml"
-FIRST=$(python3 - "$O/ui.xml" <<'PY'
+# a text in the middle of the screen (not the top bar / mini player), so the check proves the list position
+FIRST=$(python3 - "$O/ui.xml" "$SH" <<'PY'
 import sys, re, xml.etree.ElementTree as ET
-r = ET.parse(sys.argv[1]).getroot()
+r = ET.parse(sys.argv[1]).getroot(); H = int(sys.argv[2])
 for n in r.iter('node'):
     t = n.get('text','')
-    if t and len(t) > 3: print(t); break
+    m = re.findall(r'\d+', n.get('bounds',''))
+    if t and len(t) > 3 and len(m) == 4:
+        y = (int(m[1]) + int(m[3])) // 2
+        if 0.30 * H < y < 0.65 * H: print(t); break
 PY
 )
-if id shelf_item 0 5 || id home_card 0 3; then
-  sleep 2; back; sleep 1.5
-  if wait_for text "$FIRST" 5; then log "home scroll kept ($FIRST)"; else log "MISSING (required): home scroll position after back ($FIRST)"; FAILS=$((FAILS + 1)); shot missing-scroll; fi
+log "scroll anchor: $FIRST"
+if [ -z "$FIRST" ]; then
+  log "MISSING (required): no anchor text for the scroll check"; FAILS=$((FAILS + 1))
+elif id shelf_item 0 5; then
+  sleep 2; dump; find_node resource-id back >/dev/null && log "opened page from shelf (header drawn)"
+  back; sleep 1.5
+  if wait_for text "$FIRST" 5; then log "home scroll kept ($FIRST)"; shot scroll-kept; else log "MISSING (required): home scroll position after back ($FIRST)"; FAILS=$((FAILS + 1)); shot missing-scroll; fi
 else
-  log "WARN: no tappable home card to test scroll restore"
+  log "MISSING (required): no album/playlist/artist card on Home to test scroll restore"; FAILS=$((FAILS + 1))
 fi
 
 # ---------------------------------------------------------------- bookmark: save / unsave album + artist

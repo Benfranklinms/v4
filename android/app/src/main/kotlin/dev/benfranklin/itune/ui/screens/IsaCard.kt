@@ -163,12 +163,25 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
     }
 
     val thinking = state is IsaState.Thinking
-    val inf = rememberInfiniteTransition(label = "isa")
-    // animation values are read only inside draw/graphicsLayer lambdas: no recomposition per frame
-    val pulse = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (thinking) 900 else 2600), RepeatMode.Reverse), label = "pulse")
-    val wave = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "wave")
-    val blink = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1060), RepeatMode.Restart), label = "blink")
-    val shimmer = inf.animateFloat(-1f, 2f, infiniteRepeatable(tween(1300), RepeatMode.Restart), label = "shimmer")
+    // animation values are read only inside draw/graphicsLayer lambdas: no recomposition per frame.
+    // The orb only animates while Isa is in use (focused / typing / thinking); idle on Home it rests, so the
+    // screen stops redrawing every frame (was a constant render load on phones and the emulator).
+    val live = !reduce && (thinking || focused || text.isNotEmpty())
+    val still = remember { androidx.compose.runtime.mutableFloatStateOf(0.5f) }
+    val zero = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val pulse: androidx.compose.runtime.State<Float>
+    val wave: androidx.compose.runtime.State<Float>
+    val blink: androidx.compose.runtime.State<Float>
+    val shimmer: androidx.compose.runtime.State<Float>
+    if (live) {
+        val inf = rememberInfiniteTransition(label = "isa")
+        pulse = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (thinking) 900 else 2600), RepeatMode.Reverse), label = "pulse")
+        wave = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400), RepeatMode.Restart), label = "wave")
+        blink = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1060), RepeatMode.Restart), label = "blink")
+        shimmer = inf.animateFloat(-1f, 2f, infiniteRepeatable(tween(1300), RepeatMode.Restart), label = "shimmer")
+    } else {
+        pulse = still; wave = zero; blink = zero; shimmer = zero
+    }
     val expanded = focused || text.isNotEmpty() || state !is IsaState.Idle
 
     Column(modifier.fillMaxWidth()) {

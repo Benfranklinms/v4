@@ -919,6 +919,24 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -952,8 +970,12 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_itune_core_fn_method_core_album(`ptr`: Pointer,`id`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_itune_core_fn_method_core_album_cached(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_artist(`ptr`: Pointer,`id`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_itune_core_fn_method_core_artist_cached(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_cache_limit_mb(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     fun uniffi_itune_core_fn_method_core_cached_path(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -963,6 +985,8 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_fn_method_core_clear_cache(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_clear_recent_searches(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_itune_core_fn_method_core_clear_session(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_create_playlist(`ptr`: Pointer,`title`: RustBuffer.ByValue,`tracks`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -990,6 +1014,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_home(`ptr`: Pointer,`tzOffsetMin`: Int,
     ): Long
+    fun uniffi_itune_core_fn_method_core_home_cached(`ptr`: Pointer,`tzOffsetMin`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_import_cancel(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_import_candidates(`ptr`: Pointer,`source`: RustBuffer.ByValue,`query`: RustBuffer.ByValue,
@@ -1046,6 +1072,12 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_playlist(`ptr`: Pointer,`id`: RustBuffer.ByValue,
     ): Long
+    fun uniffi_itune_core_fn_method_core_playlist_cached(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_playlist_has_more(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    fun uniffi_itune_core_fn_method_core_playlist_more(`ptr`: Pointer,`id`: RustBuffer.ByValue,`count`: Int,
+    ): Long
     fun uniffi_itune_core_fn_method_core_playlists(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_prefetch(`ptr`: Pointer,`track`: RustBuffer.ByValue,
@@ -1092,6 +1124,8 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_itune_core_fn_method_core_remove_recent_search(`ptr`: Pointer,`query`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_fn_method_core_restore_session(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_save_album(`ptr`: Pointer,`album`: RustBuffer.ByValue,`saved`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_save_artist(`ptr`: Pointer,`artist`: RustBuffer.ByValue,`saved`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1099,6 +1133,8 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_fn_method_core_save_import(`ptr`: Pointer,`name`: RustBuffer.ByValue,`service`: RustBuffer.ByValue,`cover`: RustBuffer.ByValue,`tracks`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_save_playlist(`ptr`: Pointer,`playlist`: RustBuffer.ByValue,`saved`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_itune_core_fn_method_core_save_session(`ptr`: Pointer,`positionMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_saved_albums(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1260,7 +1296,11 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_album(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_album_cached(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_artist(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_artist_cached(
     ): Short
     fun uniffi_itune_core_checksum_method_core_cache_limit_mb(
     ): Short
@@ -1271,6 +1311,8 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_checksum_method_core_clear_cache(
     ): Short
     fun uniffi_itune_core_checksum_method_core_clear_recent_searches(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_clear_session(
     ): Short
     fun uniffi_itune_core_checksum_method_core_create_playlist(
     ): Short
@@ -1297,6 +1339,8 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_checksum_method_core_get_setting(
     ): Short
     fun uniffi_itune_core_checksum_method_core_home(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_home_cached(
     ): Short
     fun uniffi_itune_core_checksum_method_core_import_cancel(
     ): Short
@@ -1354,6 +1398,12 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_playlist(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_playlist_cached(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_playlist_has_more(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_playlist_more(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_playlists(
     ): Short
     fun uniffi_itune_core_checksum_method_core_prefetch(
@@ -1400,6 +1450,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_remove_recent_search(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_restore_session(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_save_album(
     ): Short
     fun uniffi_itune_core_checksum_method_core_save_artist(
@@ -1407,6 +1459,8 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_checksum_method_core_save_import(
     ): Short
     fun uniffi_itune_core_checksum_method_core_save_playlist(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_save_session(
     ): Short
     fun uniffi_itune_core_checksum_method_core_saved_albums(
     ): Short
@@ -1476,10 +1530,16 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_add_to_playlist() != 41619.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_itune_core_checksum_method_core_album() != 52087.toShort()) {
+    if (lib.uniffi_itune_core_checksum_method_core_album() != 51910.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_itune_core_checksum_method_core_artist() != 14842.toShort()) {
+    if (lib.uniffi_itune_core_checksum_method_core_album_cached() != 35265.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_artist() != 11111.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_artist_cached() != 46018.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_cache_limit_mb() != 23087.toShort()) {
@@ -1495,6 +1555,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_clear_recent_searches() != 28732.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_clear_session() != 33832.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_create_playlist() != 5315.toShort()) {
@@ -1534,6 +1597,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_home() != 21267.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_home_cached() != 65434.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_import_cancel() != 36519.toShort()) {
@@ -1620,6 +1686,15 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_playlist() != 41308.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_playlist_cached() != 44100.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_playlist_has_more() != 13069.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_playlist_more() != 15879.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_playlists() != 26634.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1689,6 +1764,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_remove_recent_search() != 61845.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_restore_session() != 65095.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_save_album() != 63956.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1699,6 +1777,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_save_playlist() != 60064.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_save_session() != 65123.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_saved_albums() != 44150.toShort()) {
@@ -2265,9 +2346,22 @@ public interface CoreInterface {
     
     fun `addToPlaylist`(`playlistId`: kotlin.String, `track`: Track)
     
+    /**
+     * Album page: served from the page cache when younger than 24 h, otherwise fetched (and cached).
+     */
     suspend fun `album`(`id`: kotlin.String): AlbumPage
     
+    /**
+     * Last cached album page at any age (instant, no network); then call `album` to revalidate.
+     */
+    fun `albumCached`(`id`: kotlin.String): AlbumPage?
+    
+    /**
+     * Artist page: cached 24 h like albums.
+     */
     suspend fun `artist`(`id`: kotlin.String): ArtistPage
+    
+    fun `artistCached`(`id`: kotlin.String): ArtistPage?
     
     fun `cacheLimitMb`(): kotlin.UInt
     
@@ -2281,6 +2375,11 @@ public interface CoreInterface {
     fun `clearCache`()
     
     fun `clearRecentSearches`()
+    
+    /**
+     * Forgets the saved session.
+     */
+    fun `clearSession`()
     
     fun `createPlaylist`(`title`: kotlin.String, `tracks`: List<Track>): Playlist
     
@@ -2323,6 +2422,13 @@ public interface CoreInterface {
     fun `getSetting`(`key`: kotlin.String): kotlin.String?
     
     suspend fun `home`(`tzOffsetMin`: kotlin.Int): HomeFeed
+    
+    /**
+     * Stale-while-revalidate: the last full feed `home()` built, instantly from the local DB (no network),
+     * with the greeting and Recently played refreshed. None before the first successful `home()`.
+     * Render this at launch, then call `home()` in the background and swap the result in.
+     */
+    fun `homeCached`(`tzOffsetMin`: kotlin.Int): HomeFeed?
     
     /**
      * Stop the running import; `import_playlist` then returns "Import cancelled".
@@ -2416,6 +2522,22 @@ public interface CoreInterface {
     
     suspend fun `playlist`(`id`: kotlin.String): PlaylistPage
     
+    /**
+     * Last cached remote playlist / mix page at any age (local playlists: read straight from the DB).
+     */
+    fun `playlistCached`(`id`: kotlin.String): PlaylistPage?
+    
+    /**
+     * More pages are available for a remote playlist opened in this session.
+     */
+    fun `playlistHasMore`(`id`: kotlin.String): kotlin.Boolean
+    
+    /**
+     * Next ~`count` tracks of a remote playlist opened with `playlist` (first page comes back at once).
+     * Append them in the UI and to the queue; call again until `done`.
+     */
+    suspend fun `playlistMore`(`id`: kotlin.String, `count`: kotlin.UInt): PlaylistMore
+    
     fun `playlists`(): List<Playlist>
     
     /**
@@ -2471,6 +2593,11 @@ public interface CoreInterface {
     
     fun `removeRecentSearch`(`query`: kotlin.String)
     
+    /**
+     * The saved session, loaded back into the core queue (nothing plays; no network). None when there is none.
+     */
+    fun `restoreSession`(): Session?
+    
     fun `saveAlbum`(`album`: Album, `saved`: kotlin.Boolean)
     
     fun `saveArtist`(`artist`: Artist, `saved`: kotlin.Boolean)
@@ -2481,6 +2608,13 @@ public interface CoreInterface {
     fun `saveImport`(`name`: kotlin.String, `service`: kotlin.String, `cover`: kotlin.String, `tracks`: List<Track>): Playlist
     
     fun `savePlaylist`(`playlist`: Playlist, `saved`: kotlin.Boolean)
+    
+    /**
+     * Saves the current queue (tracks, index, shuffle/repeat, autoplay tail, source) and the position.
+     * Cheap to call often: the queue is only rewritten when it changed, otherwise just the position.
+     * Clients call it every ~5 s while playing, and on pause, track change and app quit.
+     */
+    fun `saveSession`(`positionMs`: kotlin.ULong)
     
     fun `savedAlbums`(): List<Album>
     
@@ -2687,6 +2821,9 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
 
     
+    /**
+     * Album page: served from the page cache when younger than 24 h, otherwise fetched (and cached).
+     */
     @Throws(CoreException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `album`(`id`: kotlin.String) : AlbumPage {
@@ -2708,6 +2845,24 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     }
 
     
+    /**
+     * Last cached album page at any age (instant, no network); then call `album` to revalidate.
+     */override fun `albumCached`(`id`: kotlin.String): AlbumPage? {
+            return FfiConverterOptionalTypeAlbumPage.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_album_cached(
+        it, FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Artist page: cached 24 h like albums.
+     */
     @Throws(CoreException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
     override suspend fun `artist`(`id`: kotlin.String) : ArtistPage {
@@ -2727,6 +2882,18 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
         CoreException.ErrorHandler,
     )
     }
+
+    override fun `artistCached`(`id`: kotlin.String): ArtistPage? {
+            return FfiConverterOptionalTypeArtistPage.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_artist_cached(
+        it, FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
 
     override fun `cacheLimitMb`(): kotlin.UInt {
             return FfiConverterUInt.lift(
@@ -2793,6 +2960,20 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     callWithPointer {
     uniffiRustCallWithError(CoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_clear_recent_searches(
+        it, _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Forgets the saved session.
+     */override fun `clearSession`()
+        = 
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_clear_session(
         it, _status)
 }
     }
@@ -3010,6 +3191,23 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
         CoreException.ErrorHandler,
     )
     }
+
+    
+    /**
+     * Stale-while-revalidate: the last full feed `home()` built, instantly from the local DB (no network),
+     * with the greeting and Recently played refreshed. None before the first successful `home()`.
+     * Render this at launch, then call `home()` in the background and swap the result in.
+     */override fun `homeCached`(`tzOffsetMin`: kotlin.Int): HomeFeed? {
+            return FfiConverterOptionalTypeHomeFeed.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_home_cached(
+        it, FfiConverterInt.lower(`tzOffsetMin`),_status)
+}
+    }
+    )
+    }
+    
 
     
     /**
@@ -3473,6 +3671,61 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     }
 
     
+    /**
+     * Last cached remote playlist / mix page at any age (local playlists: read straight from the DB).
+     */override fun `playlistCached`(`id`: kotlin.String): PlaylistPage? {
+            return FfiConverterOptionalTypePlaylistPage.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_playlist_cached(
+        it, FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * More pages are available for a remote playlist opened in this session.
+     */override fun `playlistHasMore`(`id`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_playlist_has_more(
+        it, FfiConverterString.lower(`id`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Next ~`count` tracks of a remote playlist opened with `playlist` (first page comes back at once).
+     * Append them in the UI and to the queue; call again until `done`.
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `playlistMore`(`id`: kotlin.String, `count`: kotlin.UInt) : PlaylistMore {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_playlist_more(
+                thisPtr,
+                FfiConverterString.lower(`id`),FfiConverterUInt.lower(`count`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterTypePlaylistMore.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
     @Throws(CoreException::class)override fun `playlists`(): List<Playlist> {
             return FfiConverterSequenceTypePlaylist.lift(
     callWithPointer {
@@ -3775,6 +4028,21 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
 
     
+    /**
+     * The saved session, loaded back into the core queue (nothing plays; no network). None when there is none.
+     */override fun `restoreSession`(): Session? {
+            return FfiConverterOptionalTypeSession.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_restore_session(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `saveAlbum`(`album`: Album, `saved`: kotlin.Boolean)
         = 
     callWithPointer {
@@ -3821,6 +4089,23 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     uniffiRustCallWithError(CoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_save_playlist(
         it, FfiConverterTypePlaylist.lower(`playlist`),FfiConverterBoolean.lower(`saved`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Saves the current queue (tracks, index, shuffle/repeat, autoplay tail, source) and the position.
+     * Cheap to call often: the queue is only rewritten when it changed, otherwise just the position.
+     * Clients call it every ~5 s while playing, and on pause, track change and app quit.
+     */
+    @Throws(CoreException::class)override fun `saveSession`(`positionMs`: kotlin.ULong)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_save_session(
+        it, FfiConverterULong.lower(`positionMs`),_status)
 }
     }
     
@@ -5275,6 +5560,44 @@ public object FfiConverterTypePlaylist: FfiConverterRustBuffer<Playlist> {
 
 
 
+/**
+ * More tracks of a playlist (see `Core::playlist_more`).
+ */
+data class PlaylistMore (
+    var `tracks`: List<Track>, 
+    /**
+     * No more pages.
+     */
+    var `done`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePlaylistMore: FfiConverterRustBuffer<PlaylistMore> {
+    override fun read(buf: ByteBuffer): PlaylistMore {
+        return PlaylistMore(
+            FfiConverterSequenceTypeTrack.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PlaylistMore) = (
+            FfiConverterSequenceTypeTrack.allocationSize(value.`tracks`) +
+            FfiConverterBoolean.allocationSize(value.`done`)
+    )
+
+    override fun write(value: PlaylistMore, buf: ByteBuffer) {
+            FfiConverterSequenceTypeTrack.write(value.`tracks`, buf)
+            FfiConverterBoolean.write(value.`done`, buf)
+    }
+}
+
+
+
 data class PlaylistPage (
     var `playlist`: Playlist, 
     var `tracks`: List<Track>
@@ -5448,6 +5771,71 @@ public object FfiConverterTypeSearchResults: FfiConverterRustBuffer<SearchResult
             FfiConverterSequenceTypeAlbum.write(value.`albums`, buf)
             FfiConverterSequenceTypePlaylist.write(value.`playlists`, buf)
             FfiConverterOptionalString.write(value.`correctedQuery`, buf)
+    }
+}
+
+
+
+/**
+ * Last playback session (queue + position), restored after a relaunch.
+ */
+data class Session (
+    var `tracks`: List<Track>, 
+    var `index`: kotlin.Int, 
+    var `positionMs`: kotlin.ULong, 
+    var `shuffle`: kotlin.Boolean, 
+    /**
+     * 0 off, 1 all, 2 one
+     */
+    var `repeat`: kotlin.UByte, 
+    var `autoplayFrom`: kotlin.Int, 
+    var `sourceTitle`: kotlin.String, 
+    /**
+     * Unix seconds of the last save.
+     */
+    var `savedAt`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSession: FfiConverterRustBuffer<Session> {
+    override fun read(buf: ByteBuffer): Session {
+        return Session(
+            FfiConverterSequenceTypeTrack.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Session) = (
+            FfiConverterSequenceTypeTrack.allocationSize(value.`tracks`) +
+            FfiConverterInt.allocationSize(value.`index`) +
+            FfiConverterULong.allocationSize(value.`positionMs`) +
+            FfiConverterBoolean.allocationSize(value.`shuffle`) +
+            FfiConverterUByte.allocationSize(value.`repeat`) +
+            FfiConverterInt.allocationSize(value.`autoplayFrom`) +
+            FfiConverterString.allocationSize(value.`sourceTitle`) +
+            FfiConverterLong.allocationSize(value.`savedAt`)
+    )
+
+    override fun write(value: Session, buf: ByteBuffer) {
+            FfiConverterSequenceTypeTrack.write(value.`tracks`, buf)
+            FfiConverterInt.write(value.`index`, buf)
+            FfiConverterULong.write(value.`positionMs`, buf)
+            FfiConverterBoolean.write(value.`shuffle`, buf)
+            FfiConverterUByte.write(value.`repeat`, buf)
+            FfiConverterInt.write(value.`autoplayFrom`, buf)
+            FfiConverterString.write(value.`sourceTitle`, buf)
+            FfiConverterLong.write(value.`savedAt`, buf)
     }
 }
 
@@ -6142,6 +6530,102 @@ public object FfiConverterOptionalTypeAccountInfo: FfiConverterRustBuffer<Accoun
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeAlbumPage: FfiConverterRustBuffer<AlbumPage?> {
+    override fun read(buf: ByteBuffer): AlbumPage? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAlbumPage.read(buf)
+    }
+
+    override fun allocationSize(value: AlbumPage?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAlbumPage.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AlbumPage?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAlbumPage.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeArtistPage: FfiConverterRustBuffer<ArtistPage?> {
+    override fun read(buf: ByteBuffer): ArtistPage? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeArtistPage.read(buf)
+    }
+
+    override fun allocationSize(value: ArtistPage?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeArtistPage.allocationSize(value)
+        }
+    }
+
+    override fun write(value: ArtistPage?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeArtistPage.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeHomeFeed: FfiConverterRustBuffer<HomeFeed?> {
+    override fun read(buf: ByteBuffer): HomeFeed? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeHomeFeed.read(buf)
+    }
+
+    override fun allocationSize(value: HomeFeed?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeHomeFeed.allocationSize(value)
+        }
+    }
+
+    override fun write(value: HomeFeed?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeHomeFeed.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeLyrics: FfiConverterRustBuffer<Lyrics?> {
     override fun read(buf: ByteBuffer): Lyrics? {
         if (buf.get().toInt() == 0) {
@@ -6164,6 +6648,70 @@ public object FfiConverterOptionalTypeLyrics: FfiConverterRustBuffer<Lyrics?> {
         } else {
             buf.put(1)
             FfiConverterTypeLyrics.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePlaylistPage: FfiConverterRustBuffer<PlaylistPage?> {
+    override fun read(buf: ByteBuffer): PlaylistPage? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePlaylistPage.read(buf)
+    }
+
+    override fun allocationSize(value: PlaylistPage?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePlaylistPage.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PlaylistPage?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePlaylistPage.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeSession: FfiConverterRustBuffer<Session?> {
+    override fun read(buf: ByteBuffer): Session? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeSession.read(buf)
+    }
+
+    override fun allocationSize(value: Session?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeSession.allocationSize(value)
+        }
+    }
+
+    override fun write(value: Session?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeSession.write(value, buf)
         }
     }
 }
