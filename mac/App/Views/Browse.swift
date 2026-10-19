@@ -8,17 +8,18 @@ struct Page<Content: View>: View {
     @Environment(\.contentInsets) var insets
     /// Names the page for the scroll-offset probe (smoke: Back restores the same offset).
     var name: String? = nil
+    /// Lazy for long lists; Home uses an eager stack so every carousel keeps its offset while scrolled away.
+    var lazy = true
     @ViewBuilder let content: () -> Content
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: 0).id("page_top")
-                        .background(name.map { n in GeometryReader { g in
-                            Color.clear.onChange(of: g.frame(in: .named("page_scroll")).minY) { _, y in ScrollProbe.offsets[n] = -y }
-                        } })
-                    content()
-                    Color.clear.frame(height: 1).id("page_end")
+                Group {
+                    if lazy {
+                        LazyVStack(alignment: .leading, spacing: 0) { inner }
+                    } else {
+                        VStack(alignment: .leading, spacing: 0) { inner }
+                    }
                 }
                 .padding(.leading, 32 + insets.leading).padding(.trailing, 32 + insets.trailing)
                 .padding(.top, 40 + insets.top).padding(.bottom, 32 + insets.bottom)
@@ -31,6 +32,17 @@ struct Page<Content: View>: View {
                 withAnimation(Motion.spring) { proxy.scrollTo(t, anchor: .top) }
             }
         }
+    }
+}
+
+extension Page {
+    @ViewBuilder var inner: some View {
+        Color.clear.frame(height: 0).id("page_top")
+            .background(name.map { n in GeometryReader { g in
+                Color.clear.onChange(of: g.frame(in: .named("page_scroll")).minY) { _, y in ScrollProbe.offsets[n] = -y }
+            } })
+        content()
+        Color.clear.frame(height: 1).id("page_end")
     }
 }
 
@@ -72,7 +84,7 @@ struct HomeView: View {
 
     var body: some View {
         let p = theme.p
-        Page(name: "home") {
+        Page(name: "home", lazy: false) {
             LargeTitle(text: "Home").enter(0)
             Text("\(feed?.greeting ?? greetingNow), \(firstName)").font(theme.ui(14, .medium)).foregroundStyle(p.t2).padding(.top, 2).enter(0)
             IsaCommandCard().padding(.top, 18).frame(maxWidth: 980, alignment: .leading).enter(1)

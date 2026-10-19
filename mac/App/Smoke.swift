@@ -723,19 +723,20 @@ enum Smoke {
 
         // 10. Back keeps Home's scroll + carousel offsets
         nav.go(.home); await sleep(1.2)
-        nav.scrollTarget = "shelf_2"; await sleep(1.2)
+        nav.scrollTarget = nil; nav.scrollTarget = "shelf_0"; await sleep(1.2)
         let firstShelf = HomeCache.feed.map { HomeView.sections($0) }?.first { !$0.songs }
-        if let fs = firstShelf { nav.carouselTarget = CarouselTarget(shelf: fs.title, index: min(5, fs.items.count - 1)); await sleep(1.2) }
+        if let fs = firstShelf { nav.carouselTarget = CarouselTarget(shelf: fs.title, index: min(5, fs.items.count - 1)); await sleep(1.4) }
+        shot("48-home-scrolled-sideways-clean-sidebar")
+        nav.scrollTarget = "shelf_2"; await sleep(1.2)
         let vBefore = ScrollProbe.offsets["home"] ?? -1
         let hBefore = firstShelf.flatMap { ScrollProbe.offsets["carousel_\($0.title)"] } ?? -1
-        shot("48-home-scrolled-sideways-clean-sidebar")
         if let a = albumId {
             nav.push(.album(a)); await sleep(1.5)
             nav.pop(); await sleep(1.2)
             let vAfter = ScrollProbe.offsets["home"] ?? -2
             let hAfter = firstShelf.flatMap { ScrollProbe.offsets["carousel_\($0.title)"] } ?? -2
             shot("49-home-after-back")
-            record("home_back_keeps_offset", vBefore > 20 && abs(vAfter - vBefore) < 3 && abs(hAfter - hBefore) < 3,
+            record("home_back_keeps_offset", vBefore > 20 && hBefore > 20 && abs(vAfter - vBefore) < 3 && abs(hAfter - hBefore) < 3,
                    String(format: "vertical %.0f -> %.0f, carousel %.0f -> %.0f", vBefore, vAfter, hBefore, hAfter))
         } else { record("home_back_keeps_offset", false, "no album to open", soft: true) }
 
