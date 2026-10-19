@@ -161,7 +161,26 @@ impl Core {
                 break;
             }
         }
-        let trending = self.yt.charts().await.unwrap_or_default();
+        // YouTube Music home shelves and charts in parallel; either may fail without failing the feed.
+        let cookie = self.db.kv_get("auth_cookie");
+        let (shelves, trending) = tokio::join!(
+            tokio::time::timeout(std::time::Duration::from_secs(15), self.yt.home_shelves(2, cookie.as_deref())),
+            tokio::time::timeout(std::time::Duration::from_secs(15), self.yt.charts())
+        );
+        let shelves = shelves.ok().and_then(|r| r.ok()).unwrap_or_default();
+        let mut trending = trending.ok().and_then(|r| r.ok()).unwrap_or_default();
+        if trending.is_empty() {
+            // charts unavailable: use the songs of the home shelves as the trending/seed pool
+            for sh in &shelves {
+                for it in &sh.items {
+                    if let Some(t) = &it.track {
+                        if !trending.iter().any(|x: &Track| x.id == t.id) {
+                            trending.push(t.clone());
+                        }
+                    }
+                }
+            }
+        }
         for t in trending.iter() {
             if seeds.len() >= 6 {
                 break;
@@ -225,32 +244,49 @@ impl Core {
             mixes
         };
         let suggestions = suggestions_for(hour);
-        Ok(HomeFeed { greeting, mixes, recent, trending: trending.into_iter().take(20).collect(), suggestions })
+        let on_repeat: Vec<Track> = self.db.top_tracks_all(now() - 30 * 86_400, 25)?.into_iter().filter(|(_, plays, _)| *plays >= 2).map(|(t, _, _)| t).collect();
+        // Discover: tracks from the mixes the listener has never played, ranked by the taste engine.
+        let aff = self.db.affinity();
+        let mut discover: Vec<Track> = Vec::new();
+        let mut seen = HashSet::new();
+        for m in &mixes {
+            for t in m.tracks.iter().skip(1) {
+                if !aff.track_plays.contains_key(&t.id) && seen.insert(t.id.clone()) {
+                    discover.push(t.clone());
+                }
+            }
+        }
+        let mut discover = queue::rerank(discover, &aff, &HashSet::new());
+        discover.truncate(30);
+        if mixes.is_empty() && shelves.is_empty() && trending.is_empty() && recent.is_empty() {
+            return Err(CoreError::Network { msg: "Couldn't load the home feed".into() });
+        }
+        Ok(HomeFeed { greeting, mixes, recent, trending: trending.into_iter().take(20).collect(), suggestions, shelves, on_repeat, discover })
     }
 
     // ------------------------------------------------------------------ streams
     /// Resolve a stream URL (cached until shortly before it expires).
     pub async fn stream(&self, id: String) -> Result<StreamInfo, CoreError> {
-        if let Some(s) = self.streams.lock().unwrap().get(&id).cloned() {
+        if let Some(s) = self.streams.lock().unwrap_or_else(|p| p.into_inner()).get(&id).cloned() {
             if s.expires_at - now() > 600 {
                 return Ok(s);
             }
         }
         let s = self.yt.stream(&id, self.prefer_mp4, None).await?;
-        self.streams.lock().unwrap().insert(id, s.clone());
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).insert(id, s.clone());
         Ok(s)
     }
     /// Playback of a resolved stream failed (HTTP 403 / throttled / decoder error): demote the client and
     /// resolve again with the next client in the chain.
     pub async fn stream_retry(&self, id: String, failed_client: String, error: String) -> Result<StreamInfo, CoreError> {
-        self.streams.lock().unwrap().remove(&id);
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
         self.yt.report_client_failure(&failed_client, &error);
         let s = self.yt.stream(&id, self.prefer_mp4, Some(&failed_client)).await?;
-        self.streams.lock().unwrap().insert(id, s.clone());
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).insert(id, s.clone());
         Ok(s)
     }
     pub fn streaming_health(&self) -> StreamingHealth {
-        let h = self.yt.health.lock().unwrap().clone();
+        let h = self.yt.health.lock().unwrap_or_else(|p| p.into_inner()).clone();
         StreamingHealth {
             working_client: h.last_client,
             last_error: h.last_error,
@@ -265,9 +301,9 @@ impl Core {
     }
     /// "Retry" in Settings › Streaming health: forget cached URLs and test a known track.
     pub async fn streaming_selftest(&self) -> Result<StreamingHealth, CoreError> {
-        self.streams.lock().unwrap().clear();
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).clear();
         {
-            let mut h = self.yt.health.lock().unwrap();
+            let mut h = self.yt.health.lock().unwrap_or_else(|p| p.into_inner());
             h.preferred = 0;
         }
         let _ = self.yt.stream("J7p4bzqLvCw", self.prefer_mp4, None).await;
@@ -310,7 +346,7 @@ impl Core {
         let tmp = format!("{path}.part");
         let pk = format!("cache:{}", track.id);
         let r = fetch_ranged(self.yt.http(), &s, &tmp, &self.progress, &pk).await;
-        self.progress.lock().unwrap().remove(&pk);
+        self.progress.lock().unwrap_or_else(|p| p.into_inner()).remove(&pk);
         if let Err(e) = r {
             let _ = std::fs::remove_file(&tmp);
             return Err(e);
@@ -326,14 +362,17 @@ impl Core {
     // ------------------------------------------------------------------ optional sign-in (cookie)
     /// Cookie header captured from a music.youtube.com web sign-in. Optional; everything works signed out.
     pub async fn sign_in_cookie(&self, cookie: String) -> Result<(), CoreError> {
-        self.yt.rp.user_auth_set_cookie(cookie).await.map_err(|e| CoreError::Invalid { msg: e.to_string() })?;
-        self.yt.health.lock().unwrap().signed_in = true;
+        self.yt.rp.user_auth_set_cookie(cookie.clone()).await.map_err(|e| CoreError::Invalid { msg: e.to_string() })?;
+        let _ = self.db.kv_set("auth_cookie", &cookie);
+        self.yt.health.lock().unwrap_or_else(|p| p.into_inner()).signed_in = true;
         let _ = self.db.kv_set("signed_in", "1");
         Ok(())
     }
     pub async fn sign_out(&self) -> Result<(), CoreError> {
         let _ = self.yt.rp.user_auth_remove_cookie().await;
-        self.yt.health.lock().unwrap().signed_in = false;
+        let _ = self.db.kv_del("auth_cookie");
+        let _ = self.db.kv_del("account_info");
+        self.yt.health.lock().unwrap_or_else(|p| p.into_inner()).signed_in = false;
         let _ = self.db.kv_set("signed_in", "0");
         Ok(())
     }
@@ -362,10 +401,10 @@ impl Core {
     }
     /// Feed a stream resolved elsewhere (e.g. the Android NewPipe fallback) into the cache.
     pub fn put_stream(&self, id: String, info: StreamInfo) {
-        self.streams.lock().unwrap().insert(id, info);
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).insert(id, info);
     }
     pub fn invalidate_stream(&self, id: String) {
-        self.streams.lock().unwrap().remove(&id);
+        self.streams.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
     }
     /// Local file path when the track is downloaded.
     pub fn offline_path(&self, id: String) -> Option<String> {
@@ -374,58 +413,58 @@ impl Core {
 
     // ------------------------------------------------------------------ queue
     pub fn queue_state(&self) -> QueueState {
-        self.queue.lock().unwrap().state()
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).state()
     }
     pub fn queue_set(&self, tracks: Vec<Track>, start: i32, source: String) -> Option<Track> {
-        let mut q = self.queue.lock().unwrap();
+        let mut q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         q.set(tracks, start, source);
         q.current()
     }
     pub fn queue_current(&self) -> Option<Track> {
-        self.queue.lock().unwrap().current()
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).current()
     }
     pub fn queue_next(&self, user: bool) -> Option<Track> {
-        self.queue.lock().unwrap().next(user)
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).next(user)
     }
     pub fn queue_prev(&self) -> Option<Track> {
-        self.queue.lock().unwrap().prev()
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).prev()
     }
     pub fn queue_peek_next(&self) -> Option<Track> {
-        let q = self.queue.lock().unwrap();
+        let q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
         if q.repeat == 2 {
             return q.current();
         }
         q.tracks.get((q.index + 1) as usize).cloned().or_else(|| if q.repeat == 1 { q.tracks.first().cloned() } else { None })
     }
     pub fn queue_jump(&self, index: i32) -> Option<Track> {
-        self.queue.lock().unwrap().jump(index)
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).jump(index)
     }
     pub fn queue_play_next(&self, track: Track) {
-        self.queue.lock().unwrap().play_next(track)
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).play_next(track)
     }
     pub fn queue_add(&self, track: Track) {
-        self.queue.lock().unwrap().add(track)
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).add(track)
     }
     pub fn queue_remove(&self, index: i32) {
-        self.queue.lock().unwrap().remove(index)
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).remove(index)
     }
     pub fn queue_move(&self, from: i32, to: i32) {
-        self.queue.lock().unwrap().move_item(from, to)
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).move_item(from, to)
     }
     pub fn set_shuffle(&self, on: bool) {
-        self.queue.lock().unwrap().set_shuffle(on)
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).set_shuffle(on)
     }
     pub fn cycle_repeat(&self) -> u8 {
-        self.queue.lock().unwrap().cycle_repeat()
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).cycle_repeat()
     }
     pub fn set_autoplay(&self, on: bool) {
-        self.queue.lock().unwrap().autoplay = on
+        self.queue.lock().unwrap_or_else(|p| p.into_inner()).autoplay = on
     }
     /// Infinite autoplay: when few tracks remain, extend with YT Music radio reranked by the user's stats.
     /// Returns how many tracks were appended.
     pub async fn ensure_autoplay(&self) -> Result<u32, CoreError> {
         let (seed, exclude) = {
-            let q = self.queue.lock().unwrap();
+            let q = self.queue.lock().unwrap_or_else(|p| p.into_inner());
             if !q.autoplay || q.repeat != 0 || q.remaining() >= 3 {
                 return Ok(0);
             }
@@ -438,14 +477,14 @@ impl Core {
         let aff = self.db.affinity();
         let mut r = queue::rerank(cands, &aff, &exclude);
         r.truncate(25);
-        let n = self.queue.lock().unwrap().append_autoplay(r);
+        let n = self.queue.lock().unwrap_or_else(|p| p.into_inner()).append_autoplay(r);
         Ok(n as u32)
     }
 
     // ------------------------------------------------------------------ stats
     pub fn record_play(&self, track: Track, started_at: i64, listened_ms: u64, skipped: bool, tz_offset_min: i32, source: String) -> Result<(), CoreError> {
         if self.db.kv_get("signed_in").as_deref() == Some("1") {
-            self.yt.health.lock().unwrap().signed_in = true;
+            self.yt.health.lock().unwrap_or_else(|p| p.into_inner()).signed_in = true;
         }
         if listened_ms < 5_000 && !skipped {
             return Ok(());
@@ -462,11 +501,11 @@ impl Core {
     pub fn lastfm_configure(&self, api_key: String, api_secret: String) {
         let k = api_key.trim().to_string();
         let s = api_secret.trim().to_string();
-        *self.lastfm.lock().unwrap() = if k.is_empty() || s.is_empty() { None } else { Some(lastfm::Keys { key: k, secret: s }) };
+        *self.lastfm.lock().unwrap_or_else(|p| p.into_inner()) = if k.is_empty() || s.is_empty() { None } else { Some(lastfm::Keys { key: k, secret: s }) };
     }
     pub fn lastfm_state(&self) -> LastfmState {
         LastfmState {
-            available: self.lastfm.lock().unwrap().is_some(),
+            available: self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some(),
             enabled: self.lastfm_on(),
             username: self.db.kv_get("lastfm_user").unwrap_or_default(),
             pending: lastfm::pending(&self.db),
@@ -554,6 +593,76 @@ impl Core {
     pub fn delete_playlist(&self, playlist_id: String) -> Result<(), CoreError> {
         self.db.delete_playlist(&playlist_id)
     }
+    /// Bulk delete in one SQLite transaction. Returns how many were removed.
+    pub fn delete_playlists(&self, ids: Vec<String>) -> Result<u32, CoreError> {
+        self.db.delete_playlists(&ids)
+    }
+    /// Rename / edit details (description, cover url; empty cover keeps the current one).
+    pub fn edit_playlist(&self, playlist_id: String, title: String, description: String, cover: String) -> Result<(), CoreError> {
+        let t = title.trim();
+        if t.is_empty() {
+            return Err(CoreError::Invalid { msg: "Name can't be empty".into() });
+        }
+        self.db.edit_playlist(&playlist_id, t, description.trim(), if cover.is_empty() { None } else { Some(cover.as_str()) })
+    }
+    pub fn remove_from_playlist(&self, playlist_id: String, position: u32) -> Result<(), CoreError> {
+        self.db.remove_from_playlist(&playlist_id, position as i64)
+    }
+    /// Create with a name the user typed (and optional description / cover). Never creates an untitled list.
+    pub fn create_playlist_named(&self, title: String, description: String, cover: String, tracks: Vec<Track>) -> Result<Playlist, CoreError> {
+        let t = title.trim().to_string();
+        if t.is_empty() {
+            return Err(CoreError::Invalid { msg: "Name can't be empty".into() });
+        }
+        let id = format!("local:{}", now() * 1000 + rand::random::<u16>() as i64);
+        let thumb = if !cover.is_empty() { cover } else { tracks.first().map(|t| t.thumb.clone()).unwrap_or_default() };
+        let sub = if description.trim().is_empty() { "Playlist".to_string() } else { description.trim().to_string() };
+        self.db.create_playlist(&id, &t, &sub, &thumb, "local", &tracks)?;
+        Ok(Playlist { id, title: t, subtitle: sub, thumb, track_count: Some(tracks.len() as u64), source: "local".into() })
+    }
+
+    // ------------------------------------------------------------------ search history
+    pub fn add_recent_search(&self, query: String) -> Result<(), CoreError> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(());
+        }
+        self.db.add_search(q)
+    }
+    pub fn recent_searches(&self, limit: u32) -> Vec<String> {
+        self.db.searches(limit)
+    }
+    pub fn remove_recent_search(&self, query: String) -> Result<(), CoreError> {
+        self.db.remove_search(Some(&query))
+    }
+    pub fn clear_recent_searches(&self) -> Result<(), CoreError> {
+        self.db.remove_search(None)
+    }
+
+    // ------------------------------------------------------------------ account
+    /// Google account name / handle / avatar (cached; refreshed from InnerTube when `refresh`).
+    pub async fn account_info(&self, refresh: bool) -> Result<Option<AccountInfo>, CoreError> {
+        let Some(cookie) = self.db.kv_get("auth_cookie") else { return Ok(None) };
+        if !refresh {
+            if let Some(j) = self.db.kv_get("account_info") {
+                let v: serde_json::Value = serde_json::from_str(&j).unwrap_or_default();
+                let g = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+                if !g("name").is_empty() {
+                    return Ok(Some(AccountInfo { name: g("name"), handle: g("handle"), avatar: g("avatar"), email: g("email") }));
+                }
+            }
+        }
+        let a = self.yt.account_info(&cookie).await?;
+        let _ = self.db.kv_set("account_info", &serde_json::json!({"name": a.name, "handle": a.handle, "avatar": a.avatar, "email": a.email}).to_string());
+        Ok(Some(a))
+    }
+    /// Search candidates for swapping an import match (songs filter, scored best first).
+    pub async fn import_candidates(&self, source: ImportedTrack, query: String) -> Result<Vec<Track>, CoreError> {
+        let q = if query.trim().is_empty() { format!("{} {}", source.title, source.artists.split(',').next().unwrap_or("")) } else { query };
+        let mut c: Vec<(u32, Track)> = self.yt.search_tracks(&q).await?.into_iter().map(|t| (import::score(&source, &t), t)).collect();
+        c.sort_by(|a, b| b.0.cmp(&a.0));
+        Ok(c.into_iter().map(|x| x.1).take(10).collect())
+    }
     pub fn save_album(&self, album: Album, saved: bool) -> Result<(), CoreError> {
         self.db.set_saved("album", &album.id, if saved { serde_json::to_string(&album).ok() } else { None })
     }
@@ -591,7 +700,7 @@ impl Core {
         self.db.downloads()
     }
     pub fn download_progress(&self, id: String) -> Option<f32> {
-        self.progress.lock().unwrap().get(&id).copied()
+        self.progress.lock().unwrap_or_else(|p| p.into_inner()).get(&id).copied()
     }
     pub async fn download(&self, track: Track) -> Result<DownloadItem, CoreError> {
         if let Some(p) = self.offline_path(track.id.clone()) {
@@ -604,9 +713,9 @@ impl Core {
         let ext = if s.mime.contains("mp4") { "m4a" } else { "webm" };
         let path = format!("{}/downloads/{}.{}", self.data_dir, sanitize(&track.id), ext);
         let tmp = format!("{path}.part");
-        self.progress.lock().unwrap().insert(track.id.clone(), 0.0);
+        self.progress.lock().unwrap_or_else(|p| p.into_inner()).insert(track.id.clone(), 0.0);
         let res = fetch_ranged(self.yt.http(), &s, &tmp, &self.progress, &track.id).await;
-        self.progress.lock().unwrap().remove(&track.id);
+        self.progress.lock().unwrap_or_else(|p| p.into_inner()).remove(&track.id);
         let bytes = res?;
         std::fs::rename(&tmp, &path).map_err(io)?;
         self.db.add_download(&track, &path, bytes)?;
@@ -735,12 +844,12 @@ impl Core {
 
 impl Core {
     fn lastfm_on(&self) -> bool {
-        self.lastfm.lock().unwrap().is_some()
+        self.lastfm.lock().unwrap_or_else(|p| p.into_inner()).is_some()
             && self.db.kv_get("lastfm_on").as_deref() == Some("1")
             && !self.db.kv_get("lastfm_sk").unwrap_or_default().is_empty()
     }
     fn lastfm_keys(&self) -> Result<lastfm::Keys, CoreError> {
-        let g = self.lastfm.lock().unwrap();
+        let g = self.lastfm.lock().unwrap_or_else(|p| p.into_inner());
         let k = g.as_ref().ok_or(CoreError::Invalid { msg: "Last.fm is not configured in this build".into() })?;
         Ok(lastfm::Keys { key: k.key.clone(), secret: k.secret.clone() })
     }
@@ -784,7 +893,7 @@ async fn fetch_ranged(
         f.write_all(&b).await.map_err(io)?;
         off += b.len() as u64;
         if total > 0 {
-            progress.lock().unwrap().insert(key.to_string(), (off as f32 / total as f32).min(1.0));
+            progress.lock().unwrap_or_else(|p| p.into_inner()).insert(key.to_string(), (off as f32 / total as f32).min(1.0));
         }
         if (b.len() as u64) < chunk || (total > 0 && off >= total) {
             break;

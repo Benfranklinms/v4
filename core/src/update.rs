@@ -103,16 +103,16 @@ pub async fn download(api_url: &str, token: Option<&str>, dest: &str, progress: 
     let total = r.content_length().unwrap_or(0);
     let mut f = tokio::fs::File::create(dest).await.map_err(|e| CoreError::Storage { msg: e.to_string() })?;
     let mut got: u64 = 0;
-    progress.lock().unwrap().insert("update".into(), 0.0);
+    progress.lock().unwrap_or_else(|p| p.into_inner()).insert("update".into(), 0.0);
     while let Some(chunk) = r.chunk().await.map_err(ne)? {
         f.write_all(&chunk).await.map_err(|e| CoreError::Storage { msg: e.to_string() })?;
         got += chunk.len() as u64;
         if total > 0 {
-            progress.lock().unwrap().insert("update".into(), got as f32 / total as f32);
+            progress.lock().unwrap_or_else(|p| p.into_inner()).insert("update".into(), got as f32 / total as f32);
         }
     }
     f.flush().await.map_err(|e| CoreError::Storage { msg: e.to_string() })?;
-    progress.lock().unwrap().remove("update");
+    progress.lock().unwrap_or_else(|p| p.into_inner()).remove("update");
     Ok(got)
 }
 

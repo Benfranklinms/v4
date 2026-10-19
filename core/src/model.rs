@@ -107,6 +107,39 @@ pub struct HomeFeed {
     pub recent: Vec<Track>,
     pub trending: Vec<Track>,
     pub suggestions: Vec<String>,
+    /// YouTube Music home shelves (Quick picks, mixes, new releases, charts...), in page order.
+    pub shelves: Vec<HomeShelf>,
+    /// Taste engine: the listener's most repeated tracks of the last 30 days.
+    pub on_repeat: Vec<Track>,
+    /// Taste engine: never-played tracks from the related graph of the listener's top artists.
+    pub discover: Vec<Track>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct HomeShelf {
+    pub title: String,
+    /// "songs" (list of tracks, e.g. Quick picks) or "cards" (albums / playlists / artists / videos)
+    pub layout: String,
+    pub items: Vec<HomeItem>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct HomeItem {
+    /// "song", "video", "album", "playlist", "artist"
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub thumb: String,
+    pub track: Option<Track>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AccountInfo {
+    pub name: String,
+    pub handle: String,
+    pub avatar: String,
+    pub email: String,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -206,6 +239,8 @@ pub struct ImportMatch {
     pub confidence: u32,
     /// "matched", "review", "missing"
     pub status: String,
+    /// Other candidates (best first) for the review / swap screen.
+    pub alternatives: Vec<Track>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]

@@ -98,7 +98,7 @@ pub fn qualifies(duration_s: u32, listened_ms: u64) -> bool {
 }
 
 pub fn enqueue(db: &Db, t: &Track, started_at: i64) -> Result<(), CoreError> {
-    let c = db.conn.lock().unwrap();
+    let c = db.conn.lock().unwrap_or_else(|p| p.into_inner());
     c.execute(
         "INSERT INTO scrobbles(artist,track,album,duration_s,ts) VALUES(?1,?2,?3,?4,?5)",
         rusqlite::params![primary_artist(t), t.title, t.album.clone().unwrap_or_default(), t.duration_s, started_at],
@@ -108,14 +108,14 @@ pub fn enqueue(db: &Db, t: &Track, started_at: i64) -> Result<(), CoreError> {
 }
 
 pub fn pending(db: &Db) -> u32 {
-    let c = db.conn.lock().unwrap();
+    let c = db.conn.lock().unwrap_or_else(|p| p.into_inner());
     c.query_row("SELECT COUNT(*) FROM scrobbles", [], |r| r.get::<_, u32>(0)).unwrap_or(0)
 }
 
 /// Sends up to 50 queued scrobbles; returns how many were accepted.
 pub async fn flush(http: &reqwest::Client, k: &Keys, sk: &str, db: &Db) -> Result<u32, CoreError> {
     let rows: Vec<(i64, String, String, String, u32, i64)> = {
-        let c = db.conn.lock().unwrap();
+        let c = db.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c
             .prepare("SELECT id,artist,track,album,duration_s,ts FROM scrobbles ORDER BY ts LIMIT 50")
             .map_err(|e| CoreError::Storage { msg: e.to_string() })?;
@@ -142,7 +142,7 @@ pub async fn flush(http: &reqwest::Client, k: &Keys, sk: &str, db: &Db) -> Resul
     }
     call(http, k, "track.scrobble", p, true).await?;
     let max_id = rows.iter().map(|r| r.0).max().unwrap_or(0);
-    let c = db.conn.lock().unwrap();
+    let c = db.conn.lock().unwrap_or_else(|p| p.into_inner());
     let _ = c.execute("DELETE FROM scrobbles WHERE id <= ?1", [max_id]);
     Ok(rows.len() as u32)
 }

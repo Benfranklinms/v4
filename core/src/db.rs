@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS scrobbles(id INTEGER PRIMARY KEY AUTOINCREMENT, artist TEXT NOT NULL, track TEXT NOT NULL,
   album TEXT NOT NULL DEFAULT '', duration_s INTEGER NOT NULL DEFAULT 0, ts INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS mcache(k TEXT PRIMARY KEY, v TEXT NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS searches(q TEXT PRIMARY KEY, at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS searches_at ON searches(at);
+CREATE INDEX IF NOT EXISTS playlists_created ON playlists(created_at);
+CREATE INDEX IF NOT EXISTS likes_created ON likes(created_at);
+CREATE INDEX IF NOT EXISTS saved_kind ON saved(kind, created_at);
 "#;
 
 /// Lyrics / metadata cache rows expire after 30 days.
@@ -66,25 +71,30 @@ impl Db {
     }
 
     pub fn kv_get(&self, k: &str) -> Option<String> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.query_row("SELECT v FROM kv WHERE k=?1", [k], |r| r.get(0)).optional().ok().flatten()
     }
+    pub fn kv_del(&self, k: &str) -> Result<(), CoreError> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        c.execute("DELETE FROM kv WHERE k=?1", [k]).map_err(e)?;
+        Ok(())
+    }
     pub fn kv_set(&self, k: &str, v: &str) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute("INSERT INTO kv(k,v) VALUES(?1,?2) ON CONFLICT(k) DO UPDATE SET v=excluded.v", params![k, v])
             .map_err(e)?;
         Ok(())
     }
 
     pub fn mcache_get(&self, k: &str) -> Option<String> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.query_row("SELECT v FROM mcache WHERE k=?1 AND at >= ?2", params![k, now_s() - MCACHE_TTL_S], |r| r.get(0))
             .optional()
             .ok()
             .flatten()
     }
     pub fn mcache_set(&self, k: &str, v: &str) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute(
             "INSERT INTO mcache(k,v,at) VALUES(?1,?2,?3) ON CONFLICT(k) DO UPDATE SET v=excluded.v, at=excluded.at",
             params![k, v, now_s()],
@@ -103,7 +113,7 @@ impl Db {
         tz_offset_min: i32,
         source: &str,
     ) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute(
             "INSERT INTO plays(track_id,title,artist,artist_id,album,thumb,duration_s,started_at,listened_ms,skipped,tz_offset_min,source)
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
@@ -115,7 +125,7 @@ impl Db {
     }
 
     pub fn recent_tracks(&self, limit: u32) -> Result<Vec<Track>, CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c
             .prepare(
                 "SELECT track_id,title,artist,artist_id,album,thumb,duration_s,MAX(started_at) m FROM plays
@@ -140,7 +150,7 @@ impl Db {
     }
 
     pub fn top_tracks_all(&self, since: i64, limit: u32) -> Result<Vec<(Track, u32, u32)>, CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c
             .prepare(
                 "SELECT track_id,title,artist,artist_id,album,thumb,duration_s,COUNT(*) n,SUM(listened_ms)/60000 FROM plays
@@ -169,7 +179,7 @@ impl Db {
     }
 
     pub fn affinity(&self) -> ArtistAffinity {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut a = ArtistAffinity {
             plays: HashMap::new(),
             skips: HashMap::new(),
@@ -215,7 +225,7 @@ impl Db {
         &self,
         since: i64,
     ) -> Result<Vec<(i64, i64, i32, String, Option<String>, String, String, String, Option<String>)>, CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c
             .prepare(
                 "SELECT started_at,listened_ms,tz_offset_min,artist,artist_id,thumb,title,track_id,album FROM plays
@@ -241,7 +251,7 @@ impl Db {
     }
 
     pub fn play_days(&self) -> Result<Vec<i64>, CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c
             .prepare(
                 "SELECT DISTINCT (started_at + tz_offset_min*60)/86400 d FROM plays WHERE listened_ms>=30000 ORDER BY d",
@@ -253,7 +263,7 @@ impl Db {
 
     // ---------------- likes
     pub fn set_liked(&self, t: &Track, liked: bool) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         if liked {
             c.execute(
                 "INSERT OR REPLACE INTO likes(track_id,json,created_at) VALUES(?1,?2,?3)",
@@ -266,7 +276,7 @@ impl Db {
         Ok(())
     }
     pub fn is_liked(&self, id: &str) -> bool {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.query_row("SELECT 1 FROM likes WHERE track_id=?1", [id], |_| Ok(())).optional().ok().flatten().is_some()
     }
     pub fn liked(&self) -> Result<Vec<Track>, CoreError> {
@@ -274,7 +284,7 @@ impl Db {
     }
 
     fn json_list<T: serde::de::DeserializeOwned, P: rusqlite::Params>(&self, sql: &str, p: P) -> Result<Vec<T>, CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c.prepare(sql).map_err(e)?;
         let rows = st.query_map(p, |r| r.get::<_, String>(0)).map_err(e)?;
         Ok(rows.filter_map(|x| x.ok()).filter_map(|j| serde_json::from_str(&j).ok()).collect())
@@ -282,7 +292,7 @@ impl Db {
 
     // ---------------- playlists
     pub fn create_playlist(&self, id: &str, title: &str, subtitle: &str, thumb: &str, source: &str, tracks: &[Track]) -> Result<(), CoreError> {
-        let mut c = self.conn.lock().unwrap();
+        let mut c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = c.transaction().map_err(e)?;
         tx.execute(
             "INSERT OR REPLACE INTO playlists(id,title,subtitle,thumb,source,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
@@ -301,7 +311,7 @@ impl Db {
         Ok(())
     }
     pub fn add_to_playlist(&self, id: &str, t: &Track) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let n: i64 = c
             .query_row("SELECT COALESCE(MAX(pos)+1,0) FROM playlist_tracks WHERE playlist_id=?1", [id], |r| r.get(0))
             .map_err(e)?;
@@ -312,14 +322,78 @@ impl Db {
         .map_err(e)?;
         Ok(())
     }
+    /// Rename / edit details of a library playlist (title, description, optional cover url).
+    pub fn edit_playlist(&self, id: &str, title: &str, subtitle: &str, thumb: Option<&str>) -> Result<(), CoreError> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        match thumb {
+            Some(t) => c.execute("UPDATE playlists SET title=?2, subtitle=?3, thumb=?4 WHERE id=?1", params![id, title, subtitle, t]),
+            None => c.execute("UPDATE playlists SET title=?2, subtitle=?3 WHERE id=?1", params![id, title, subtitle]),
+        }
+        .map_err(e)?;
+        Ok(())
+    }
+    /// Delete many playlists in ONE transaction (bulk delete from multi-select stays a single fsync).
+    pub fn delete_playlists(&self, ids: &[String]) -> Result<u32, CoreError> {
+        let mut c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = c.transaction().map_err(e)?;
+        let mut n = 0u32;
+        for id in ids {
+            n += tx.execute("DELETE FROM playlists WHERE id=?1", [id]).map_err(e)? as u32;
+            tx.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", [id]).map_err(e)?;
+        }
+        tx.commit().map_err(e)?;
+        Ok(n)
+    }
+    /// Remove the track at `pos` and close the gap (one transaction).
+    pub fn remove_from_playlist(&self, id: &str, pos: i64) -> Result<(), CoreError> {
+        let mut c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = c.transaction().map_err(e)?;
+        let rows: Vec<String> = {
+            let mut st = tx.prepare("SELECT json FROM playlist_tracks WHERE playlist_id=?1 ORDER BY pos").map_err(e)?;
+            let r = st.query_map([id], |r| r.get::<_, String>(0)).map_err(e)?.filter_map(|x| x.ok()).collect();
+            r
+        };
+        tx.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", [id]).map_err(e)?;
+        let mut i = 0i64;
+        for (k, j) in rows.iter().enumerate() {
+            if k as i64 == pos {
+                continue;
+            }
+            tx.execute("INSERT INTO playlist_tracks(playlist_id,pos,json) VALUES(?1,?2,?3)", params![id, i, j]).map_err(e)?;
+            i += 1;
+        }
+        tx.commit().map_err(e)?;
+        Ok(())
+    }
+    pub fn add_search(&self, q: &str) -> Result<(), CoreError> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        c.execute("INSERT OR REPLACE INTO searches(q,at) VALUES(?1,?2)", params![q, now_s()]).map_err(e)?;
+        c.execute("DELETE FROM searches WHERE q NOT IN (SELECT q FROM searches ORDER BY at DESC LIMIT 30)", []).map_err(e)?;
+        Ok(())
+    }
+    pub fn searches(&self, limit: u32) -> Vec<String> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let Ok(mut st) = c.prepare("SELECT q FROM searches ORDER BY at DESC LIMIT ?1") else { return vec![] };
+        let r = st.query_map([limit], |r| r.get::<_, String>(0)).map(|it| it.filter_map(|x| x.ok()).collect()).unwrap_or_default();
+        r
+    }
+    pub fn remove_search(&self, q: Option<&str>) -> Result<(), CoreError> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        match q {
+            Some(q) => c.execute("DELETE FROM searches WHERE q=?1", [q]),
+            None => c.execute("DELETE FROM searches", []),
+        }
+        .map_err(e)?;
+        Ok(())
+    }
     pub fn delete_playlist(&self, id: &str) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute("DELETE FROM playlists WHERE id=?1", [id]).map_err(e)?;
         c.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", [id]).map_err(e)?;
         Ok(())
     }
     pub fn playlists(&self) -> Result<Vec<Playlist>, CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c
             .prepare(
                 "SELECT p.id,p.title,p.subtitle,p.thumb,p.source,(SELECT COUNT(*) FROM playlist_tracks t WHERE t.playlist_id=p.id)
@@ -346,7 +420,7 @@ impl Db {
 
     // ---------------- saved albums / artists
     pub fn set_saved(&self, kind: &str, id: &str, json: Option<String>) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         match json {
             Some(j) => c
                 .execute(
@@ -359,7 +433,7 @@ impl Db {
         Ok(())
     }
     pub fn is_saved(&self, kind: &str, id: &str) -> bool {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.query_row("SELECT 1 FROM saved WHERE kind=?1 AND id=?2", [kind, id], |_| Ok(()))
             .optional()
             .ok()
@@ -372,7 +446,7 @@ impl Db {
 
     // ---------------- downloads
     pub fn add_download(&self, t: &Track, path: &str, bytes: u64) -> Result<(), CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute(
             "INSERT OR REPLACE INTO downloads(track_id,json,path,bytes,created_at) VALUES(?1,?2,?3,?4,?5)",
             params![t.id, serde_json::to_string(t).unwrap_or_default(), path, bytes as i64, crate::yt::now()],
@@ -381,17 +455,17 @@ impl Db {
         Ok(())
     }
     pub fn download_path(&self, id: &str) -> Option<String> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.query_row("SELECT path FROM downloads WHERE track_id=?1", [id], |r| r.get(0)).optional().ok().flatten()
     }
     pub fn remove_download(&self, id: &str) -> Result<Option<String>, CoreError> {
         let p = self.download_path(id);
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute("DELETE FROM downloads WHERE track_id=?1", [id]).map_err(e)?;
         Ok(p)
     }
     pub fn downloads(&self) -> Result<Vec<DownloadItem>, CoreError> {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut st = c
             .prepare("SELECT json,path,bytes,created_at FROM downloads ORDER BY created_at DESC")
             .map_err(e)?;
@@ -410,7 +484,7 @@ impl Db {
 
     // ---------------- local files
     pub fn set_local_tracks(&self, tracks: &[Track]) -> Result<(), CoreError> {
-        let mut c = self.conn.lock().unwrap();
+        let mut c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let tx = c.transaction().map_err(e)?;
         tx.execute("DELETE FROM local_tracks", []).map_err(e)?;
         for t in tracks {
@@ -428,7 +502,7 @@ impl Db {
     }
 
     pub fn counts(&self) -> LibraryCounts {
-        let c = self.conn.lock().unwrap();
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let n = |sql: &str| -> u32 { c.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap_or(0) as u32 };
         LibraryCounts {
             liked: n("SELECT COUNT(*) FROM likes"),

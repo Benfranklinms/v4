@@ -885,6 +885,26 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -910,6 +930,10 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_itune_core_fn_constructor_core_new(`dataDir`: RustBuffer.ByValue,`platform`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Pointer
+    fun uniffi_itune_core_fn_method_core_account_info(`ptr`: Pointer,`refresh`: Byte,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_add_recent_search(`ptr`: Pointer,`query`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_itune_core_fn_method_core_add_to_playlist(`ptr`: Pointer,`playlistId`: RustBuffer.ByValue,`track`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_album(`ptr`: Pointer,`id`: RustBuffer.ByValue,
@@ -924,12 +948,18 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_itune_core_fn_method_core_clear_cache(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_fn_method_core_clear_recent_searches(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_itune_core_fn_method_core_create_playlist(`ptr`: Pointer,`title`: RustBuffer.ByValue,`tracks`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_create_playlist_named(`ptr`: Pointer,`title`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`cover`: RustBuffer.ByValue,`tracks`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_cycle_repeat(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     fun uniffi_itune_core_fn_method_core_delete_playlist(`ptr`: Pointer,`playlistId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_fn_method_core_delete_playlists(`ptr`: Pointer,`ids`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
     fun uniffi_itune_core_fn_method_core_download(`ptr`: Pointer,`track`: RustBuffer.ByValue,
     ): Long
     fun uniffi_itune_core_fn_method_core_download_progress(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -938,11 +968,15 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_itune_core_fn_method_core_downloads(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_edit_playlist(`ptr`: Pointer,`playlistId`: RustBuffer.ByValue,`title`: RustBuffer.ByValue,`description`: RustBuffer.ByValue,`cover`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_itune_core_fn_method_core_ensure_autoplay(`ptr`: Pointer,
     ): Long
     fun uniffi_itune_core_fn_method_core_get_setting(`ptr`: Pointer,`key`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_home(`ptr`: Pointer,`tzOffsetMin`: Int,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_import_candidates(`ptr`: Pointer,`source`: RustBuffer.ByValue,`query`: RustBuffer.ByValue,
     ): Long
     fun uniffi_itune_core_fn_method_core_import_playlist(`ptr`: Pointer,`url`: RustBuffer.ByValue,
     ): Long
@@ -1020,9 +1054,15 @@ internal interface UniffiLib : Library {
     ): Long
     fun uniffi_itune_core_fn_method_core_recent(`ptr`: Pointer,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_recent_searches(`ptr`: Pointer,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_record_play(`ptr`: Pointer,`track`: RustBuffer.ByValue,`startedAt`: Long,`listenedMs`: Long,`skipped`: Byte,`tzOffsetMin`: Int,`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_remove_download(`ptr`: Pointer,`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_itune_core_fn_method_core_remove_from_playlist(`ptr`: Pointer,`playlistId`: RustBuffer.ByValue,`position`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_itune_core_fn_method_core_remove_recent_search(`ptr`: Pointer,`query`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_save_album(`ptr`: Pointer,`album`: RustBuffer.ByValue,`saved`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
@@ -1184,6 +1224,10 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_itune_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_checksum_method_core_account_info(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_add_recent_search(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_add_to_playlist(
     ): Short
     fun uniffi_itune_core_checksum_method_core_album(
@@ -1198,11 +1242,17 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_clear_cache(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_clear_recent_searches(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_create_playlist(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_create_playlist_named(
     ): Short
     fun uniffi_itune_core_checksum_method_core_cycle_repeat(
     ): Short
     fun uniffi_itune_core_checksum_method_core_delete_playlist(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_delete_playlists(
     ): Short
     fun uniffi_itune_core_checksum_method_core_download(
     ): Short
@@ -1212,11 +1262,15 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_downloads(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_edit_playlist(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_ensure_autoplay(
     ): Short
     fun uniffi_itune_core_checksum_method_core_get_setting(
     ): Short
     fun uniffi_itune_core_checksum_method_core_home(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_import_candidates(
     ): Short
     fun uniffi_itune_core_checksum_method_core_import_playlist(
     ): Short
@@ -1294,9 +1348,15 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_recent(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_recent_searches(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_record_play(
     ): Short
     fun uniffi_itune_core_checksum_method_core_remove_download(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_remove_from_playlist(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_remove_recent_search(
     ): Short
     fun uniffi_itune_core_checksum_method_core_save_album(
     ): Short
@@ -1365,6 +1425,12 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_itune_core_checksum_method_core_account_info() != 28278.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_add_recent_search() != 36553.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_add_to_playlist() != 41619.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1386,13 +1452,22 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_clear_cache() != 3096.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_clear_recent_searches() != 28732.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_create_playlist() != 5315.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_create_playlist_named() != 28537.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_cycle_repeat() != 12417.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_delete_playlist() != 43181.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_delete_playlists() != 14703.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_download() != 56705.toShort()) {
@@ -1407,6 +1482,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_downloads() != 50697.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_edit_playlist() != 56751.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_ensure_autoplay() != 21899.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1414,6 +1492,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_home() != 21267.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_import_candidates() != 36241.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_import_playlist() != 3119.toShort()) {
@@ -1530,10 +1611,19 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_recent() != 49286.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_recent_searches() != 35561.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_record_play() != 4765.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_remove_download() != 61533.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_remove_from_playlist() != 59703.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_remove_recent_search() != 61845.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_save_album() != 63956.toShort()) {
@@ -2103,6 +2193,13 @@ private class JavaLangRefCleanable(
 }
 public interface CoreInterface {
     
+    /**
+     * Google account name / handle / avatar (cached; refreshed from InnerTube when `refresh`).
+     */
+    suspend fun `accountInfo`(`refresh`: kotlin.Boolean): AccountInfo?
+    
+    fun `addRecentSearch`(`query`: kotlin.String)
+    
     fun `addToPlaylist`(`playlistId`: kotlin.String, `track`: Track)
     
     suspend fun `album`(`id`: kotlin.String): AlbumPage
@@ -2120,11 +2217,23 @@ public interface CoreInterface {
     
     fun `clearCache`()
     
+    fun `clearRecentSearches`()
+    
     fun `createPlaylist`(`title`: kotlin.String, `tracks`: List<Track>): Playlist
+    
+    /**
+     * Create with a name the user typed (and optional description / cover). Never creates an untitled list.
+     */
+    fun `createPlaylistNamed`(`title`: kotlin.String, `description`: kotlin.String, `cover`: kotlin.String, `tracks`: List<Track>): Playlist
     
     fun `cycleRepeat`(): kotlin.UByte
     
     fun `deletePlaylist`(`playlistId`: kotlin.String)
+    
+    /**
+     * Bulk delete in one SQLite transaction. Returns how many were removed.
+     */
+    fun `deletePlaylists`(`ids`: List<kotlin.String>): kotlin.UInt
     
     suspend fun `download`(`track`: Track): DownloadItem
     
@@ -2138,6 +2247,11 @@ public interface CoreInterface {
     fun `downloads`(): List<DownloadItem>
     
     /**
+     * Rename / edit details (description, cover url; empty cover keeps the current one).
+     */
+    fun `editPlaylist`(`playlistId`: kotlin.String, `title`: kotlin.String, `description`: kotlin.String, `cover`: kotlin.String)
+    
+    /**
      * Infinite autoplay: when few tracks remain, extend with YT Music radio reranked by the user's stats.
      * Returns how many tracks were appended.
      */
@@ -2146,6 +2260,11 @@ public interface CoreInterface {
     fun `getSetting`(`key`: kotlin.String): kotlin.String?
     
     suspend fun `home`(`tzOffsetMin`: kotlin.Int): HomeFeed
+    
+    /**
+     * Search candidates for swapping an import match (songs filter, scored best first).
+     */
+    suspend fun `importCandidates`(`source`: ImportedTrack, `query`: kotlin.String): List<Track>
     
     suspend fun `importPlaylist`(`url`: kotlin.String): ImportResult
     
@@ -2250,9 +2369,15 @@ public interface CoreInterface {
     
     fun `recent`(`limit`: kotlin.UInt): List<Track>
     
+    fun `recentSearches`(`limit`: kotlin.UInt): List<kotlin.String>
+    
     fun `recordPlay`(`track`: Track, `startedAt`: kotlin.Long, `listenedMs`: kotlin.ULong, `skipped`: kotlin.Boolean, `tzOffsetMin`: kotlin.Int, `source`: kotlin.String)
     
     fun `removeDownload`(`id`: kotlin.String)
+    
+    fun `removeFromPlaylist`(`playlistId`: kotlin.String, `position`: kotlin.UInt)
+    
+    fun `removeRecentSearch`(`query`: kotlin.String)
     
     fun `saveAlbum`(`album`: Album, `saved`: kotlin.Boolean)
     
@@ -2422,6 +2547,42 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     }
 
     
+    /**
+     * Google account name / handle / avatar (cached; refreshed from InnerTube when `refresh`).
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `accountInfo`(`refresh`: kotlin.Boolean) : AccountInfo? {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_account_info(
+                thisPtr,
+                FfiConverterBoolean.lower(`refresh`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterOptionalTypeAccountInfo.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    @Throws(CoreException::class)override fun `addRecentSearch`(`query`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_add_recent_search(
+        it, FfiConverterString.lower(`query`),_status)
+}
+    }
+    
+    
+
+    
     @Throws(CoreException::class)override fun `addToPlaylist`(`playlistId`: kotlin.String, `track`: Track)
         = 
     callWithPointer {
@@ -2535,12 +2696,40 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
 
     
+    @Throws(CoreException::class)override fun `clearRecentSearches`()
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_clear_recent_searches(
+        it, _status)
+}
+    }
+    
+    
+
+    
     @Throws(CoreException::class)override fun `createPlaylist`(`title`: kotlin.String, `tracks`: List<Track>): Playlist {
             return FfiConverterTypePlaylist.lift(
     callWithPointer {
     uniffiRustCallWithError(CoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_create_playlist(
         it, FfiConverterString.lower(`title`),FfiConverterSequenceTypeTrack.lower(`tracks`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Create with a name the user typed (and optional description / cover). Never creates an untitled list.
+     */
+    @Throws(CoreException::class)override fun `createPlaylistNamed`(`title`: kotlin.String, `description`: kotlin.String, `cover`: kotlin.String, `tracks`: List<Track>): Playlist {
+            return FfiConverterTypePlaylist.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_create_playlist_named(
+        it, FfiConverterString.lower(`title`),FfiConverterString.lower(`description`),FfiConverterString.lower(`cover`),FfiConverterSequenceTypeTrack.lower(`tracks`),_status)
 }
     }
     )
@@ -2569,6 +2758,22 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
 }
     }
     
+    
+
+    
+    /**
+     * Bulk delete in one SQLite transaction. Returns how many were removed.
+     */
+    @Throws(CoreException::class)override fun `deletePlaylists`(`ids`: List<kotlin.String>): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_delete_playlists(
+        it, FfiConverterSequenceString.lower(`ids`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -2643,6 +2848,21 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
 
     
     /**
+     * Rename / edit details (description, cover url; empty cover keeps the current one).
+     */
+    @Throws(CoreException::class)override fun `editPlaylist`(`playlistId`: kotlin.String, `title`: kotlin.String, `description`: kotlin.String, `cover`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_edit_playlist(
+        it, FfiConverterString.lower(`playlistId`),FfiConverterString.lower(`title`),FfiConverterString.lower(`description`),FfiConverterString.lower(`cover`),_status)
+}
+    }
+    
+    
+
+    
+    /**
      * Infinite autoplay: when few tracks remain, extend with YT Music radio reranked by the user's stats.
      * Returns how many tracks were appended.
      */
@@ -2694,6 +2914,30 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
         { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterTypeHomeFeed.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Search candidates for swapping an import match (songs filter, scored best first).
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `importCandidates`(`source`: ImportedTrack, `query`: kotlin.String) : List<Track> {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_import_candidates(
+                thisPtr,
+                FfiConverterTypeImportedTrack.lower(`source`),FfiConverterString.lower(`query`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterSequenceTypeTrack.lift(it) },
         // Error FFI converter
         CoreException.ErrorHandler,
     )
@@ -3269,6 +3513,18 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     }
     
 
+    override fun `recentSearches`(`limit`: kotlin.UInt): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_recent_searches(
+        it, FfiConverterUInt.lower(`limit`),_status)
+}
+    }
+    )
+    }
+    
+
     
     @Throws(CoreException::class)override fun `recordPlay`(`track`: Track, `startedAt`: kotlin.Long, `listenedMs`: kotlin.ULong, `skipped`: kotlin.Boolean, `tzOffsetMin`: kotlin.Int, `source`: kotlin.String)
         = 
@@ -3288,6 +3544,30 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     uniffiRustCallWithError(CoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_remove_download(
         it, FfiConverterString.lower(`id`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(CoreException::class)override fun `removeFromPlaylist`(`playlistId`: kotlin.String, `position`: kotlin.UInt)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_remove_from_playlist(
+        it, FfiConverterString.lower(`playlistId`),FfiConverterUInt.lower(`position`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(CoreException::class)override fun `removeRecentSearch`(`query`: kotlin.String)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_remove_recent_search(
+        it, FfiConverterString.lower(`query`),_status)
 }
     }
     
@@ -3721,6 +4001,46 @@ public object FfiConverterTypeCore: FfiConverter<Core, Pointer> {
 
 
 
+data class AccountInfo (
+    var `name`: kotlin.String, 
+    var `handle`: kotlin.String, 
+    var `avatar`: kotlin.String, 
+    var `email`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAccountInfo: FfiConverterRustBuffer<AccountInfo> {
+    override fun read(buf: ByteBuffer): AccountInfo {
+        return AccountInfo(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AccountInfo) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`handle`) +
+            FfiConverterString.allocationSize(value.`avatar`) +
+            FfiConverterString.allocationSize(value.`email`)
+    )
+
+    override fun write(value: AccountInfo, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`handle`, buf)
+            FfiConverterString.write(value.`avatar`, buf)
+            FfiConverterString.write(value.`email`, buf)
+    }
+}
+
+
+
 data class Album (
     var `id`: kotlin.String, 
     var `title`: kotlin.String, 
@@ -3966,7 +4286,19 @@ data class HomeFeed (
     var `mixes`: List<Mix>, 
     var `recent`: List<Track>, 
     var `trending`: List<Track>, 
-    var `suggestions`: List<kotlin.String>
+    var `suggestions`: List<kotlin.String>, 
+    /**
+     * YouTube Music home shelves (Quick picks, mixes, new releases, charts...), in page order.
+     */
+    var `shelves`: List<HomeShelf>, 
+    /**
+     * Taste engine: the listener's most repeated tracks of the last 30 days.
+     */
+    var `onRepeat`: List<Track>, 
+    /**
+     * Taste engine: never-played tracks from the related graph of the listener's top artists.
+     */
+    var `discover`: List<Track>
 ) {
     
     companion object
@@ -3983,6 +4315,9 @@ public object FfiConverterTypeHomeFeed: FfiConverterRustBuffer<HomeFeed> {
             FfiConverterSequenceTypeTrack.read(buf),
             FfiConverterSequenceTypeTrack.read(buf),
             FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceTypeHomeShelf.read(buf),
+            FfiConverterSequenceTypeTrack.read(buf),
+            FfiConverterSequenceTypeTrack.read(buf),
         )
     }
 
@@ -3991,7 +4326,10 @@ public object FfiConverterTypeHomeFeed: FfiConverterRustBuffer<HomeFeed> {
             FfiConverterSequenceTypeMix.allocationSize(value.`mixes`) +
             FfiConverterSequenceTypeTrack.allocationSize(value.`recent`) +
             FfiConverterSequenceTypeTrack.allocationSize(value.`trending`) +
-            FfiConverterSequenceString.allocationSize(value.`suggestions`)
+            FfiConverterSequenceString.allocationSize(value.`suggestions`) +
+            FfiConverterSequenceTypeHomeShelf.allocationSize(value.`shelves`) +
+            FfiConverterSequenceTypeTrack.allocationSize(value.`onRepeat`) +
+            FfiConverterSequenceTypeTrack.allocationSize(value.`discover`)
     )
 
     override fun write(value: HomeFeed, buf: ByteBuffer) {
@@ -4000,6 +4338,99 @@ public object FfiConverterTypeHomeFeed: FfiConverterRustBuffer<HomeFeed> {
             FfiConverterSequenceTypeTrack.write(value.`recent`, buf)
             FfiConverterSequenceTypeTrack.write(value.`trending`, buf)
             FfiConverterSequenceString.write(value.`suggestions`, buf)
+            FfiConverterSequenceTypeHomeShelf.write(value.`shelves`, buf)
+            FfiConverterSequenceTypeTrack.write(value.`onRepeat`, buf)
+            FfiConverterSequenceTypeTrack.write(value.`discover`, buf)
+    }
+}
+
+
+
+data class HomeItem (
+    /**
+     * "song", "video", "album", "playlist", "artist"
+     */
+    var `kind`: kotlin.String, 
+    var `id`: kotlin.String, 
+    var `title`: kotlin.String, 
+    var `subtitle`: kotlin.String, 
+    var `thumb`: kotlin.String, 
+    var `track`: Track?
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHomeItem: FfiConverterRustBuffer<HomeItem> {
+    override fun read(buf: ByteBuffer): HomeItem {
+        return HomeItem(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalTypeTrack.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HomeItem) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`subtitle`) +
+            FfiConverterString.allocationSize(value.`thumb`) +
+            FfiConverterOptionalTypeTrack.allocationSize(value.`track`)
+    )
+
+    override fun write(value: HomeItem, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`subtitle`, buf)
+            FfiConverterString.write(value.`thumb`, buf)
+            FfiConverterOptionalTypeTrack.write(value.`track`, buf)
+    }
+}
+
+
+
+data class HomeShelf (
+    var `title`: kotlin.String, 
+    /**
+     * "songs" (list of tracks, e.g. Quick picks) or "cards" (albums / playlists / artists / videos)
+     */
+    var `layout`: kotlin.String, 
+    var `items`: List<HomeItem>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHomeShelf: FfiConverterRustBuffer<HomeShelf> {
+    override fun read(buf: ByteBuffer): HomeShelf {
+        return HomeShelf(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeHomeItem.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HomeShelf) = (
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`layout`) +
+            FfiConverterSequenceTypeHomeItem.allocationSize(value.`items`)
+    )
+
+    override fun write(value: HomeShelf, buf: ByteBuffer) {
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`layout`, buf)
+            FfiConverterSequenceTypeHomeItem.write(value.`items`, buf)
     }
 }
 
@@ -4015,7 +4446,11 @@ data class ImportMatch (
     /**
      * "matched", "review", "missing"
      */
-    var `status`: kotlin.String
+    var `status`: kotlin.String, 
+    /**
+     * Other candidates (best first) for the review / swap screen.
+     */
+    var `alternatives`: List<Track>
 ) {
     
     companion object
@@ -4031,6 +4466,7 @@ public object FfiConverterTypeImportMatch: FfiConverterRustBuffer<ImportMatch> {
             FfiConverterOptionalTypeTrack.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterSequenceTypeTrack.read(buf),
         )
     }
 
@@ -4038,7 +4474,8 @@ public object FfiConverterTypeImportMatch: FfiConverterRustBuffer<ImportMatch> {
             FfiConverterTypeImportedTrack.allocationSize(value.`source`) +
             FfiConverterOptionalTypeTrack.allocationSize(value.`matched`) +
             FfiConverterUInt.allocationSize(value.`confidence`) +
-            FfiConverterString.allocationSize(value.`status`)
+            FfiConverterString.allocationSize(value.`status`) +
+            FfiConverterSequenceTypeTrack.allocationSize(value.`alternatives`)
     )
 
     override fun write(value: ImportMatch, buf: ByteBuffer) {
@@ -4046,6 +4483,7 @@ public object FfiConverterTypeImportMatch: FfiConverterRustBuffer<ImportMatch> {
             FfiConverterOptionalTypeTrack.write(value.`matched`, buf)
             FfiConverterUInt.write(value.`confidence`, buf)
             FfiConverterString.write(value.`status`, buf)
+            FfiConverterSequenceTypeTrack.write(value.`alternatives`, buf)
     }
 }
 
@@ -5421,6 +5859,38 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeAccountInfo: FfiConverterRustBuffer<AccountInfo?> {
+    override fun read(buf: ByteBuffer): AccountInfo? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAccountInfo.read(buf)
+    }
+
+    override fun allocationSize(value: AccountInfo?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAccountInfo.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AccountInfo?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAccountInfo.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeLyrics: FfiConverterRustBuffer<Lyrics?> {
     override fun read(buf: ByteBuffer): Lyrics? {
         if (buf.get().toInt() == 0) {
@@ -5671,6 +6141,62 @@ public object FfiConverterSequenceTypeGenreShare: FfiConverterRustBuffer<List<Ge
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeGenreShare.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeHomeItem: FfiConverterRustBuffer<List<HomeItem>> {
+    override fun read(buf: ByteBuffer): List<HomeItem> {
+        val len = buf.getInt()
+        return List<HomeItem>(len) {
+            FfiConverterTypeHomeItem.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<HomeItem>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeHomeItem.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<HomeItem>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeHomeItem.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeHomeShelf: FfiConverterRustBuffer<List<HomeShelf>> {
+    override fun read(buf: ByteBuffer): List<HomeShelf> {
+        val len = buf.getInt()
+        return List<HomeShelf>(len) {
+            FfiConverterTypeHomeShelf.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<HomeShelf>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeHomeShelf.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<HomeShelf>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeHomeShelf.write(it, buf)
         }
     }
 }

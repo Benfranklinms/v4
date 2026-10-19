@@ -284,7 +284,7 @@ impl Yt {
     }
 
     async fn visitor_data(&self) -> Option<String> {
-        if let Some((v, t)) = self.visitor.lock().unwrap().clone() {
+        if let Some((v, t)) = self.visitor.lock().unwrap_or_else(|p| p.into_inner()).clone() {
             if now() - t < 6 * 3600 {
                 return Some(v);
             }
@@ -302,7 +302,7 @@ impl Yt {
         let txt = txt.trim_start_matches(")]}'").trim();
         let v: Value = serde_json::from_str(txt).ok()?;
         let vd = v.pointer("/0/2/0/0/13")?.as_str()?.to_string();
-        *self.visitor.lock().unwrap() = Some((vd.clone(), now()));
+        *self.visitor.lock().unwrap_or_else(|p| p.into_inner()) = Some((vd.clone(), now()));
         Some(vd)
     }
 
@@ -311,7 +311,7 @@ impl Yt {
     /// at playback (403 / throttled) so the retry goes to the next one.
     pub async fn stream(&self, video_id: &str, prefer_mp4: bool, skip_client: Option<&str>) -> Result<StreamInfo, CoreError> {
         let visitor = self.visitor_data().await;
-        let pref = self.health.lock().unwrap().preferred;
+        let pref = self.health.lock().unwrap_or_else(|p| p.into_inner()).preferred;
         let n = CLIENTS.len();
         let mut errs: Vec<String> = Vec::new();
         for k in 0..n {
@@ -322,7 +322,7 @@ impl Yt {
             }
             match self.player_with(c, video_id, visitor.as_deref(), prefer_mp4).await {
                 Ok(s) => {
-                    let mut h = self.health.lock().unwrap();
+                    let mut h = self.health.lock().unwrap_or_else(|p| p.into_inner());
                     h.preferred = i;
                     h.last_client = c.key.into();
                     h.last_ok_at = now();
@@ -339,7 +339,7 @@ impl Yt {
                     let filter = rustypipe::param::StreamFilter::new().no_video();
                     let (_v, a) = p.select_video_audio_stream(&filter);
                     if let Some(a) = a {
-                        let mut h = self.health.lock().unwrap();
+                        let mut h = self.health.lock().unwrap_or_else(|p| p.into_inner());
                         h.last_client = "rustypipe".into();
                         h.last_ok_at = now();
                         h.failures = 0;
@@ -361,7 +361,7 @@ impl Yt {
             }
         }
         let msg = errs.join("; ");
-        let mut h = self.health.lock().unwrap();
+        let mut h = self.health.lock().unwrap_or_else(|p| p.into_inner());
         h.last_error = msg.clone();
         h.last_error_at = now();
         h.failures += 1;
@@ -370,7 +370,7 @@ impl Yt {
 
     /// Playback of a resolved URL failed (403, throttling): demote that client.
     pub fn report_client_failure(&self, client: &str, error: &str) {
-        let mut h = self.health.lock().unwrap();
+        let mut h = self.health.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(i) = CLIENTS.iter().position(|c| c.key == client) {
             if h.preferred == i {
                 h.preferred = (i + 1) % CLIENTS.len();
@@ -500,4 +500,375 @@ pub fn pick_stream(v: &Value, ua: &str, client: &str, prefer_mp4: bool) -> Resul
 
 fn net(e: rustypipe::error::Error) -> CoreError {
     CoreError::Network { msg: e.to_string() }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// YouTube Music home feed (browse FEmusic_home over InnerTube WEB_REMIX). Works signed out (visitor id), so a new
+// listener sees Quick picks, mixes, new releases and charts from the first launch.
+
+const WEB_REMIX_VERSION: &str = "1.20251015.03.00";
+const WEB_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+
+fn runs_text(v: Option<&Value>) -> String {
+    let Some(v) = v else { return String::new() };
+    if let Some(s) = v.get("simpleText").and_then(|x| x.as_str()) {
+        return s.to_string();
+    }
+    v.get("runs")
+        .and_then(|r| r.as_array())
+        .map(|a| a.iter().filter_map(|x| x.get("text").and_then(|t| t.as_str())).collect::<String>())
+        .unwrap_or_default()
+}
+
+fn thumb_of(v: &Value) -> String {
+    let mut best = String::new();
+    let mut bw = 0u64;
+    fn walk(v: &Value, best: &mut String, bw: &mut u64, d: u32) {
+        if d > 8 {
+            return;
+        }
+        match v {
+            Value::Object(o) => {
+                if let Some(arr) = o.get("thumbnails").and_then(|x| x.as_array()) {
+                    for t in arr {
+                        let w = t.get("width").and_then(|x| x.as_u64()).unwrap_or(0);
+                        if let Some(u) = t.get("url").and_then(|x| x.as_str()) {
+                            if w >= *bw {
+                                *bw = w;
+                                *best = u.to_string();
+                            }
+                        }
+                    }
+                    return;
+                }
+                for x in o.values() {
+                    walk(x, best, bw, d + 1);
+                }
+            }
+            Value::Array(a) => a.iter().for_each(|x| walk(x, best, bw, d + 1)),
+            _ => {}
+        }
+    }
+    walk(v, &mut best, &mut bw, 0);
+    if best.starts_with("//") {
+        best = format!("https:{best}");
+    }
+    if best.contains("googleusercontent") || best.contains("ggpht") {
+        if let Some(i) = best.rfind("=w").or_else(|| best.rfind("=s")) {
+            best.truncate(i);
+            best.push_str("=w544-h544-l90-rj");
+        }
+    }
+    best
+}
+
+fn parse_duration(s: &str) -> u32 {
+    let mut t = 0u32;
+    for p in s.trim().split(':') {
+        match p.parse::<u32>() {
+            Ok(n) => t = t * 60 + n,
+            Err(_) => return 0,
+        }
+    }
+    t
+}
+
+fn browse_id_of(v: &Value) -> Option<(String, String)> {
+    let be = v.get("browseEndpoint")?;
+    let id = be.get("browseId")?.as_str()?.to_string();
+    let pt = be
+        .pointer("/browseEndpointContextSupportedConfigs/browseEndpointContextMusicConfig/pageType")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    Some((id, pt))
+}
+
+/// One item of a responsive list (songs: Quick picks, charts).
+fn parse_list_item(r: &Value) -> Option<HomeItem> {
+    let cols = r.get("flexColumns")?.as_array()?;
+    let col = |i: usize| cols.get(i).and_then(|c| c.get("musicResponsiveListItemFlexColumnRenderer")).and_then(|c| c.get("text"));
+    let title = runs_text(col(0));
+    let vid = r
+        .pointer("/playlistItemData/videoId")
+        .or_else(|| col(0).and_then(|t| t.pointer("/runs/0/navigationEndpoint/watchEndpoint/videoId")))
+        .or_else(|| r.pointer("/overlay/musicItemThumbnailOverlayRenderer/content/musicPlayButtonRenderer/playNavigationEndpoint/watchEndpoint/videoId"))
+        .and_then(|x| x.as_str())?
+        .to_string();
+    let mut artists: Vec<String> = Vec::new();
+    let mut artist_id = None;
+    let mut album = None;
+    let mut album_id = None;
+    let mut duration = 0u32;
+    for i in 1..cols.len() {
+        if let Some(runs) = col(i).and_then(|t| t.get("runs")).and_then(|r| r.as_array()) {
+            for run in runs {
+                let txt = run.get("text").and_then(|x| x.as_str()).unwrap_or("");
+                match run.get("navigationEndpoint").and_then(browse_id_of) {
+                    Some((id, pt)) if pt.contains("ARTIST") || pt.contains("USER_CHANNEL") => {
+                        artists.push(txt.to_string());
+                        artist_id.get_or_insert(id);
+                    }
+                    Some((id, pt)) if pt.contains("ALBUM") => {
+                        album = Some(txt.to_string());
+                        album_id = Some(id);
+                    }
+                    _ => {
+                        if txt.contains(':') && parse_duration(txt) > 0 {
+                            duration = parse_duration(txt);
+                        }
+                    }
+                }
+            }
+            if artists.is_empty() && i == 1 {
+                // no links: "Artist • 1.2M plays"
+                let plain = runs_text(col(1));
+                if let Some(a) = plain.split(" • ").next() {
+                    if !a.is_empty() {
+                        artists.push(a.to_string());
+                    }
+                }
+            }
+        }
+    }
+    if let Some(d) = r.pointer("/fixedColumns/0/musicResponsiveListItemFixedColumnRenderer/text") {
+        let d = parse_duration(&runs_text(Some(d)));
+        if d > 0 {
+            duration = d;
+        }
+    }
+    let thumb = r.get("thumbnail").map(thumb_of).unwrap_or_default();
+    let artists_s = artists.join(", ");
+    let track = Track { id: vid.clone(), title: title.clone(), artists: artists_s.clone(), artist_id, album, album_id, duration_s: duration, thumb: thumb.clone() };
+    Some(HomeItem { kind: "song".into(), id: vid, title, subtitle: artists_s, thumb, track: Some(track) })
+}
+
+/// One card (album / playlist / artist / video / mix).
+fn parse_two_row(r: &Value) -> Option<HomeItem> {
+    let title = runs_text(r.get("title"));
+    let subtitle = runs_text(r.get("subtitle"));
+    let thumb = r.get("thumbnailRenderer").map(thumb_of).unwrap_or_default();
+    let nav = r.get("navigationEndpoint")?;
+    if let Some(w) = nav.get("watchEndpoint") {
+        let vid = w.get("videoId")?.as_str()?.to_string();
+        let mut artist_id = None;
+        let mut artists = Vec::new();
+        if let Some(runs) = r.pointer("/subtitle/runs").and_then(|x| x.as_array()) {
+            for run in runs {
+                if let Some((id, pt)) = run.get("navigationEndpoint").and_then(browse_id_of) {
+                    if pt.contains("ARTIST") || pt.contains("USER_CHANNEL") {
+                        artists.push(run.get("text").and_then(|x| x.as_str()).unwrap_or("").to_string());
+                        artist_id.get_or_insert(id);
+                    }
+                }
+            }
+        }
+        let a = if artists.is_empty() { subtitle.split(" • ").last().unwrap_or("").to_string() } else { artists.join(", ") };
+        let track = Track { id: vid.clone(), title: title.clone(), artists: a.clone(), artist_id, album: None, album_id: None, duration_s: 0, thumb: thumb.clone() };
+        return Some(HomeItem { kind: "video".into(), id: vid, title, subtitle, thumb, track: Some(track) });
+    }
+    if let Some(w) = nav.get("watchPlaylistEndpoint") {
+        let pid = w.get("playlistId")?.as_str()?.to_string();
+        return Some(HomeItem { kind: "playlist".into(), id: pid, title, subtitle, thumb, track: None });
+    }
+    let (id, pt) = browse_id_of(nav)?;
+    let kind = if pt.contains("ALBUM") {
+        "album"
+    } else if pt.contains("ARTIST") || pt.contains("USER_CHANNEL") {
+        "artist"
+    } else if pt.contains("PLAYLIST") {
+        "playlist"
+    } else {
+        return None; // podcasts, episodes, moods...
+    };
+    let id = if kind == "playlist" { id.strip_prefix("VL").map(|x| x.to_string()).unwrap_or(id) } else { id };
+    Some(HomeItem { kind: kind.into(), id, title, subtitle, thumb, track: None })
+}
+
+pub fn parse_home_shelves(v: &Value, out: &mut Vec<HomeShelf>) {
+    fn walk(v: &Value, out: &mut Vec<HomeShelf>, d: u32) {
+        if d > 24 {
+            return;
+        }
+        match v {
+            Value::Object(o) => {
+                if let Some(sh) = o.get("musicCarouselShelfRenderer") {
+                    let title = runs_text(sh.pointer("/header/musicCarouselShelfBasicHeaderRenderer/title"));
+                    let low = title.to_lowercase();
+                    if low.contains("podcast") || low.contains("episode") {
+                        return;
+                    }
+                    let mut items = Vec::new();
+                    let mut songs = 0;
+                    for c in sh.get("contents").and_then(|x| x.as_array()).into_iter().flatten() {
+                        if let Some(r) = c.get("musicResponsiveListItemRenderer") {
+                            if let Some(it) = parse_list_item(r) {
+                                songs += 1;
+                                items.push(it);
+                            }
+                        } else if let Some(r) = c.get("musicTwoRowItemRenderer") {
+                            if let Some(it) = parse_two_row(r) {
+                                items.push(it);
+                            }
+                        }
+                    }
+                    if !items.is_empty() && !title.is_empty() {
+                        let layout = if songs * 2 >= items.len() { "songs" } else { "cards" };
+                        out.push(HomeShelf { title, layout: layout.into(), items });
+                    }
+                    return;
+                }
+                for x in o.values() {
+                    walk(x, out, d + 1);
+                }
+            }
+            Value::Array(a) => a.iter().for_each(|x| walk(x, out, d + 1)),
+            _ => {}
+        }
+    }
+    walk(v, out, 0);
+}
+
+fn first_continuation(v: &Value) -> Option<String> {
+    fn walk(v: &Value, d: u32) -> Option<String> {
+        if d > 24 {
+            return None;
+        }
+        match v {
+            Value::Object(o) => {
+                if let Some(c) = o.get("nextContinuationData").and_then(|x| x.get("continuation")).and_then(|x| x.as_str()) {
+                    return Some(c.to_string());
+                }
+                o.values().find_map(|x| walk(x, d + 1))
+            }
+            Value::Array(a) => a.iter().find_map(|x| walk(x, d + 1)),
+            _ => None,
+        }
+    }
+    walk(v, 0)
+}
+
+impl Yt {
+    async fn remix_post(&self, endpoint: &str, query: &str, body: Value, visitor: Option<&str>, cookie: Option<&str>) -> Result<Value, CoreError> {
+        let mut ctx = json!({"client": {"clientName": "WEB_REMIX", "clientVersion": WEB_REMIX_VERSION, "hl": "en", "gl": "IN"}});
+        if let Some(v) = visitor {
+            ctx["client"]["visitorData"] = json!(v);
+        }
+        let mut b = body;
+        b["context"] = ctx;
+        let mut req = self
+            .http
+            .post(format!("https://music.youtube.com/youtubei/v1/{endpoint}?prettyPrint=false{query}"))
+            .header("User-Agent", WEB_UA)
+            .header("Origin", "https://music.youtube.com")
+            .header("X-Origin", "https://music.youtube.com")
+            .header("Referer", "https://music.youtube.com/")
+            .header("Content-Type", "application/json");
+        if let Some(v) = visitor {
+            req = req.header("X-Goog-Visitor-Id", v);
+        }
+        if let Some(c) = cookie {
+            if let Some(h) = sapisid_hash(c) {
+                req = req.header("Cookie", c).header("Authorization", h).header("X-Goog-AuthUser", "0");
+            }
+        }
+        let r = req.json(&b).send().await.map_err(|e| CoreError::Network { msg: e.to_string() })?;
+        if !r.status().is_success() {
+            return Err(CoreError::Network { msg: format!("HTTP {} from {endpoint}", r.status().as_u16()) });
+        }
+        r.json::<Value>().await.map_err(|e| CoreError::Network { msg: e.to_string() })
+    }
+
+    /// The YouTube Music home page: first page plus up to `pages` continuations.
+    pub async fn home_shelves(&self, pages: u32, cookie: Option<&str>) -> Result<Vec<HomeShelf>, CoreError> {
+        let first = self.remix_post("browse", "", json!({"browseId": "FEmusic_home"}), None, cookie).await?;
+        let visitor = first.pointer("/responseContext/visitorData").and_then(|x| x.as_str()).map(|s| s.to_string());
+        let mut out = Vec::new();
+        parse_home_shelves(&first, &mut out);
+        let mut cont = first_continuation(&first);
+        let mut n = 0;
+        while let Some(c) = cont.take() {
+            if n >= pages {
+                break;
+            }
+            n += 1;
+            let enc = urlencoding::encode(&c).to_string();
+            let q = format!("&ctoken={enc}&continuation={enc}&type=next");
+            match self.remix_post("browse", &q, json!({}), visitor.as_deref(), cookie).await {
+                Ok(v) => {
+                    parse_home_shelves(&v, &mut out);
+                    cont = first_continuation(&v);
+                }
+                Err(_) => break,
+            }
+        }
+        if out.is_empty() {
+            return Err(CoreError::Unavailable { msg: "Home feed came back empty".into() });
+        }
+        Ok(out)
+    }
+
+    /// Name, handle and avatar of the signed-in Google account (needs the sign-in cookie).
+    pub async fn account_info(&self, cookie: &str) -> Result<AccountInfo, CoreError> {
+        let v = self.remix_post("account/account_menu", "", json!({}), None, Some(cookie)).await?;
+        let h = find_key(&v, "activeAccountHeaderRenderer").ok_or(CoreError::Unavailable { msg: "Not signed in".into() })?;
+        Ok(AccountInfo {
+            name: runs_text(h.get("accountName")),
+            handle: runs_text(h.get("channelHandle")),
+            avatar: h.get("accountPhoto").map(thumb_of).unwrap_or_default(),
+            email: runs_text(h.get("email")),
+        })
+    }
+}
+
+fn find_key<'a>(v: &'a Value, k: &str) -> Option<&'a Value> {
+    match v {
+        Value::Object(o) => o.get(k).or_else(|| o.values().find_map(|x| find_key(x, k))),
+        Value::Array(a) => a.iter().find_map(|x| find_key(x, k)),
+        _ => None,
+    }
+}
+
+/// `SAPISIDHASH <ts>_<sha1(ts SAPISID origin)>` from a cookie header string.
+pub fn sapisid_hash(cookie: &str) -> Option<String> {
+    let sap = cookie.split(';').map(|p| p.trim()).find_map(|p| {
+        p.strip_prefix("__Secure-3PAPISID=").or_else(|| p.strip_prefix("SAPISID="))
+    })?;
+    let ts = now();
+    let mut h = sha1_smol::Sha1::new();
+    h.update(format!("{ts} {sap} https://music.youtube.com").as_bytes());
+    Some(format!("SAPISIDHASH {ts}_{}", h.digest()))
+}
+
+#[cfg(test)]
+mod home_tests {
+    use super::*;
+    #[test]
+    fn parses_saved_home() {
+        let Ok(s) = std::fs::read_to_string(std::env::var("HOME_JSON").unwrap_or_default()) else { return };
+        let v: Value = serde_json::from_str(&s).unwrap();
+        let mut out = Vec::new();
+        parse_home_shelves(&v, &mut out);
+        assert!(!out.is_empty());
+        for sh in &out {
+            eprintln!("{} [{}] {}: {:?}", sh.title, sh.layout, sh.items.len(), sh.items.first().map(|i| (&i.kind, &i.title, &i.subtitle, &i.thumb)));
+        }
+    }
+}
+
+#[cfg(test)]
+mod home_live {
+    #[tokio::test]
+    async fn live_home() {
+        if std::env::var("LIVE").is_err() {
+            return;
+        }
+        let d = tempfile::tempdir().unwrap();
+        let yt = super::Yt::new(d.path().to_str().unwrap()).unwrap();
+        let s = yt.home_shelves(2, None).await.unwrap();
+        for sh in &s {
+            eprintln!("LIVE {} [{}] {}", sh.title, sh.layout, sh.items.len());
+        }
+        assert!(s.len() >= 3);
+    }
 }

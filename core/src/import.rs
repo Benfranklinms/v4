@@ -181,6 +181,26 @@ fn jaccard(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
     i / (a.len() + b.len()) as f64 * 2.0
 }
 
+/// Version markers: a candidate carrying one the source title doesn't have is a different recording.
+const VARIANTS: &[&str] = &[
+    "live", "cover", "remix", "slowed", "reverb", "sped up", "speed up", "8d", "karaoke", "instrumental", "acoustic",
+    "lyric video", "lyrics", "nightcore", "lofi", "lo-fi", "mashup", "bass boosted", "tribute", "piano version", "edit",
+    "extended", "unplugged", "demo", "reprise", "version", "rendition", "dj ",
+];
+
+fn variant_penalty(src: &str, cand: &str) -> f64 {
+    let s = format!(" {} ", src.to_lowercase());
+    let c = format!(" {} ", cand.to_lowercase());
+    let mut p: f64 = 0.0;
+    for v in VARIANTS {
+        let has = |x: &str| x.contains(&format!(" {v}")) || x.contains(&format!("({v}")) || x.contains(&format!("[{v}")) || x.contains(&format!("-{v}"));
+        if has(&c) && !has(&s) {
+            p += 35.0;
+        }
+    }
+    p.min(60.0)
+}
+
 pub fn score(src: &ImportedTrack, t: &Track) -> u32 {
     let ts = jaccard(&tokens(&src.title), &tokens(&t.title));
     let exact = norm(&src.title) == norm(&t.title);
@@ -193,7 +213,12 @@ pub fn score(src: &ImportedTrack, t: &Track) -> u32 {
         let d = (src.duration_s as i64 - t.duration_s as i64).abs();
         if d <= 3 { 1.0 } else if d <= 10 { 0.75 } else if d <= 30 { 0.35 } else { 0.0 }
     };
-    let s = (if exact { 1.0 } else { ts }) * 50.0 + as_ * 30.0 + dur * 20.0;
+    let mut s = (if exact { 1.0 } else { ts }) * 50.0 + as_ * 30.0 + dur * 20.0;
+    s -= variant_penalty(&src.title, &format!("{} {}", t.title, t.album.clone().unwrap_or_default()));
+    // no shared artist at all is almost always a cover/upload by someone else
+    if !sa.is_empty() && sa.intersection(&ta).count() == 0 {
+        s -= 20.0;
+    }
     s.round().clamp(0.0, 100.0) as u32
 }
 
@@ -206,14 +231,23 @@ pub async fn match_all(yt: Arc<Yt>, tracks: Vec<ImportedTrack>) -> Vec<ImportMat
         set.spawn(async move {
             let _p = sem.acquire().await;
             let q = format!("{} {}", src.title, src.artists.split(',').next().unwrap_or(""));
-            let cands = yt.search_tracks(&q).await.unwrap_or_default();
-            let best = cands.into_iter().take(8).map(|t| (score(&src, &t), t)).max_by_key(|x| x.0);
-            let (confidence, matched) = match best {
-                Some((s, t)) => (s, Some(t)),
-                None => (0, None),
-            };
-            let status = if confidence >= 72 { "matched" } else if confidence >= 45 { "review" } else { "missing" };
-            (i, ImportMatch { source: src, matched: if confidence >= 45 { matched } else { None }, confidence, status: status.into() })
+            // songs filter first; fall back to a title-only query when nothing scores well
+            let mut cands: Vec<(u32, Track)> = yt.search_tracks(&q).await.unwrap_or_default().into_iter().take(10).map(|t| (score(&src, &t), t)).collect();
+            if cands.iter().all(|c| c.0 < 72) {
+                if let Ok(more) = yt.search_tracks(&src.title).await {
+                    for t in more.into_iter().take(8) {
+                        if !cands.iter().any(|c| c.1.id == t.id) {
+                            cands.push((score(&src, &t), t));
+                        }
+                    }
+                }
+            }
+            cands.sort_by(|a, b| b.0.cmp(&a.0));
+            let confidence = cands.first().map(|c| c.0).unwrap_or(0);
+            let matched = cands.first().map(|c| c.1.clone());
+            let alternatives: Vec<Track> = cands.iter().skip(1).take(5).map(|c| c.1.clone()).collect();
+            let status = if confidence >= 75 { "matched" } else if confidence >= 45 { "review" } else { "missing" };
+            (i, ImportMatch { source: src, matched: if confidence >= 45 { matched } else { None }, confidence, status: status.into(), alternatives })
         });
     }
     let mut out = Vec::new();
@@ -237,6 +271,8 @@ mod tests {
         let src = ImportedTrack { title: "Blinding Lights".into(), artists: "The Weeknd".into(), duration_s: 200 };
         assert!(score(&src, &tr("Blinding Lights", "The Weeknd", 201)) >= 95);
         assert!(score(&src, &tr("Blinding Lights (Acoustic)", "Matt Johnson", 260)) < 72);
+        assert!(score(&src, &tr("Blinding Lights (Slowed + Reverb)", "The Weeknd", 240)) < 72);
+        assert!(score(&src, &tr("Blinding Lights (Live)", "The Weeknd", 205)) < 72);
         let src2 = ImportedTrack { title: "expectations (feat. Chappell Roan)".into(), artists: "Olivia Rodrigo, Chappell Roan".into(), duration_s: 224 };
         assert!(score(&src2, &tr("expectations", "Olivia Rodrigo & Chappell Roan", 224)) >= 72);
     }
