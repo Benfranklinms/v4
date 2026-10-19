@@ -129,6 +129,8 @@ pub struct Yt {
     http: reqwest::Client,
     visitor: Mutex<Option<(String, i64)>>,
     pub health: Mutex<Health>,
+    /// Playlist continuations (first page is returned at once; the rest is fetched by `playlist_more`).
+    pending: Mutex<std::collections::HashMap<String, rp::paginator::Paginator<rp::TrackItem>>>,
 }
 
 #[derive(Default, Clone)]
@@ -160,7 +162,7 @@ impl Yt {
             .timeout(std::time::Duration::from_secs(20))
             .build()
             .map_err(|e| CoreError::Network { msg: e.to_string() })?;
-        Ok(Self { rp, http, visitor: Mutex::new(None), health: Mutex::new(Health::default()) })
+        Ok(Self { rp, http, visitor: Mutex::new(None), health: Mutex::new(Health::default()), pending: Mutex::new(Default::default()) })
     }
 
     pub fn http(&self) -> &reqwest::Client {
@@ -255,9 +257,16 @@ impl Yt {
     }
 
     pub async fn playlist(&self, id: &str) -> Result<PlaylistPage, CoreError> {
-        let mut p = self.rp.query().music_playlist(id).await.map_err(net)?;
-        // pull up to ~300 tracks
-        let _ = p.tracks.extend_limit(&self.rp.query(), 300).await;
+        // First page only (shows at once); the continuation is kept for `playlist_more`.
+        let p = self.rp.query().music_playlist(id).await.map_err(net)?;
+        {
+            let mut pend = self.pending.lock().unwrap_or_else(|x| x.into_inner());
+            if p.tracks.is_exhausted() {
+                pend.remove(id);
+            } else {
+                pend.insert(id.to_string(), p.tracks.clone());
+            }
+        }
         Ok(PlaylistPage {
             playlist: Playlist {
                 id: p.id.clone(),
@@ -269,6 +278,29 @@ impl Yt {
             },
             tracks: p.tracks.items.iter().map(conv_track).collect(),
         })
+    }
+
+    /// Next pages of a playlist opened with `playlist` (about `n` more tracks). Returns (new tracks, done).
+    pub async fn playlist_more(&self, id: &str, n: usize) -> Result<(Vec<Track>, bool), CoreError> {
+        let Some(mut pg) = self.pending.lock().unwrap_or_else(|x| x.into_inner()).remove(id) else {
+            return Ok((vec![], true));
+        };
+        let old = pg.items.len();
+        if let Err(e) = pg.extend_limit(&self.rp.query(), old + n.max(1)).await {
+            if pg.items.len() == old {
+                self.pending.lock().unwrap_or_else(|x| x.into_inner()).insert(id.to_string(), pg);
+                return Err(net(e));
+            }
+        }
+        let new: Vec<Track> = pg.items[old..].iter().map(conv_track).collect();
+        let done = pg.is_exhausted() || pg.items.len() == old;
+        if !done {
+            self.pending.lock().unwrap_or_else(|x| x.into_inner()).insert(id.to_string(), pg);
+        }
+        Ok((new, done))
+    }
+    pub fn playlist_has_more(&self, id: &str) -> bool {
+        self.pending.lock().unwrap_or_else(|x| x.into_inner()).contains_key(id)
     }
 
     pub async fn radio(&self, video_id: &str) -> Result<Vec<Track>, CoreError> {

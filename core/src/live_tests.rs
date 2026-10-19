@@ -159,3 +159,61 @@ fn remove_downloads_deletes_files() {
     assert!(!c.is_downloaded("dltest1".into()));
     assert!(!std::path::Path::new(&path).exists());
 }
+
+fn tr(id: &str) -> Track {
+    Track { id: id.into(), title: format!("T {id}"), artists: "A".into(), artist_id: None, album: None, album_id: None, duration_s: 200, thumb: String::new() }
+}
+
+/// The queue, index, position, shuffle/repeat and source survive a relaunch (new Core on the same data dir).
+#[test]
+fn session_survives_relaunch() {
+    let dir = std::env::temp_dir().join(format!("itune-sess-{}", rand::random::<u32>())).to_string_lossy().to_string();
+    {
+        let c = Core::new(dir.clone(), "macos".into()).unwrap();
+        assert!(c.restore_session().is_none());
+        c.queue_set(vec![tr("a"), tr("b"), tr("c")], 1, "Mix".into());
+        c.cycle_repeat();
+        c.save_session(42_500).unwrap();
+        c.save_session(47_000).unwrap();
+    }
+    let c = Core::new(dir, "macos".into()).unwrap();
+    let s = c.restore_session().expect("session");
+    assert_eq!(s.tracks.len(), 3);
+    assert_eq!(s.index, 1);
+    assert_eq!(s.tracks[1].id, "b");
+    assert_eq!(s.position_ms, 47_000);
+    assert_eq!(s.repeat, 1);
+    assert_eq!(s.source_title, "Mix");
+    assert!(s.saved_at > 0);
+    // loaded into the queue: next continues from the restored index
+    assert_eq!(c.queue_current().map(|t| t.id), Some("b".to_string()));
+    assert_eq!(c.queue_next(true).map(|t| t.id), Some("c".to_string()));
+    c.clear_session();
+    assert!(c.restore_session().is_none());
+}
+
+/// home_cached() is None until a feed was saved, then returns it without the network.
+#[test]
+fn home_cached_returns_saved_feed() {
+    let c = core();
+    assert!(c.home_cached(330).is_none());
+    let f = HomeFeed { greeting: "x".into(), mixes: vec![], recent: vec![], trending: vec![tr("t")], suggestions: vec![], shelves: vec![HomeShelf { title: "Quick picks".into(), layout: "songs".into(), items: vec![] }], on_repeat: vec![], discover: vec![] };
+    c.db.kv_set("home_feed", &serde_json::to_string(&f).unwrap()).unwrap();
+    let g = c.home_cached(330).expect("cached feed");
+    assert_eq!(g.shelves[0].title, "Quick picks");
+    assert_eq!(g.trending[0].id, "t");
+    assert_ne!(g.greeting, "x");
+}
+
+/// Page cache: a stored album page is served by album_cached() and by album() while fresh (no network).
+#[tokio::test]
+async fn album_page_cache() {
+    let c = core();
+    assert!(c.album_cached("X".into()).is_none());
+    let pg = AlbumPage { album: Album { id: "X".into(), title: "Alb".into(), artists: "A".into(), year: None, thumb: String::new(), kind: "Album".into() }, tracks: vec![tr("a")], description: None };
+    c.page_store("pg:al:X", &pg);
+    assert_eq!(c.album_cached("X".into()).unwrap().album.title, "Alb");
+    let fresh = c.album("X".into()).await.expect("served from cache");
+    assert_eq!(fresh.tracks[0].id, "a");
+    assert!(!c.playlist_has_more("nope".into()));
+}

@@ -47,6 +47,8 @@ pub struct Core {
     progress: Arc<Mutex<HashMap<String, f32>>>,
     lastfm: Mutex<Option<lastfm::Keys>>,
     import: Arc<import::Progress>,
+    /// Last queue JSON written to the DB (queue rows are only rewritten when the queue changes).
+    session_sig: Mutex<String>,
 }
 
 #[derive(Debug, Clone, Default, uniffi::Record)]
@@ -113,6 +115,35 @@ impl Core {
 
 /// FFI panic guard for infallible exports: a panic returns the type's default instead of aborting the app
 /// (UniFFI turns panics in `Result` exports into errors on its own).
+const MIX_TTL_S: i64 = 6 * 3600;
+const ALBUM_TTL_S: i64 = 24 * 3600;
+
+impl Core {
+    /// Cached page younger than `ttl` seconds.
+    fn page_cache<T: serde::de::DeserializeOwned>(&self, key: &str, ttl: i64) -> Option<T> {
+        let (v, at) = self.db.mcache_get_at(key)?;
+        if now() - at > ttl {
+            return None;
+        }
+        serde_json::from_str(&v).ok()
+    }
+    fn page_store<T: serde::Serialize>(&self, key: &str, v: &T) {
+        if let Ok(j) = serde_json::to_string(v) {
+            let _ = self.db.mcache_set(key, &j);
+        }
+    }
+}
+
+fn greeting_for(hour: i64) -> String {
+    match hour {
+        5..=11 => "Good morning",
+        12..=16 => "Good afternoon",
+        17..=21 => "Good evening",
+        _ => "Late night",
+    }
+    .to_string()
+}
+
 fn guard<T: Default>(f: impl FnOnce() -> T) -> T {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_default()
 }
@@ -140,6 +171,7 @@ impl Core {
             progress: Arc::new(Mutex::new(HashMap::new())),
             lastfm: Mutex::new(None),
             import: Arc::new(import::Progress::default()),
+            session_sig: Mutex::new(String::new()),
         }))
     }
 
@@ -154,11 +186,63 @@ impl Core {
     pub async fn search_suggestions(&self, query: String) -> Result<Vec<String>, CoreError> {
         self.yt.suggestions(&query).await
     }
+    /// Album page: served from the page cache when younger than 24 h, otherwise fetched (and cached).
     pub async fn album(&self, id: String) -> Result<AlbumPage, CoreError> {
-        self.yt.album(&id).await
+        if let Some(p) = self.page_cache::<AlbumPage>(&format!("pg:al:{id}"), ALBUM_TTL_S) {
+            return Ok(p);
+        }
+        let p = self.yt.album(&id).await?;
+        self.page_store(&format!("pg:al:{id}"), &p);
+        Ok(p)
     }
+    /// Artist page: cached 24 h like albums.
     pub async fn artist(&self, id: String) -> Result<ArtistPage, CoreError> {
-        self.yt.artist(&id).await
+        if let Some(p) = self.page_cache::<ArtistPage>(&format!("pg:ar:{id}"), ALBUM_TTL_S) {
+            return Ok(p);
+        }
+        let p = self.yt.artist(&id).await?;
+        self.page_store(&format!("pg:ar:{id}"), &p);
+        Ok(p)
+    }
+    /// Last cached album page at any age (instant, no network); then call `album` to revalidate.
+    pub fn album_cached(&self, id: String) -> Option<AlbumPage> {
+        guard(move || self.page_cache::<AlbumPage>(&format!("pg:al:{id}"), i64::MAX))
+    }
+    pub fn artist_cached(&self, id: String) -> Option<ArtistPage> {
+        guard(move || self.page_cache::<ArtistPage>(&format!("pg:ar:{id}"), i64::MAX))
+    }
+    /// Last cached remote playlist / mix page at any age (local playlists: read straight from the DB).
+    pub fn playlist_cached(&self, id: String) -> Option<PlaylistPage> {
+        guard(move || {
+            if id.starts_with("local:") || id.starts_with("import:") || id.starts_with("isa:") || id == "liked" {
+                return None;
+            }
+            self.page_cache::<PlaylistPage>(&format!("pg:pl:{id}"), i64::MAX)
+        })
+    }
+    /// Next ~`count` tracks of a remote playlist opened with `playlist` (first page comes back at once).
+    /// Append them in the UI and to the queue; call again until `done`.
+    pub async fn playlist_more(&self, id: String, count: u32) -> Result<PlaylistMore, CoreError> {
+        let (tracks, done) = self.yt.playlist_more(&id, count as usize).await?;
+        let key = format!("pg:pl:{id}");
+        if done {
+            let _ = self.db.kv_set(&format!("{key}:done"), "1");
+        }
+        if !tracks.is_empty() {
+            if let Some(mut p) = self.page_cache::<PlaylistPage>(&key, i64::MAX) {
+                for t in &tracks {
+                    if !p.tracks.iter().any(|x| x.id == t.id) {
+                        p.tracks.push(t.clone());
+                    }
+                }
+                self.page_store(&key, &p);
+            }
+        }
+        Ok(PlaylistMore { tracks, done })
+    }
+    /// More pages are available for a remote playlist opened in this session.
+    pub fn playlist_has_more(&self, id: String) -> bool {
+        guard(move || self.yt.playlist_has_more(&id))
     }
     pub async fn playlist(&self, id: String) -> Result<PlaylistPage, CoreError> {
         if id.starts_with("local:") || id.starts_with("import:") || id.starts_with("isa:") {
@@ -179,7 +263,29 @@ impl Core {
                 tracks: t,
             });
         }
-        self.yt.playlist(&id).await
+        // Remote playlist / mix: a complete cached copy younger than 6 h is served as is.
+        let key = format!("pg:pl:{id}");
+        let complete = self.db.kv_get(&format!("{key}:done")).is_some();
+        if complete {
+            if let Some(p) = self.page_cache::<PlaylistPage>(&key, MIX_TTL_S) {
+                return Ok(p);
+            }
+        }
+        let mut p = self.yt.playlist(&id).await?;
+        let more = self.yt.playlist_has_more(&id);
+        // keep the longer list fetched earlier (later pages arrive via playlist_more and are de-duplicated)
+        if let Some(c) = self.page_cache::<PlaylistPage>(&key, i64::MAX) {
+            if c.tracks.len() > p.tracks.len() && c.tracks.first().map(|t| &t.id) == p.tracks.first().map(|t| &t.id) {
+                p.tracks = c.tracks;
+            }
+        }
+        self.page_store(&key, &p);
+        if more {
+            let _ = self.db.kv_del(&format!("{key}:done"));
+        } else {
+            let _ = self.db.kv_set(&format!("{key}:done"), "1");
+        }
+        Ok(p)
     }
     pub async fn radio(&self, video_id: String) -> Result<Vec<Track>, CoreError> {
         let seed = self.queue.lock().unwrap_or_else(|p| p.into_inner()).tracks.iter().find(|t| t.id == video_id).cloned();
@@ -190,16 +296,25 @@ impl Core {
         Ok(r)
     }
 
+    /// Stale-while-revalidate: the last full feed `home()` built, instantly from the local DB (no network),
+    /// with the greeting and Recently played refreshed. None before the first successful `home()`.
+    /// Render this at launch, then call `home()` in the background and swap the result in.
+    pub fn home_cached(&self, tz_offset_min: i32) -> Option<HomeFeed> {
+        guard(move || {
+            let mut f: HomeFeed = serde_json::from_str(&self.db.kv_get("home_feed")?).ok()?;
+            let local = now() + tz_offset_min as i64 * 60;
+            f.greeting = greeting_for((local.rem_euclid(86_400)) / 3600);
+            if let Ok(r) = self.db.recent_tracks(12) {
+                f.recent = r;
+            }
+            Some(f)
+        })
+    }
+
     pub async fn home(&self, tz_offset_min: i32) -> Result<HomeFeed, CoreError> {
         let local = now() + tz_offset_min as i64 * 60;
         let hour = (local.rem_euclid(86_400)) / 3600;
-        let greeting = match hour {
-            5..=11 => "Good morning",
-            12..=16 => "Good afternoon",
-            17..=21 => "Good evening",
-            _ => "Late night",
-        }
-        .to_string();
+        let greeting = greeting_for(hour);
         let recent = self.db.recent_tracks(12)?;
         // Seeds: the listener's most played tracks by distinct artist; charts for a new listener.
         let mut seeds: Vec<Track> = Vec::new();
@@ -321,7 +436,13 @@ impl Core {
         if mixes.is_empty() && shelves.is_empty() && trending.is_empty() && recent.is_empty() {
             return Err(CoreError::Network { msg: "Couldn't load the home feed".into() });
         }
-        Ok(HomeFeed { greeting, mixes, recent, trending: trending.into_iter().take(20).collect(), suggestions, shelves, on_repeat, discover })
+        let feed = HomeFeed { greeting, mixes, recent, trending: trending.into_iter().take(20).collect(), suggestions, shelves, on_repeat, discover };
+        if !feed.shelves.is_empty() || !feed.mixes.is_empty() {
+            if let Ok(j) = serde_json::to_string(&feed) {
+                let _ = self.db.kv_set("home_feed", &j);
+            }
+        }
+        Ok(feed)
     }
 
     // ------------------------------------------------------------------ streams
@@ -1027,6 +1148,80 @@ impl Core {
             } else {
                 "It's on the radio for the song you started, and you haven't skipped this artist.".into()
             }
+        })
+    }
+
+    // ------------------------------------------------------------------ session (restore after relaunch)
+    /// Saves the current queue (tracks, index, shuffle/repeat, autoplay tail, source) and the position.
+    /// Cheap to call often: the queue is only rewritten when it changed, otherwise just the position.
+    /// Clients call it every ~5 s while playing, and on pause, track change and app quit.
+    pub fn save_session(&self, position_ms: u64) -> Result<(), CoreError> {
+        let st = self.queue.lock().unwrap_or_else(|p| p.into_inner()).state();
+        if st.index < 0 || st.tracks.is_empty() {
+            return Ok(());
+        }
+        let q = serde_json::json!({
+            "tracks": st.tracks, "index": st.index, "shuffle": st.shuffle, "repeat": st.repeat,
+            "autoplay_from": st.autoplay_from, "source_title": st.source_title,
+        })
+        .to_string();
+        let mut sig = self.session_sig.lock().unwrap_or_else(|p| p.into_inner());
+        if *sig != q {
+            self.db.kv_set("session_queue", &q)?;
+            *sig = q;
+        }
+        drop(sig);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+        self.db.kv_set("session_pos", &format!("{position_ms} {now}"))
+    }
+
+    /// The saved session, loaded back into the core queue (nothing plays; no network). None when there is none.
+    pub fn restore_session(&self) -> Option<Session> {
+        guard(move || {
+            let q: serde_json::Value = serde_json::from_str(&self.db.kv_get("session_queue")?).ok()?;
+            let tracks: Vec<Track> = serde_json::from_value(q.get("tracks")?.clone()).ok()?;
+            if tracks.is_empty() {
+                return None;
+            }
+            let index = (q.get("index")?.as_i64()? as i32).clamp(0, tracks.len() as i32 - 1);
+            let (pos, at) = self
+                .db
+                .kv_get("session_pos")
+                .map(|v| {
+                    let mut it = v.split_whitespace();
+                    (it.next().and_then(|x| x.parse().ok()).unwrap_or(0u64), it.next().and_then(|x| x.parse().ok()).unwrap_or(0i64))
+                })
+                .unwrap_or((0, 0));
+            let s = Session {
+                index,
+                position_ms: pos,
+                shuffle: q.get("shuffle").and_then(|v| v.as_bool()).unwrap_or(false),
+                repeat: q.get("repeat").and_then(|v| v.as_u64()).unwrap_or(0).min(2) as u8,
+                autoplay_from: q.get("autoplay_from").and_then(|v| v.as_i64()).unwrap_or(-1) as i32,
+                source_title: q.get("source_title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                saved_at: at,
+                tracks,
+            };
+            let mut qu = self.queue.lock().unwrap_or_else(|p| p.into_inner());
+            qu.tracks = s.tracks.clone();
+            qu.original = s.tracks.clone();
+            qu.index = s.index;
+            qu.shuffle = s.shuffle;
+            qu.repeat = s.repeat;
+            qu.autoplay_from = if s.autoplay_from >= 0 && (s.autoplay_from as usize) < s.tracks.len() { s.autoplay_from } else { -1 };
+            qu.source_title = s.source_title.clone();
+            drop(qu);
+            *self.session_sig.lock().unwrap_or_else(|p| p.into_inner()) = String::new();
+            Some(s)
+        })
+    }
+
+    /// Forgets the saved session.
+    pub fn clear_session(&self) {
+        guard(move || {
+            let _ = self.db.kv_del("session_queue");
+            let _ = self.db.kv_del("session_pos");
+            *self.session_sig.lock().unwrap_or_else(|p| p.into_inner()) = String::new();
         })
     }
 

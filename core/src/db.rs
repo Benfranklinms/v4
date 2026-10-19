@@ -93,6 +93,11 @@ impl Db {
             .ok()
             .flatten()
     }
+    /// Cached value with the unix time it was written.
+    pub fn mcache_get_at(&self, k: &str) -> Option<(String, i64)> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        c.query_row("SELECT v, at FROM mcache WHERE k=?1", params![k], |r| Ok((r.get(0)?, r.get(1)?))).optional().ok().flatten()
+    }
     pub fn mcache_set(&self, k: &str, v: &str) -> Result<(), CoreError> {
         let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute(

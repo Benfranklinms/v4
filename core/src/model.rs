@@ -68,14 +68,14 @@ pub struct SearchResults {
     pub corrected_query: Option<String>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct AlbumPage {
     pub album: Album,
     pub tracks: Vec<Track>,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct ArtistPage {
     pub artist: Artist,
     pub description: Option<String>,
@@ -84,13 +84,13 @@ pub struct ArtistPage {
     pub similar: Vec<Artist>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct PlaylistPage {
     pub playlist: Playlist,
     pub tracks: Vec<Track>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct Mix {
     pub id: String,
     pub title: String,
@@ -100,7 +100,7 @@ pub struct Mix {
     pub tracks: Vec<Track>,
 }
 
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct HomeFeed {
     pub greeting: String,
     pub mixes: Vec<Mix>,
@@ -224,6 +224,29 @@ pub struct QueueState {
     /// Index where the autoplay ("from radio") part starts, -1 when none.
     pub autoplay_from: i32,
     pub source_title: String,
+}
+
+/// Last playback session (queue + position), restored after a relaunch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, uniffi::Record)]
+pub struct Session {
+    pub tracks: Vec<Track>,
+    pub index: i32,
+    pub position_ms: u64,
+    pub shuffle: bool,
+    /// 0 off, 1 all, 2 one
+    pub repeat: u8,
+    pub autoplay_from: i32,
+    pub source_title: String,
+    /// Unix seconds of the last save.
+    pub saved_at: i64,
+}
+
+/// More tracks of a playlist (see `Core::playlist_more`).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PlaylistMore {
+    pub tracks: Vec<Track>,
+    /// No more pages.
+    pub done: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
