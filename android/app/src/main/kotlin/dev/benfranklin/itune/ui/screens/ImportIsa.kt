@@ -130,9 +130,29 @@ fun ImportScreen(s: AppState) {
                 }
             }
             if (busy) item {
+                var prog by remember { mutableStateOf<dev.benfranklin.itune.core.ImportProgress?>(null) }
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        prog = dev.benfranklin.itune.data.io { App.core.importProgress() }
+                        kotlinx.coroutines.delay(400)
+                    }
+                }
+                val pr = prog
                 Column(Modifier.padding(horizontal = 24.dp).testTag("import_loading")) {
-                    Text("Reading the playlist and matching every song…", style = T.ui(13.sp, FontWeight.Medium, c.t2))
-                    LinearProgressIndicator(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)), color = c.txt, trackColor = c.surf4, strokeCap = StrokeCap.Round)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (pr != null && pr.total > 0u) "Importing… ${pr.done}/${pr.total}" else "Importing…",
+                            style = T.ui(13.sp, FontWeight.SemiBold, c.txt), modifier = Modifier.weight(1f),
+                        )
+                        Text("Cancel", style = T.ui(13.sp, FontWeight.SemiBold, c.t2), modifier = Modifier.press { dev.benfranklin.itune.data.Bg.run { App.core.importCancel() } }.padding(6.dp).testTag("import_cancel"))
+                    }
+                    if (pr != null && pr.current.isNotBlank()) Text(pr.current, style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (pr != null && pr.total > 0u) {
+                        val f = (pr.done.toFloat() / pr.total.toFloat()).coerceIn(0f, 1f)
+                        LinearProgressIndicator(progress = { f }, modifier = Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)), color = c.txt, trackColor = c.surf4, strokeCap = StrokeCap.Round)
+                    } else {
+                        LinearProgressIndicator(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)), color = c.txt, trackColor = c.surf4, strokeCap = StrokeCap.Round)
+                    }
                 }
             }
             err?.let { e -> item { Text(e, style = T.ui(13.sp, FontWeight.Medium, c.t2), modifier = Modifier.padding(24.dp)) } }

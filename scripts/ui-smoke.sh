@@ -80,8 +80,17 @@ desc() { tap content-desc "$1" "${2:-1}" "" "${3:-8}"; }
 type_text() { adb shell input text "$(echo "$1" | sed 's/ /%s/g')"; sleep 0.8; }
 clear_field() { adb shell input keyevent KEYCODE_MOVE_END; for _ in $(seq 1 30); do adb shell input keyevent KEYCODE_DEL; done; }
 back() { adb shell input keyevent KEYCODE_BACK; sleep 1; crash_check back; }
-scroll_down() { adb shell input swipe 540 1700 540 600 300; sleep 1; crash_check scroll; }
-scroll_up() { adb shell input swipe 540 600 540 1700 300; sleep 1; crash_check scroll; }
+# screen size (the CI emulator is small, so every coordinate is a fraction of it)
+read SW SH < <(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1 | tr 'x' ' ')
+SW=${SW:-1080}; SH=${SH:-1920}
+px() { echo $(( SW * $1 / 100 )); }
+py() { echo $(( SH * $1 / 100 )); }
+log "screen ${SW}x${SH}"
+scroll_down() { adb shell input swipe $(px 50) $(py 80) $(px 50) $(py 30) 300; sleep 1; crash_check scroll; }
+scroll_up() { adb shell input swipe $(px 50) $(py 30) $(px 50) $(py 80) 300; sleep 1; crash_check scroll; }
+tap_at() { adb shell input tap $(px $1) $(py $2); sleep 0.6; }
+# hide the soft keyboard if it is showing (BACK only when it is, so we never navigate by accident)
+hide_kb() { if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 0.8; fi; }
 home_tab() { id tab_Home; }
 
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null
@@ -113,6 +122,7 @@ id isa_length; id isa_length; id isa_length; id isa_length
 id isa_field
 type_text "focus music"
 id isa_send
+hide_kb
 if wait_for resource-id isa_preview 45; then
   shot isa-preview
   id isa_play
@@ -153,6 +163,7 @@ shot search-empty
 id search_field
 type_text "adele hello"
 adb shell input keyevent KEYCODE_ENTER
+sleep 1; hide_kb
 if wait_for resource-id track_row 30; then
   for f in Songs Albums Artists Playlists Videos All; do id "filter_$f" 0; done
   shot search-results
@@ -194,6 +205,7 @@ id search_field
 clear_field
 type_text "adele 25"
 adb shell input keyevent KEYCODE_ENTER
+sleep 1; hide_kb
 id filter_Albums 0 30
 if id search_album 1 30; then
   wait_for resource-id track_number 25 && log "album page: track numbers (no repeated art)" || log "WARN: album tracks not loaded"
@@ -281,11 +293,11 @@ id tab_Stats
 shot stats-top
 for r in week month year all; do id "range_$r"; done
 scroll_down; scroll_down; scroll_up; scroll_up
-adb shell input tap 300 900; adb shell input tap 800 900; adb shell input tap 540 1400; sleep 1; crash_check "stats taps"
+tap_at 28 45; tap_at 75 45; tap_at 50 70; sleep 1; crash_check "stats taps"
 shot stats
 txt "Your month"
 sleep 2
-adb shell input tap 900 1000; adb shell input tap 900 1000; adb shell input tap 900 1000; adb shell input tap 100 1000
+tap_at 85 50; tap_at 85 50; tap_at 85 50; tap_at 10 50
 shot wrapped
 back
 

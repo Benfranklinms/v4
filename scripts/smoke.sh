@@ -10,6 +10,10 @@ O=out/smoke/$NAME
 mkdir -p "$O"
 adb uninstall $PKG >/dev/null 2>&1 || true
 adb install -r "$APK" || exit 1
+# no system dialogs over the app during the scripted walk (notification permission, battery prompt)
+adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
+adb shell dumpsys deviceidle whitelist +$PKG >/dev/null 2>&1 || true
+adb shell settings put secure show_ime_with_hard_keyboard 0 >/dev/null 2>&1 || true
 adb logcat -c
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity
 sleep 20

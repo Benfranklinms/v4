@@ -84,6 +84,7 @@ fun SearchScreen(s: AppState) {
     val c = LocalColors.current
     val ctx = LocalContext.current
     val focus = LocalFocusManager.current
+    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var q by rememberSaveable { mutableStateOf(SearchCache.query) }
     var submitted by remember { mutableStateOf(SearchCache.query) }
     var res by remember { mutableStateOf(SearchCache.results) }
@@ -121,6 +122,7 @@ fun SearchScreen(s: AppState) {
         submitted = text
         sugg = emptyList()
         focus.clearFocus()
+        kb?.hide()
     }
 
     Column(Modifier.fillMaxSize()) {
