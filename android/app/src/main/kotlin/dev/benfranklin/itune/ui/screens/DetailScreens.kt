@@ -199,7 +199,9 @@ fun TrackListPage(
         LaunchedEffect(near, tracks?.size) { if (near) onNearEnd() }
     }
     Box(Modifier.fillMaxSize()) {
-        Glow(c.glow, Modifier.fillMaxWidth().height(420.dp), alpha = 0.28f, centerY = 0.2f)
+        // the header's glow leaves with the header while searching (rows have a solid backing and would show as a band over it)
+        val glowA by androidx.compose.animation.core.animateFloatAsState(if (showSearch) 0f else 0.28f, if (reduce) androidx.compose.animation.core.snap<Float>() else androidx.compose.animation.core.tween<Float>(260), label = "glowA")
+        Glow(c.glow, Modifier.fillMaxWidth().height(420.dp), alpha = glowA, centerY = 0.2f)
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = bottomPad)) {
             item {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {

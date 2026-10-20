@@ -152,7 +152,8 @@ fg() { timeout 10 adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|
 # if a BACK meant for the keyboard left the app (IME state misreported on some images), bring it back
 refocus() { fg || { log "app left the foreground: relaunching"; timeout 10 adb shell cmd statusbar collapse >/dev/null 2>&1; timeout 20 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 2; }; }
 # submit / hide the keyboard WITHOUT Back (Back with the emulator's DummyIme reaches the app and pops the page)
-kb_done() { adb shell input keyevent KEYCODE_ENTER; sleep 0.8; if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_ESCAPE; sleep 0.8; fi; refocus; }
+# (ENTER = the field's Search action, which drops focus and the keyboard; no ESCAPE either: it falls back to Back)
+kb_done() { adb shell input keyevent KEYCODE_ENTER; sleep 0.8; refocus; }
 hide_kb() { if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 0.8; refocus; fi; }
 # glass chrome: the bottom nav hides while scrolling down and Now Playing covers it. Close NP, then tap the
 # tab; if the nav is hidden, a small scroll up springs it back and we retry.
@@ -836,6 +837,8 @@ if id search_album 1 30; then
     if id list_search 1 10; then
       type_text "a"; sleep 1; kb_done
       adb shell input keyevent KEYCODE_BACK; sleep 1.5; crash_check "back closes search"; dump
+      # a soft keyboard still up takes the first Back; the next one is the app's
+      if find_node resource-id list_search >/dev/null; then adb shell input keyevent KEYCODE_BACK; sleep 1.5; crash_check "back closes search"; dump; fi
       if find_node resource-id list_search >/dev/null; then log "MISSING (required): Back closes list search"; FAILS=$((FAILS + 1));
       elif find_node resource-id list_search_open >/dev/null; then log "back closes search, page kept ok"; else log "MISSING (required): album page kept after Back closed search"; FAILS=$((FAILS + 1)); shot missing-back-search; fi
     fi
