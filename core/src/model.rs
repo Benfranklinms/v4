@@ -357,3 +357,147 @@ pub struct ImportProgress {
     pub total: u32,
     pub current: String,
 }
+
+// ---------------------------------------------------------------- Stats page (0.2.8)
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TrackStat {
+    pub track: Track,
+    pub plays: u32,
+    pub minutes: u32,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AlbumStat {
+    /// Album name as played (grouping key is the lowercased name).
+    pub name: String,
+    pub artist: String,
+    /// Empty when no play carried an album id: resolve with `stats_album_id` when tapped.
+    pub album_id: String,
+    pub thumb: String,
+    pub plays: u32,
+    pub minutes: u32,
+}
+
+/// One bar of the hero chart: a day (week/month) or a month (year/all).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StatsBar {
+    /// Short axis label: "W", "17", "O", "Oct".
+    pub label: String,
+    /// Long label for scrubbing: "Saturday 17 Oct", "October 2026".
+    pub title: String,
+    pub minutes: u32,
+    pub plays: u32,
+    /// "Mostly Illuminati, after 9 PM" ("" when nothing was played).
+    pub line: String,
+    pub top_track_id: String,
+    /// Local hour with the most listening, -1 when empty.
+    pub peak_hour: i32,
+    /// Epoch seconds of the bucket start / end (exclusive).
+    pub start: i64,
+    pub end: i64,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PlaylistSlot {
+    pub playlist_id: String,
+    pub title: String,
+    pub position: u32,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SkippedTrack {
+    pub track: Track,
+    pub skips: u32,
+    pub plays: u32,
+    /// Your playlists that hold this track (for "Remove").
+    pub playlists: Vec<PlaylistSlot>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct GoalDay {
+    /// "M", "T", ...
+    pub label: String,
+    pub minutes: u32,
+    pub is_today: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StatsPage {
+    pub range: String,
+    /// "14 – 20 Oct", "October 2026", "Since 19 Oct".
+    pub period_label: String,
+    pub minutes: u32,
+    pub prev_minutes: u32,
+    /// false when the previous period has no history (no % chip).
+    pub has_prev: bool,
+    pub plays: u32,
+    pub bars: Vec<StatsBar>,
+    /// Same-position minutes of the previous period (ghost bars), empty for "all".
+    pub prev_bars: Vec<u32>,
+    /// Mean minutes over the bars that are not in the future.
+    pub avg_minutes: u32,
+    /// 24 buckets of minutes by local hour.
+    pub clock: Vec<u32>,
+    pub peak_hour: i32,
+    /// "night" | "morning" | "afternoon" | "evening" | "mixed" | "" (no data)
+    pub mood: String,
+    /// "Mostly late nights this week".
+    pub mood_line: String,
+    pub top_tracks: Vec<TrackStat>,
+    pub top_artists: Vec<NamedCount>,
+    pub top_albums: Vec<AlbumStat>,
+    /// Artists first played inside this range (all: last 30 days).
+    pub new_artists: Vec<NamedCount>,
+    /// false until there are ~14 days of history: "New to you" stays hidden.
+    pub new_artists_ready: bool,
+    pub skipped: Vec<SkippedTrack>,
+    pub goal_minutes: u32,
+    pub goal_week: Vec<GoalDay>,
+    pub goal_streak: u32,
+    pub goal_best: u32,
+    pub today_minutes: u32,
+    /// Distinct local days with any listening (all time) and days since the first play (1 = today only).
+    pub active_days: u32,
+    pub history_days: u32,
+    pub first_play_at: i64,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct HourDetail {
+    pub hour: u32,
+    /// "Around 11 PM"
+    pub title: String,
+    pub minutes: u32,
+    pub tracks: Vec<TrackStat>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PlayEntry {
+    pub track: Track,
+    pub started_at: i64,
+    /// "9:41 PM" in the play's own local time.
+    pub time: String,
+    pub listened_s: u32,
+    pub skipped: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Recap {
+    pub range: String,
+    /// "Your week" / "Your month"
+    pub title: String,
+    pub period_label: String,
+    pub minutes: u32,
+    pub plays: u32,
+    pub change_percent: Option<i32>,
+    pub top_artist: Option<NamedCount>,
+    pub top_track: Option<TrackStat>,
+    pub top_tracks: Vec<TrackStat>,
+    pub top_artists: Vec<NamedCount>,
+    pub mood_line: String,
+    pub peak_hour: i32,
+    pub goal_streak: u32,
+    pub new_artists: u32,
+}

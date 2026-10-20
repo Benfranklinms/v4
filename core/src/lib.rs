@@ -8,6 +8,7 @@ pub mod lastfm;
 pub mod lyrics;
 pub mod model;
 pub mod queue;
+pub mod insights;
 pub mod stats;
 pub mod update;
 pub mod yt;
@@ -813,6 +814,60 @@ impl Core {
     pub fn stats(&self, range: String, tz_offset_min: i32) -> Result<StatsSummary, CoreError> {
         stats::summary(&self.db, &range, now(), tz_offset_min)
     }
+    /// The Stats page for "week" | "month" | "year" | "all" (0.2.8). Call off the main thread.
+    pub fn stats_page(&self, range: String, tz_offset_min: i32) -> Result<StatsPage, CoreError> {
+        self.stats_page_inner(&range, tz_offset_min).map(|x| x.1)
+    }
+    /// Tracks played around a local hour inside the range (clock card).
+    pub fn stats_hour(&self, range: String, hour: u32, tz_offset_min: i32) -> Result<HourDetail, CoreError> {
+        let rows = self.db.play_rows(0)?;
+        Ok(insights::hour_detail(&rows, &range, now(), tz_offset_min, hour))
+    }
+    /// Plays between two epoch seconds (a bar's start/end), newest first.
+    pub fn stats_plays_between(&self, from: i64, to: i64) -> Result<Vec<PlayEntry>, CoreError> {
+        let rows = self.db.play_rows(from)?;
+        Ok(insights::plays_between(&rows, from, to, 300))
+    }
+    /// "Play mix": the top artists' most played tracks, interleaved. `artist` = only that artist.
+    pub fn stats_mix(&self, range: String, artist: Option<String>, tz_offset_min: i32) -> Result<Vec<Track>, CoreError> {
+        let (rows, page) = self.stats_page_inner(&range, tz_offset_min)?;
+        Ok(insights::artist_mix(&rows, &page, now(), tz_offset_min, artist.as_deref(), 60))
+    }
+    pub fn stats_recap(&self, range: String, tz_offset_min: i32) -> Result<Recap, CoreError> {
+        let (_, page) = self.stats_page_inner(&range, tz_offset_min)?;
+        Ok(insights::recap(&page))
+    }
+    /// Daily listening goal in minutes (15 / 30 / 60; default 30).
+    pub fn stats_goal(&self) -> u32 {
+        guard(move || self.db.kv_get(insights::GOAL_KEY).and_then(|v| v.parse().ok()).unwrap_or(insights::DEFAULT_GOAL))
+    }
+    pub fn set_stats_goal(&self, minutes: u32) -> Result<(), CoreError> {
+        self.db.kv_set(insights::GOAL_KEY, &minutes.clamp(5, 240).to_string())
+    }
+    /// Top albums carry no album id: look it up once by name (+ artist) and remember it.
+    pub async fn stats_album_id(&self, name: String, artist: String) -> Result<Option<String>, CoreError> {
+        let key = format!("stats_album:{}", name.trim().to_lowercase());
+        if let Some(v) = self.db.kv_get(&key) {
+            return Ok(Some(v));
+        }
+        let res = self.yt.search(&format!("{} {}", name.trim(), artist.trim())).await?;
+        let want = name.trim().to_lowercase();
+        let hit = res
+            .albums
+            .iter()
+            .find(|a| a.title.trim().to_lowercase() == want)
+            .or_else(|| res.albums.iter().find(|a| a.title.to_lowercase().contains(&want) || want.contains(&a.title.to_lowercase())))
+            .or(res.albums.first())
+            .map(|a| a.id.clone());
+        if let Some(id) = &hit {
+            let _ = self.db.kv_set(&key, id);
+        }
+        Ok(hit)
+    }
+    /// Undo for removing a track from a playlist: puts it back at `position`.
+    pub fn restore_to_playlist(&self, playlist_id: String, position: u32, track: Track) -> Result<(), CoreError> {
+        self.db.insert_into_playlist(&playlist_id, position as i64, &track)
+    }
     pub fn recent(&self, limit: u32) -> Result<Vec<Track>, CoreError> {
         self.db.recent_tracks(limit)
     }
@@ -1267,6 +1322,17 @@ impl Core {
     /// Downloads a release asset (API url) to `dest`. Progress via `download_progress("update")`.
     pub async fn download_update(&self, asset_api_url: String, token: Option<String>, dest: String) -> Result<u64, CoreError> {
         update::download(&asset_api_url, token.as_deref(), &dest, &self.progress).await
+    }
+}
+
+impl Core {
+    fn stats_page_inner(&self, range: &str, tz_offset_min: i32) -> Result<(Vec<insights::PlayRow>, StatsPage), CoreError> {
+        let rows = self.db.play_rows(0)?;
+        let slots = self.db.playlist_slots().unwrap_or_default();
+        let ids: HashMap<String, String> = self.db.kv_prefix("stats_album:").into_iter().collect();
+        let goal = self.db.kv_get(insights::GOAL_KEY).and_then(|v| v.parse().ok()).unwrap_or(insights::DEFAULT_GOAL);
+        let page = insights::build_page(&rows, &slots, range, now(), tz_offset_min, goal, &ids);
+        Ok((rows, page))
     }
 }
 

@@ -84,6 +84,16 @@ impl Db {
         let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.query_row("SELECT v FROM kv WHERE k=?1", [k], |r| r.get(0)).optional().ok().flatten()
     }
+    /// All kv pairs whose key starts with `prefix` (prefix stripped).
+    pub fn kv_prefix(&self, prefix: &str) -> Vec<(String, String)> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let Ok(mut st) = c.prepare("SELECT k,v FROM kv WHERE substr(k,1,?2)=?1") else { return vec![] };
+        let r = st
+            .query_map(params![prefix, prefix.chars().count() as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map(|it| it.filter_map(|x| x.ok()).map(|(k, v)| (k.chars().skip(prefix.chars().count()).collect(), v)).collect())
+            .unwrap_or_default();
+        r
+    }
     pub fn kv_del(&self, k: &str) -> Result<(), CoreError> {
         let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         c.execute("DELETE FROM kv WHERE k=?1", [k]).map_err(e)?;
@@ -263,6 +273,75 @@ impl Db {
             })
             .map_err(e)?;
         Ok(rows.filter_map(|x| x.ok()).collect())
+    }
+
+    /// Every play since `since` (oldest first) with the full track columns, for the Stats page.
+    pub fn play_rows(&self, since: i64) -> Result<Vec<crate::insights::PlayRow>, CoreError> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut st = c
+            .prepare(
+                "SELECT track_id,title,artist,artist_id,album,thumb,duration_s,started_at,listened_ms,skipped,tz_offset_min FROM plays
+                 WHERE started_at>=?1 ORDER BY started_at",
+            )
+            .map_err(e)?;
+        let rows = st
+            .query_map([since], |r| {
+                Ok(crate::insights::PlayRow {
+                    track_id: r.get(0)?,
+                    title: r.get(1)?,
+                    artist: r.get(2)?,
+                    artist_id: r.get(3)?,
+                    album: r.get(4)?,
+                    thumb: r.get(5)?,
+                    duration_s: r.get::<_, i64>(6)?.max(0) as u32,
+                    at: r.get(7)?,
+                    ms: r.get::<_, i64>(8)?.max(0),
+                    skipped: r.get::<_, i64>(9)? != 0,
+                    tz: r.get::<_, i64>(10)? as i32,
+                })
+            })
+            .map_err(e)?;
+        Ok(rows.filter_map(|x| x.ok()).collect())
+    }
+
+    /// (playlist id, playlist title, position, track id) for every track of every saved playlist.
+    pub fn playlist_slots(&self) -> Result<Vec<(String, String, u32, String)>, CoreError> {
+        let c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let mut st = c
+            .prepare(
+                "SELECT t.playlist_id, p.title, t.pos, t.json FROM playlist_tracks t JOIN playlists p ON p.id=t.playlist_id ORDER BY t.playlist_id, t.pos",
+            )
+            .map_err(e)?;
+        let rows = st
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?)))
+            .map_err(e)?;
+        Ok(rows
+            .filter_map(|x| x.ok())
+            .filter_map(|(id, title, pos, json)| {
+                let t: Track = serde_json::from_str(&json).ok()?;
+                Some((id, title, pos.max(0) as u32, t.id))
+            })
+            .collect())
+    }
+
+    /// Put a track back at `pos` (undo of `remove_from_playlist`); positions after it shift down.
+    pub fn insert_into_playlist(&self, id: &str, pos: i64, t: &Track) -> Result<(), CoreError> {
+        let mut c = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let tx = c.transaction().map_err(e)?;
+        let mut rows: Vec<String> = {
+            let mut st = tx.prepare("SELECT json FROM playlist_tracks WHERE playlist_id=?1 ORDER BY pos").map_err(e)?;
+            let r = st.query_map([id], |r| r.get::<_, String>(0)).map_err(e)?.filter_map(|x| x.ok()).collect();
+            r
+        };
+        let at = (pos.max(0) as usize).min(rows.len());
+        rows.insert(at, serde_json::to_string(t).unwrap_or_default());
+        tx.execute("DELETE FROM playlist_tracks WHERE playlist_id=?1", [id]).map_err(e)?;
+        for (i, j) in rows.iter().enumerate() {
+            tx.execute("INSERT INTO playlist_tracks(playlist_id,pos,json) VALUES(?1,?2,?3)", params![id, i as i64, j]).map_err(e)?;
+        }
+        tx.commit().map_err(e)?;
+        self.bump();
+        Ok(())
     }
 
     pub fn play_days(&self) -> Result<Vec<i64>, CoreError> {
