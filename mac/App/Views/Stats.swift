@@ -49,6 +49,7 @@ final class StatsModel: ObservableObject {
 }
 
 func hm(_ min: Int) -> String { min >= 60 ? "\(min / 60)h \(min % 60)m" : "\(min)m" }
+func playsLabel(_ n: Int) -> String { n == 1 ? "1 play" : "\(n) plays" }
 func hourName(_ h: Int) -> String { h == 0 ? "12 AM" : h < 12 ? "\(h) AM" : h == 12 ? "12 PM" : "\(h - 12) PM" }
 
 /// Always-on listening stats (computed by the core from the local play log).
@@ -96,12 +97,12 @@ struct StatsView: View {
         } else {
             HStack(alignment: .top, spacing: 16) {
                 if let a = s.topArtists.first {
-                    ArtCard(art: a.thumb, chip: "Top artist", title: a.name, meta: "\(hm(Int(a.minutes))) · \(a.plays) plays",
+                    ArtCard(art: a.thumb, chip: "Top artist", title: a.name, meta: "\(hm(Int(a.minutes))) · \(playsLabel(Int(a.plays)))",
                             open: { if !a.id.isEmpty { nav.push(.artist(a.id)) } },
                             play: { let r = s.range; Task { if let mix = await Engine.off({ try Engine.core.statsMix(range: r, artist: a.name, tzOffsetMin: Engine.tzMinutes) }), !mix.isEmpty { Player.shared.play(mix, index: 0, source: a.name) } } })
                 }
                 if let t = s.topTracks.first {
-                    ArtCard(art: t.track.thumb, chip: "On repeat", title: t.track.title, meta: "\(t.plays) plays · \(t.minutes) min",
+                    ArtCard(art: t.track.thumb, chip: "On repeat", title: t.track.title, meta: "\(playsLabel(Int(t.plays))) · \(t.minutes) min",
                             open: { Player.shared.play([t.track], index: 0, source: "On repeat") },
                             play: { Player.shared.play([t.track], index: 0, source: "On repeat") })
                 }
@@ -572,7 +573,7 @@ private struct TopAlbums: View {
                         VStack(alignment: .leading, spacing: 3) {
                             ArtView(url: a.thumb, size: 128, radius: 12)
                             Text(a.name).font(theme.ui(13, .semibold)).foregroundStyle(p.txt).lineLimit(1)
-                            Text("\(a.artist) · \(a.plays) plays").font(theme.ui(11.5, .medium)).foregroundStyle(p.t2).lineLimit(1)
+                            Text("\(a.artist) · \(playsLabel(Int(a.plays)))").font(theme.ui(11.5, .medium)).foregroundStyle(p.t2).lineLimit(1)
                         }.frame(width: 128)
                     }.buttonStyle(PressStyle()).enter(i)
                 }
@@ -673,7 +674,7 @@ private struct DayPlaysSheet: View {
             }
             if let ps = plays {
                 let min = ps.reduce(0) { $0 + Int($1.listenedS) } / 60
-                Text("\(ps.count) plays · \(hm(min))").font(theme.num(12)).foregroundStyle(p.t2)
+                Text("\(playsLabel(ps.count)) · \(hm(min))").font(theme.num(12)).foregroundStyle(p.t2)
                 let tracks = ps.reduce(into: [Track]()) { acc, e in if !acc.contains(where: { $0.id == e.track.id }) { acc.append(e.track) } }
                 ScrollView {
                     VStack(spacing: 0) {
@@ -738,7 +739,7 @@ struct RecapCard: View {
                     }
                     Text("m").font(.custom("Manrope", size: 20).weight(.semibold)).foregroundStyle(dim)
                 }.foregroundStyle(white).padding(.top, 14)
-                Text("\(r.plays) plays" + (r.changePercent.map { " · \($0 >= 0 ? "+" : "")\($0)% vs last \(r.range == "month" ? "month" : "week")" } ?? ""))
+                Text(playsLabel(Int(r.plays)) + (r.changePercent.map { " · \($0 >= 0 ? "+" : "")\($0)% vs last \(r.range == "month" ? "month" : "week")" } ?? ""))
                     .font(.custom("Manrope", size: 13).weight(.medium)).foregroundStyle(accent)
                 if let a = r.topArtist {
                     HStack(spacing: 16) {

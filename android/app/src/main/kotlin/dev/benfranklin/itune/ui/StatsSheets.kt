@@ -64,6 +64,7 @@ import dev.benfranklin.itune.ui.components.press
 import dev.benfranklin.itune.ui.screens.GlassPill
 import dev.benfranklin.itune.ui.screens.StatsCache
 import dev.benfranklin.itune.ui.screens.hm
+import dev.benfranklin.itune.ui.screens.playsLabel
 import dev.benfranklin.itune.ui.screens.tzMin
 import dev.benfranklin.itune.ui.theme.LocalColors
 import dev.benfranklin.itune.ui.theme.T
@@ -86,7 +87,7 @@ internal fun StatsDaySheet(s: AppState, d: Sheet.StatsDay) {
         Text(d.title, style = T.ui(18.sp, FontWeight.Bold), modifier = Modifier.padding(top = 4.dp))
         val p = plays
         val min = p?.sumOf { it.listenedS.toLong() }?.div(60)?.toInt() ?: 0
-        Text(if (p == null) " " else "${p.size} plays · ${hm(min)}", style = T.num(12.sp, color = c.t2), modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+        Text(if (p == null) " " else "${playsLabel(p.size)} · ${hm(min)}", style = T.num(12.sp, color = c.t2), modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
         if (p != null && p.isEmpty()) Text("Nothing played.", style = T.ui(13.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(vertical = 12.dp))
         val tracks = remember(p) { p.orEmpty().map { it.track }.distinctBy { it.id } }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 480.dp)) {
@@ -280,7 +281,7 @@ object RecapRenderer {
         }
         cv.drawText("m", x, 600f, unit)
         val sub = buildString {
-            append("${r.plays} plays")
+            append(playsLabel(r.plays.toInt()))
             r.changePercent?.let { append(" · ${if (it >= 0) "+" else ""}$it% vs last ${if (r.range == "month") "month" else "week"}") }
         }
         cv.drawText(sub, L, 680f, paint(med, 40f, acc))

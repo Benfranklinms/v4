@@ -150,6 +150,9 @@ private fun rangeWord(r: String) = when (r) {
     else -> "lately"
 }
 
+/** "1 play", "12 plays" */
+fun playsLabel(n: Int): String = if (n == 1) "1 play" else "$n plays"
+
 /** "1h 41m", "58m" */
 fun hm(min: Int): String = if (min >= 60) "${min / 60}h ${min % 60}m" else "${min}m"
 
@@ -536,7 +539,7 @@ private fun ArtCards(s: AppState, x: StatsPage) {
     Row(Modifier.padding(top = 12.dp).fillMaxWidth().enter(1), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         if (a != null) {
             ArtCard(
-                Modifier.weight(1f), a.thumb, "Top artist", a.name, "${hm(a.minutes.toInt())} · ${a.plays} plays", circle = false,
+                Modifier.weight(1f), a.thumb, "Top artist", a.name, "${hm(a.minutes.toInt())} · ${playsLabel(a.plays.toInt())}", circle = false,
                 tag = "stats_top_artist", playTag = "stats_play_artist",
                 onOpen = { if (a.id.isNotEmpty()) s.push(Dest.Artist(a.id)) },
             ) {
@@ -548,7 +551,7 @@ private fun ArtCards(s: AppState, x: StatsPage) {
         } else Spacer(Modifier.weight(1f))
         if (t != null) {
             ArtCard(
-                Modifier.weight(1f), t.track.thumb, "On repeat", t.track.title, "${t.plays} plays · ${t.minutes} min", circle = false,
+                Modifier.weight(1f), t.track.thumb, "On repeat", t.track.title, "${playsLabel(t.plays.toInt())} · ${t.minutes} min", circle = false,
                 tag = "stats_on_repeat", playTag = "stats_play_repeat",
                 onOpen = { Playback.play(ctx, listOf(t.track), 0, "On repeat") },
             ) { Playback.play(ctx, listOf(t.track), 0, "On repeat") }
@@ -706,7 +709,7 @@ private fun TopAlbums(s: AppState, x: StatsPage) {
                 ) {
                     Artwork(a.thumb, 132.dp, 14.dp)
                     Text(a.name, style = T.ui(13.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
-                    Text("${a.artist} · ${a.plays} plays", style = T.ui(12.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${a.artist} · ${playsLabel(a.plays.toInt())}", style = T.ui(12.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
