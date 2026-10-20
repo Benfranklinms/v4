@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -169,10 +171,10 @@ fun TrackListPage(
     androidx.activity.compose.BackHandler(enabled = showSearch && s.sheet == null && !s.nowPlaying) { closeSearch() }
     // keyboard height: rows end above the keyboard while it is up, above the mini player / nav otherwise
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val imePx = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
+    val imePx = WindowInsets.ime.getBottom(density)
     val imeDp = with(density) { imePx.toDp() }
     val navInset = dev.benfranklin.itune.ui.components.bottomInset()
-    val bottomPad = if (imeDp > 0.dp) maxOf(imeDp + 12.dp, if (showSearch) 0.dp else navInset) else navInset
+    val bottomPad = if (imePx > 0) (if (showSearch) imeDp + 12.dp else androidx.compose.ui.unit.max(imeDp + 12.dp, navInset)) else navInset
     if (showSearch) LaunchedEffect(imePx > 0) { android.util.Log.i("itune-filter", "ime=$imePx search=top") }
     val keyCache = remember { java.util.concurrent.atomic.AtomicReference<Pair<List<Track>, List<String>>?>(null) }
     val hits by androidx.compose.runtime.produceState<FilterHits?>(null, tracks, query) {
