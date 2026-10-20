@@ -949,4 +949,35 @@ mod tests {
         let only = artist_mix(&rows, &p, now(), TZ, Some("Sushin Shyam"), 50);
         assert_eq!(only.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec!["b", "c"]);
     }
+
+    #[test]
+    fn db_rows_slots_and_playlist_undo() {
+        let d = tempfile::tempdir().unwrap();
+        let db = crate::db::Db::open(&format!("{}/t.db", d.path().display())).unwrap();
+        let t = |id: &str| Track {
+            id: id.into(),
+            title: id.to_uppercase(),
+            artists: "A".into(),
+            artist_id: None,
+            album: Some("Al".into()),
+            album_id: None,
+            duration_s: 100,
+            thumb: String::new(),
+        };
+        db.create_playlist("p1", "Night drive", "", "", "local", &[t("x"), t("s"), t("y")]).unwrap();
+        db.record_play(&t("s"), 1000, 2_000, true, 330, "device").unwrap();
+        db.record_play(&t("x"), 2000, 90_000, false, 330, "device").unwrap();
+        let rows = db.play_rows(0).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows[0].skipped && rows[0].tz == 330 && rows[1].ms == 90_000);
+        let slots = db.playlist_slots().unwrap();
+        assert!(slots.contains(&("p1".to_string(), "Night drive".to_string(), 1, "s".to_string())));
+        db.remove_from_playlist("p1", 1).unwrap();
+        assert_eq!(db.playlist_tracks("p1").unwrap().iter().map(|x| x.id.clone()).collect::<Vec<_>>(), vec!["x", "y"]);
+        db.insert_into_playlist("p1", 1, &t("s")).unwrap();
+        assert_eq!(db.playlist_tracks("p1").unwrap().iter().map(|x| x.id.clone()).collect::<Vec<_>>(), vec!["x", "s", "y"]);
+        db.kv_set("stats_album:al", "MPRE1").unwrap();
+        db.kv_set("other", "z").unwrap();
+        assert_eq!(db.kv_prefix("stats_album:"), vec![("al".to_string(), "MPRE1".to_string())]);
+    }
 }
