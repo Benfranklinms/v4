@@ -580,14 +580,14 @@ struct TrackListPage: View {
     let tracks: [Track]?
     let source: String
     var circle = false
+    /// Artist pages (a handful of top songs) have no in-list search.
+    var searchable = true
     /// Album pages hide the album column (it would repeat the page title on every row).
     var showAlbum = true
     var playlistId: String? = nil
     var actions: AnyView? = nil
     var extra: AnyView? = nil
     var empty: String = "Nothing here yet."
-    /// Artist pages (a handful of top songs) have no in-list search.
-    var searchable = true
     @State private var query = ""
     @State private var hits: ListHits?
 
