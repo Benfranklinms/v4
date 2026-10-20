@@ -23,7 +23,7 @@ adb logcat -c
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity
 sleep 20
 adb exec-out screencap -p > "$O/launch.png"
-timeout 1800 bash scripts/ui-smoke.sh "$O/ui"; UI=$?
+timeout 2100 bash scripts/ui-smoke.sh "$O/ui"; UI=$?
 echo "ui-smoke exit=$UI"
 timeout 30 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 3
 timeout 600 adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 500 -s 42 -v 600 > "$O/monkey.txt" 2>&1 || true

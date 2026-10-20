@@ -9,8 +9,8 @@ STEP=0
 FAILS=0
 log() { echo "[ui] $*" | tee -a "$O/steps.txt"; }
 
-# whole walk must fit well inside the CI job (60 min incl. build): past the budget every wait fails fast
-BUDGET=${UI_BUDGET:-1500}
+# whole walk must fit well inside the CI job (60 min incl. build; ~29 min since the 0.2.8 Stats steps): past the budget every wait fails fast
+BUDGET=${UI_BUDGET:-1750}
 OVER=0
 dump() {
   local t0=$SECONDS
@@ -1043,20 +1043,28 @@ if B=$(node_bounds stats_chart); then
   if wait_for resource-id stats_day_sheet 4; then log "stats day sheet OK: $(stats_log | grep "day sheet" | tail -n 1 | sed 's/.*itune-stats: //')"; shot stats-day; back
   else log "WARN: today's bar opened no day sheet (no plays today?)"; fi
 else log "MISSING (required): stats_chart"; FAILS=$((FAILS + 1)); fi
-# clock: tap an hour -> it springs open with that hour's tracks
-if seek_id stats_clock_face; then
-  dump; read -r X1 Y1 X2 Y2 <<< "$(node_bounds stats_clock_face)"
-  if [ $(( (Y1 + Y2) / 2 )) -gt $(py 62) ]; then scroll_down; dump; read -r X1 Y1 X2 Y2 <<< "$(node_bounds stats_clock_face)"; fi
+# clock: tap an hour -> it springs open with that hour's tracks (one pass down the page, no extra dumps)
+CLOCK=0
+for _ in 1 2 3 4 5 6 7; do
+  dump
+  if B=$(node_bounds stats_clock_face); then
+    read -r X1 Y1 X2 Y2 <<< "$B"
+    if [ "$Y1" -gt $(py 12) ] && [ "$Y2" -lt $(py 80) ]; then CLOCK=1; break; fi
+  fi
+  adb shell input swipe $(px 50) $(py 62) $(px 50) $(py 34) 300; sleep 0.8
+done
+if [ $CLOCK = 1 ]; then
   adb shell input tap $(( X2 - (X2 - X1) / 5 )) $(( Y1 + (Y2 - Y1) / 5 )); sleep 1.5
   if wait_for resource-id stats_hour_detail 6; then log "stats clock hour OK: $(stats_log | grep "clock hour" | tail -n 1 | sed 's/.*itune-stats: //')"; shot stats-clock-hour
   else log "MISSING (required): stats clock hour detail"; FAILS=$((FAILS + 1)); shot missing-clock-hour; fi
-else log "MISSING (required): stats clock"; FAILS=$((FAILS + 1)); fi
-# daily goal picker
-if seek_id goal_edit; then id goal_edit 0 && { id goal_15 0 && log "goal set 15: $(stats_log | grep "goal set" | tail -n 1 | sed 's/.*itune-stats: //')"; }; fi
-for _ in 1 2 3 4 5 6; do dump; find_node resource-id stats_skipped >/dev/null && break; scroll_down; done
+else log "MISSING (required): stats clock"; FAILS=$((FAILS + 1)); shot missing-stats-clock; fi
+# daily goal picker (optional)
+scroll_down; dump
+if find_node resource-id goal_edit >/dev/null; then id goal_edit 0 && { id goal_15 0 && log "goal: $(stats_log | grep "goal set" | tail -n 1 | sed 's/.*itune-stats: //')"; }; fi
 shot stats-lower
-# Recap: 9:16 card rendered to PNG, Save
-for _ in 1 2 3 4 5 6; do scroll_up; done
+# Recap: 9:16 card rendered to PNG, Save (the pinned bar's title scrolls back to the top)
+id stats_bar 0 3 || { scroll_up; scroll_up; scroll_up; }
+sleep 1
 timeout 10 adb logcat -c >/dev/null 2>&1
 id stats_recap
 if wait_for resource-id recap_card 8; then

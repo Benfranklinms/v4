@@ -223,10 +223,15 @@ fun StatsScreen(s: AppState) {
                 if (x.topTracks.isNotEmpty()) topSongs(this, s, x)
                 if (x.topArtists.isNotEmpty()) item("artists") { TopArtists(s, x) }
                 if (x.topAlbums.isNotEmpty()) item("albums") { TopAlbums(s, x) }
+            }
+            // the clock and the goal show from day one (an empty clock reads "Nothing yet")
+            if (x != null) {
                 item("clock") { ClockCard(x, range) }
                 item("goal") { GoalCard(s, x) }
-                if (x.newArtistsReady && x.newArtists.isNotEmpty()) item("new") { NewToYou(s, x, range) }
-                if (x.skipped.isNotEmpty()) item("skips") { SkippedOften(s, x) }
+                if (!empty) {
+                    if (x.newArtistsReady && x.newArtists.isNotEmpty()) item("new") { NewToYou(s, x, range) }
+                    if (x.skipped.isNotEmpty()) item("skips") { SkippedOften(s, x) }
+                }
                 item("end") { Spacer(Modifier.height(8.dp)) }
             }
         }
