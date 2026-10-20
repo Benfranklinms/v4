@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -97,14 +98,14 @@ fun BackBar(s: AppState, title: String = "", trailing: @Composable () -> Unit = 
 
 private class FilterHits(val list: List<Track>, val idx: List<Int>)
 
-/** Glass search pill under a list's header (same look as the Search tab field, smaller). */
+/** Glass search pill pinned in a list's top bar next to Back (same look as the Search tab field, smaller). */
 @Composable
-private fun ListSearchField(q: String, onChange: (String) -> Unit, autoFocus: Boolean, onClose: () -> Unit, onDone: () -> Unit) {
+private fun ListSearchField(q: String, onChange: (String) -> Unit, autoFocus: Boolean, onClose: () -> Unit, modifier: Modifier = Modifier, onDone: () -> Unit) {
     val c = LocalColors.current
     val fr = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(Unit) { if (autoFocus) runCatching { fr.requestFocus() } }
     Row(
-        Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(40.dp).glass(RoundedCornerShape(20.dp), dark = 0.40f, sheen = 0.07f, rim = 0.65f).padding(start = 14.dp, end = 6.dp),
+        modifier.fillMaxWidth().height(40.dp).glass(RoundedCornerShape(20.dp), dark = 0.40f, sheen = 0.07f, rim = 0.65f).padding(start = 14.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(androidx.compose.material.icons.Icons.Rounded.Search, null, tint = c.t2, modifier = Modifier.size(16.dp))
@@ -151,6 +152,28 @@ fun TrackListPage(
     // the pill stays tucked away (no layout change) until the search button in the header opens it
     var searchOpen by androidx.compose.runtime.saveable.rememberSaveable(source) { mutableStateOf(false) }
     val showSearch = searchable && !tracks.isNullOrEmpty() && (searchOpen || query.isNotEmpty())
+    val scope = rememberCoroutineScope()
+    // where the page was when search opened: the header folds away while searching and the scroll comes back on close
+    var savedScroll by remember(source) { mutableStateOf<Pair<Int, Int>?>(null) }
+    fun openSearch() {
+        savedScroll = list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
+        searchOpen = true
+        scope.launch { list.scrollToItem(0) }
+    }
+    fun closeSearch() {
+        query = ""; searchOpen = false; focus.clearFocus()
+        val back = savedScroll; savedScroll = null
+        scope.launch { list.scrollToItem(back?.first ?: 0, back?.second ?: 0) }
+    }
+    // Back closes search first (after the keyboard), never the page; sheets / Now Playing keep their own Back
+    androidx.activity.compose.BackHandler(enabled = showSearch && s.sheet == null && !s.nowPlaying) { closeSearch() }
+    // keyboard height: rows end above the keyboard while it is up, above the mini player / nav otherwise
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val imePx = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(density)
+    val imeDp = with(density) { imePx.toDp() }
+    val navInset = dev.benfranklin.itune.ui.components.bottomInset()
+    val bottomPad = if (imeDp > 0.dp) maxOf(imeDp + 12.dp, if (showSearch) 0.dp else navInset) else navInset
+    if (showSearch) LaunchedEffect(imePx > 0) { android.util.Log.i("itune-filter", "ime=$imePx search=top") }
     val keyCache = remember { java.util.concurrent.atomic.AtomicReference<Pair<List<Track>, List<String>>?>(null) }
     val hits by androidx.compose.runtime.produceState<FilterHits?>(null, tracks, query) {
         val tl = tracks
@@ -175,9 +198,16 @@ fun TrackListPage(
     }
     Box(Modifier.fillMaxSize()) {
         Glow(c.glow, Modifier.fillMaxWidth().height(420.dp), alpha = 0.28f, centerY = 0.2f)
-        LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
+        LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = bottomPad)) {
             item {
                 Column(Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                  // while searching the art / title / buttons fold up under the top bar so the rows sit right under the pill
+                  androidx.compose.animation.AnimatedVisibility(
+                    !showSearch,
+                    enter = if (reduce) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.expandVertically(dev.benfranklin.itune.ui.components.glassSpring(), expandFrom = Alignment.Top) + androidx.compose.animation.fadeIn(),
+                    exit = if (reduce) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.shrinkVertically(dev.benfranklin.itune.ui.components.glassSpring(), shrinkTowards = Alignment.Top) + androidx.compose.animation.fadeOut(),
+                  ) {
+                  Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     val off = if (list.firstVisibleItemIndex == 0) list.firstVisibleItemScrollOffset else 0
                     Box(Modifier.graphicsLayer { val k = 1f - (off / 900f).coerceIn(0f, 0.35f); scaleX = k; scaleY = k; alpha = 1f - (off / 700f).coerceIn(0f, 1f) }) {
                         Artwork(art, 220.dp, 14.dp, circle = circleArt)
@@ -198,23 +228,16 @@ fun TrackListPage(
                             Box(
                                 Modifier.size(44.dp).glass(CircleShape, dark = 0.34f, sheen = 0.08f, rim = 0.65f)
                                     .then(if (showSearch) Modifier.background(c.txt.copy(alpha = 0.12f), CircleShape) else Modifier)
-                                    .press { if (showSearch) { query = ""; searchOpen = false; focus.clearFocus() } else searchOpen = true }
+                                    .press { if (showSearch) closeSearch() else openSearch() }
                                     .testTag("list_search_open"),
                                 contentAlignment = Alignment.Center,
                             ) { Icon(Icons.Rounded.Search, "Search", tint = c.txt, modifier = Modifier.size(20.dp)) }
                         }
                     }
                     Spacer(Modifier.height(16.dp))
-                    androidx.compose.animation.AnimatedVisibility(
-                        showSearch,
-                        enter = if (reduce) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.expandVertically(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeIn(),
-                        exit = if (reduce) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.shrinkVertically(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeOut(),
-                    ) {
-                        Column {
-                            ListSearchField(query, { query = it }, autoFocus = searchOpen && query.isEmpty(), onClose = { searchOpen = false; focus.clearFocus() }) { focus.clearFocus() }
-                            Spacer(Modifier.height(8.dp))
-                        }
-                    }
+                  }
+                  }
+                  if (showSearch) Spacer(Modifier.height(8.dp))
                 }
             }
             if (tracks == null) item { Shimmers() }
@@ -249,10 +272,25 @@ fun TrackListPage(
             if (loadingMore) item(key = "more") { Box(Modifier.fillMaxWidth().padding(vertical = 18.dp).testTag("loading_more"), contentAlignment = Alignment.Center) { Text("Loading more…", style = T.ui(12.sp, FontWeight.Medium, c.t2)) } }
             extra()
         }
-        val barA = androidx.compose.animation.core.animateFloatAsState(if (collapsed) 1f else 0f, dev.benfranklin.itune.ui.components.glassSpring(), label = "dbar")
+        val barA = androidx.compose.animation.core.animateFloatAsState(if (collapsed || showSearch) 1f else 0f, dev.benfranklin.itune.ui.components.glassSpring(), label = "dbar")
         Box(Modifier.fillMaxWidth()) {
             Box(Modifier.matchParentSize().graphicsLayer { alpha = barA.value }.glass(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), dark = 0.62f, sheen = 0.04f, rim = 0.5f))
-            BackBar(s, if (collapsed) title else "")
+            // the search pill lives up here, next to Back, so it and the rows under it stay above the keyboard
+            Row(Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                dev.benfranklin.itune.ui.components.GlassIconButton(Icons.Rounded.ArrowBack, "Back", modifier = Modifier.padding(start = 8.dp, end = 10.dp), size = 36.dp, iconSize = 20.dp, tag = "back") { if (showSearch) closeSearch() else s.pop() }
+                androidx.compose.animation.AnimatedContent(
+                    showSearch, Modifier.weight(1f),
+                    transitionSpec = {
+                        if (reduce) androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None
+                        else (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) + androidx.compose.animation.scaleIn(dev.benfranklin.itune.ui.components.glassSpring(), initialScale = 0.92f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f))) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(140))
+                    },
+                    contentAlignment = Alignment.CenterStart,
+                    label = "listSearchBar",
+                ) { open ->
+                    if (open) ListSearchField(query, { query = it }, autoFocus = query.isEmpty(), onClose = { closeSearch() }, modifier = Modifier.padding(end = 8.dp)) { focus.clearFocus() }
+                    else Text(if (collapsed) title else "", style = T.ui(15.sp, FontWeight.Bold), modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
         }
     }
 }

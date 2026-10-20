@@ -151,6 +151,8 @@ tap_at() { adb shell input tap $(px $1) $(py $2); sleep 0.6; }
 fg() { timeout 10 adb shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mFocusedApp" | grep -q "$PKG"; }
 # if a BACK meant for the keyboard left the app (IME state misreported on some images), bring it back
 refocus() { fg || { log "app left the foreground: relaunching"; timeout 10 adb shell cmd statusbar collapse >/dev/null 2>&1; timeout 20 adb shell am start -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null 2>&1; sleep 2; }; }
+# submit / hide the keyboard WITHOUT Back (Back with the emulator's DummyIme reaches the app and pops the page)
+kb_done() { adb shell input keyevent KEYCODE_ENTER; sleep 0.8; if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_ESCAPE; sleep 0.8; fi; refocus; }
 hide_kb() { if adb shell dumpsys input_method | grep -q "mInputShown=true"; then adb shell input keyevent KEYCODE_BACK; sleep 0.8; refocus; fi; }
 # glass chrome: the bottom nav hides while scrolling down and Now Playing covers it. Close NP, then tap the
 # tab; if the nav is hidden, a small scroll up springs it back and we retry.
@@ -801,9 +803,15 @@ if id search_album 1 30; then
     log "filter: ${FL:-none}"
     FH=$(echo "$FL" | sed -n 's/.*hits=\([0-9]*\) of=\([0-9]*\).*/\1/p'); FN=$(echo "$FL" | sed -n 's/.*of=\([0-9]*\).*/\1/p')
     if [ -n "$FH" ] && [ "$FH" -ge 1 ] && [ "$FH" -lt "${FN:-0}" ]; then log "list filter ok ($FH of $FN)"; else log "MISSING (required): list filter narrows the album (got '${FL}')"; FAILS=$((FAILS + 1)); fi
-    hide_kb; shot list-filter
-    # the filtered rows sit under the mini player / nav on small screens: lift them into view first
-    scroll_down
+    # keyboard still up: the pill must be pinned at the top and a filtered row visible above the keyboard
+    dump; shot list-search-keyboard
+    IME=$(timeout 10 adb logcat -d -s itune-filter:I 2>/dev/null | grep "ime=" | tail -n 1 | sed -n 's/.*ime=\([0-9]*\).*/\1/p')
+    KBTOP=$(( SH - ${IME:-0} ))
+    LSY=$(node_y list_search); TRY=$(node_y track_row)
+    log "list search: pill y=${LSY:-none} first row y=${TRY:-none} keyboard px=${IME:-0} (top at $KBTOP of $SH)"
+    if [ -n "$LSY" ] && [ "$LSY" -lt $(( SH * 18 / 100 )) ]; then log "search pill at the top ok"; else log "MISSING (required): search pill pinned at the top (y=${LSY:-none})"; FAILS=$((FAILS + 1)); fi
+    if [ -n "$TRY" ] && [ "$TRY" -gt "${LSY:-0}" ] && [ "$TRY" -lt "$KBTOP" ]; then log "filtered row visible above the keyboard ok"; else log "MISSING (required): filtered row visible with the keyboard open (row y=${TRY:-none}, keyboard top $KBTOP)"; FAILS=$((FAILS + 1)); fi
+    kb_done; shot list-filter
     if wait_for resource-id track_row 5; then
       XY=$(find_node resource-id track_row); adb shell input tap $XY; sleep 2; crash_check "filtered row"
       PL=$(timeout 10 adb logcat -d -s itune-filter:I 2>/dev/null | grep "play idx=" | tail -n 1)
@@ -815,7 +823,7 @@ if id search_album 1 30; then
     dump; if ! find_node resource-id list_search >/dev/null; then for _ in 1 2 3; do scroll_up; done; fi
     dump; find_node resource-id list_search >/dev/null || id list_search_open
     id list_search
-    clear_field; type_text "zzqxw"; sleep 1.5; hide_kb
+    clear_field; type_text "zzqxw"; sleep 1.5; kb_done
     wait_for resource-id list_no_matches 5 && log "no matches state ok" || { log "MISSING (required): No matches"; FAILS=$((FAILS + 1)); shot missing-no-matches; }
     id list_search_clear
     wait_for resource-id track_number 5 && log "clear restores the full list" || { log "MISSING (required): full list after clear"; FAILS=$((FAILS + 1)); }
@@ -823,6 +831,14 @@ if id search_album 1 30; then
     # × on the empty field tucks the pill away again (header back to its usual layout)
     id list_search_clear
     sleep 1; dump; find_node resource-id list_search >/dev/null && { log "MISSING (required): search pill closes on × when empty"; FAILS=$((FAILS + 1)); } || log "search pill closed"
+    # Back closes search (header springs back), not the album page
+    id list_search_open 1 10
+    if id list_search 1 10; then
+      type_text "a"; sleep 1; kb_done
+      adb shell input keyevent KEYCODE_BACK; sleep 1.5; crash_check "back closes search"; dump
+      if find_node resource-id list_search >/dev/null; then log "MISSING (required): Back closes list search"; FAILS=$((FAILS + 1));
+      elif find_node resource-id list_search_open >/dev/null; then log "back closes search, page kept ok"; else log "MISSING (required): album page kept after Back closed search"; FAILS=$((FAILS + 1)); shot missing-back-search; fi
+    fi
   fi
   id save_button
   wait_for text "Saved to Library" 6 || { log "MISSING (required): Saved to Library toast"; FAILS=$((FAILS + 1)); }
