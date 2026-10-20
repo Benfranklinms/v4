@@ -117,6 +117,7 @@ import dev.benfranklin.itune.ui.theme.LocalLyricsScale
 import dev.benfranklin.itune.ui.theme.LocalReduceMotion
 import dev.benfranklin.itune.ui.theme.T
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import dev.benfranklin.itune.ui.components.GlassIconButton
 import dev.benfranklin.itune.ui.components.glass
 
@@ -148,7 +149,7 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
     val swipe = remember(reduce, s) { NpSwipe(drag, cs, reduce, h, density.density, isOpen = { s.nowPlaying }) { s.nowPlaying = false } }
     swipe.heightPx = heightPx
     val scroll = rememberScrollState()
-    // the title and art morph to the mini player only while the page is at the top; scrolled, they stay plain
+    // the title morphs to the mini player only while the page is at the top; scrolled, it stays plain
     // content (a shared element is drawn in the transition overlay at its last bounds, which pinned the title
     // over the controls while the page scrolled under it)
     val atTop by remember { androidx.compose.runtime.derivedStateOf { scroll.value <= 1 } }
@@ -218,7 +219,7 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                     Box(Modifier.fillMaxWidth().padding(top = 14.dp), contentAlignment = Alignment.Center) {
                         Box(
                             Modifier
-                                .then(if (atTop) Modifier.sharedElement(artKey, scope, boundsTransform = { _, _ -> spring(dampingRatio = 0.82f, stiffness = 300f) }) else Modifier)
+                                .sharedElement(artKey, scope, boundsTransform = { _, _ -> spring(dampingRatio = 0.82f, stiffness = 300f) })
                                 .graphicsLayer {
                                     translationX = swipeA; rotationZ = swipeA / 90f
                                     val dp = if (reduce) 0f else (drag.value / heightPx).coerceIn(0f, 0.5f)
@@ -427,10 +428,10 @@ fun Scrubber(modifier: Modifier) {
 }
 
 /**
- * Synced lyrics, karaoke style: the active line fills word by word; the others are slightly smaller and dimmer.
- * Each line is ONE plain text layer (no per-line RenderEffect blur: on phones with live blur that drew the
- * neighbouring lines as smeared, ghosted copies). The frame clock only drives the active line's word fill; the
- * card itself recomposes when the active line changes, not every frame. Auto-scroll pauses while the user drags
+ * Synced lyrics, karaoke style: the active line fills word by word; the others are slightly smaller, dimmer and
+ * softly blurred (look unchanged from 0.2.2). Each line is ONE text layer (scale + blur on the same graphics layer,
+ * Decal edges, no clip). The frame clock only drives the active line's word fill; the card itself recomposes when
+ * the active line changes, not every frame or tick. Auto-scroll pauses while the user drags
  * the lyrics and for a few seconds after.
  */
 @Composable
@@ -444,21 +445,21 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
         lyrics = dev.benfranklin.itune.data.io { App.core.lyrics(tr) }
         loaded = true
     }
-    // frame-smooth position between the 250 ms player ticks (a State, read only where it is needed)
-    val pos = Playback.position.collectAsState()
+    // frame-smooth position between the 250 ms player ticks. The ticks are collected inside the effect (not read in
+    // composition), so the card itself does not recompose on every tick; only the active karaoke line reads the
+    // frame clock, and the active-line index (derivedStateOf below) only invalidates when the line changes
     val playing by Playback.playing.collectAsState()
-    val smooth = remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val smooth = remember { androidx.compose.runtime.mutableLongStateOf(Playback.position.value) }
     val lines = lyrics?.lines.orEmpty()
     val synced = lyrics?.synced == true
-    val karaoke = synced && lines.any { it.words.isNotEmpty() }
-    LaunchedEffect(pos.value, playing, karaoke) {
-        val base = pos.value
-        val t0 = System.nanoTime()
-        smooth.longValue = base
-        // per-frame updates only for word-by-word fill; line-synced lyrics are fine on the player ticks
-        while (playing && karaoke) {
-            withFrameMillis { }
-            smooth.longValue = base + (System.nanoTime() - t0) / 1_000_000
+    LaunchedEffect(playing) {
+        Playback.position.collectLatest { base ->
+            val t0 = System.nanoTime()
+            smooth.longValue = base
+            while (playing) {
+                withFrameMillis { }
+                smooth.longValue = base + (System.nanoTime() - t0) / 1_000_000
+            }
         }
     }
     val active by remember(lines, synced) {
@@ -494,16 +495,25 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
                     val d = if (active < 0) 0 else kotlin.math.abs(i - active)
                     val isActive = i == active
                     val sc by animateFloatAsState(if (isActive || !synced) 1f else 0.94f, spring(dampingRatio = 0.8f, stiffness = 300f), label = "ls")
+                    // depth blur on the neighbouring lines (as before), drawn on the SAME layer as the scale with Decal
+                    // edges and no clip: the old Modifier.blur used Clamp tiling inside a clipped second layer, which
+                    // stretched edge pixels into smeared, ghost-looking copies of the text
+                    val blur by animateFloatAsState(if (isActive || !synced || reduce) 0f else (d.coerceAtMost(3) * 1.2f), tween(300), label = "lb")
                     val color = when {
                         !synced -> c.t2
-                        isActive -> c.txt
                         i < active -> c.t3.copy(alpha = 0.8f)
                         d == 1 -> c.t3
                         else -> c.t4
                     }
                     val style = T.ui(((if (isActive) 20f else 17f) * scale).sp, FontWeight.Bold)
                     val mod = Modifier.padding(vertical = 6.dp)
-                        .graphicsLayer { scaleX = sc; scaleY = sc; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
+                        .graphicsLayer {
+                            scaleX = sc; scaleY = sc; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                            renderEffect = if (Build.VERSION.SDK_INT >= 31 && blur > 0.05f && dev.benfranklin.itune.ui.components.liveBlur) {
+                                val r = blur.dp.toPx()
+                                androidx.compose.ui.graphics.BlurEffect(r, r, androidx.compose.ui.graphics.TileMode.Decal)
+                            } else null
+                        }
                         .press(haptic = false, scaleTo = 0.98f) { if (synced) Playback.seek(l.startMs.toLong()) }
                     if (isActive && l.words.isNotEmpty()) KaraokeLine(l, smooth, style, mod)
                     else Text(l.text, style = style.copy(color = color), modifier = mod)
