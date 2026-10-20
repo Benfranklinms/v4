@@ -116,13 +116,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let c = CrashReporter.takePending() { Nav.shared.pendingCrash = c }
             }
         }
+        Updater.shared.handleLaunchArguments()
         if Smoke.enabled {
             Task { @MainActor in await Smoke.run() }
+        } else if UpdateTest.enabled {
+            Task { @MainActor in await UpdateTest.run() }
         } else {
             Task { @MainActor in await Updater.shared.checkOnLaunch() }
         }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { .terminateNow }
     func applicationWillTerminate(_ notification: Notification) {
         Nav.shared.flushPending()
         Player.shared.saveSession(sync: true)

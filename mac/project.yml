@@ -29,6 +29,6 @@ targets:
         CODE_SIGN_ENTITLEMENTS: App/iTune.entitlements
         ENABLE_HARDENED_RUNTIME: NO
         SWIFT_STRICT_CONCURRENCY: minimal
-        MARKETING_VERSION: "0.2.1"
+        MARKETING_VERSION: "0.2.2"
         CURRENT_PROJECT_VERSION: "3"
         DEAD_CODE_STRIPPING: YES

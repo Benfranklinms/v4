@@ -15,7 +15,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 75
     env:
-      APP_VERSION_NAME: 0.2.1
+      APP_VERSION_NAME: 0.2.2
       APP_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
@@ -38,10 +38,15 @@ jobs:
         run: bash scripts/build-mac.sh
       - name: Smoke
         run: bash scripts/mac-smoke.sh "out/v4-${APP_VERSION_NAME}.dmg"
+      - name: Update smoke
+        if: success() || failure()
+        timeout-minutes: 10
+        run: bash mac/ci/update-smoke.sh "out/v4-${APP_VERSION_NAME}.dmg"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: mac-smoke
           path: |
             out/mac-smoke
+            out/update-smoke
             mac/build/xcodebuild.log
