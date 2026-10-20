@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = (System.getenv("APP_VERSION_CODE") ?: "1").toInt()
-        versionName = System.getenv("APP_VERSION_NAME") ?: "0.2.3"
+        versionName = System.getenv("APP_VERSION_NAME") ?: "0.2.4"
         // APP_ABIS lets the CI smoke test add x86_64 for the emulator; release builds are arm64 only.
         ndk { abiFilters += (System.getenv("APP_ABIS") ?: "arm64-v8a").split(",").map { it.trim() } }
         buildConfigField("String", "UPDATE_REPO", "\"Benfranklinms/v4\"")

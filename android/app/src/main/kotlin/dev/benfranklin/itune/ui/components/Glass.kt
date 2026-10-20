@@ -123,13 +123,15 @@ fun Modifier.glass(
     hazeState: HazeState? = null,
     /** Fill alpha when there is no live blur (emulator, old phones): sheets stay opaque enough that nothing ghosts through. */
     fallbackAlpha: Float? = null,
+    /** Extra colour laid over the blurred backdrop (live blur only); null = none (every glass surface but one). */
+    tint: Color? = null,
 ): Modifier {
     val c = LocalColors.current
     val haze = hazeState ?: LocalHaze.current
     val base = glassBase(c)
     val rimColor = if (c.light) Color.Black else Color.White
     var m = this.clip(shape)
-    m = if (backdrop && haze != null && liveBlur) m.hazeEffect(haze, glassStyle(c, dark, blur))
+    m = if (backdrop && haze != null && liveBlur) m.hazeEffect(haze, glassStyle(c, dark, blur)).let { if (tint != null) it.background(tint) else it }
     else m.background(base.copy(alpha = fallbackAlpha ?: (dark + 0.22f).coerceAtMost(0.96f)))
     if (liteGfx) return m
     return m.drawWithContent {

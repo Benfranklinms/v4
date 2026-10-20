@@ -14,6 +14,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -75,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -261,11 +263,11 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                             tr.title, transitionSpec = { (fadeIn(tween(260)) + androidx.compose.animation.slideInVertically { it / 3 }) togetherWith fadeOut(tween(160)) }, label = "t",
                             modifier = (if (atTop) Modifier.sharedBounds(titleKey, scope) else Modifier).testTag("np_title"),
                         ) { title ->
-                            Text(title, style = T.ui(22.sp, FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            NpLine(title, T.ui(22.sp, FontWeight.Bold), reduce, androidx.compose.ui.text.style.TextAlign.Center)
                         }
-                        Text(
-                            listOfNotNull(tr.artists.split(",")[0], tr.album).joinToString(" · "), style = T.ui(13.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp).press(haptic = false) { tr.artistId?.let { s.push(Dest.Artist(it)) } ?: tr.albumId?.let { s.push(Dest.Album(it)) } },
+                        NpLine(
+                            listOfNotNull(tr.artists.split(",")[0], tr.album).joinToString(" · "), T.ui(13.sp, FontWeight.Medium, c.t2), reduce,
+                            modifier = Modifier.padding(top = 2.dp).press(haptic = false) { tr.artistId?.let { s.push(Dest.Artist(it)) } ?: tr.albumId?.let { s.push(Dest.Album(it)) } }.testTag("np_artist"),
                         )
                     }
                     // glass controls card: progress, times, transport
@@ -342,6 +344,47 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
             }
         }
     }
+}
+
+/**
+ * One Now Playing text line. Fits: drawn exactly as before. Too long: scrolls sideways like Apple Music (1.8 s
+ * pause at the start of every pass, slow, soft faded edges). The marquee offset and the fade are read in the
+ * layout/draw phase only, so a scrolling title never recomposes the screen. Reduce Motion: the old ellipsis.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun NpLine(text: String, style: androidx.compose.ui.text.TextStyle, reduce: Boolean, align: androidx.compose.ui.text.style.TextAlign? = null, modifier: Modifier = Modifier) {
+    if (reduce) {
+        Text(text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align, modifier = modifier)
+        return
+    }
+    // full text width vs the visible width: written at layout, read only by the draw block (draw invalidation only)
+    val fullW = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val viewW = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    Text(
+        text, style = style, maxLines = 1, softWrap = false, textAlign = align,
+        onTextLayout = { fullW.intValue = it.size.width },
+        modifier = modifier
+            .onSizeChanged { viewW.intValue = it.width }
+            .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                if (fullW.intValue > viewW.intValue + 1) {
+                    val f = (14.dp.toPx() / size.width).coerceIn(0f, 0.25f)
+                    drawRect(
+                        Brush.horizontalGradient(0f to Color.Transparent, f to Color.Black, (1f - f) to Color.Black, 1f to Color.Transparent),
+                        blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                    )
+                }
+            }
+            .basicMarquee(
+                iterations = Int.MAX_VALUE,
+                initialDelayMillis = 1800,
+                repeatDelayMillis = 1800,
+                spacing = androidx.compose.foundation.MarqueeSpacing(48.dp),
+                velocity = 28.dp,
+            ),
+    )
 }
 
 /** The next few songs, inline under the controls; "See queue" opens the full sheet. */

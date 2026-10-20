@@ -975,6 +975,40 @@ id "srow_Theme, text and fonts" 0 && { shot appearance-font130; id "srow_See all
 back
 timeout 10 adb shell settings put system font_scale 1.0; sleep 2
 
+# ---------------------------------------------------------------- Start radio from a track menu
+# 0.2.3 bug: the menu's own coroutine scope died with the closed sheet, so the radio never started. Required: the
+# radio call finishes (itune-radio log) and, when it returns songs, Now Playing says "Playing from <title> radio".
+log "== Start radio"
+tab Search
+if ! wait_for resource-id track_row 10; then
+  id search_field 0 && { clear_field; type_text "adele hello"; submit_search "adele hello"; }
+fi
+if wait_for resource-id track_row 30; then
+  timeout 10 adb logcat -c >/dev/null 2>&1
+  id track_more
+  if txt "Start radio"; then
+    RAD=""
+    for _ in $(seq 1 30); do
+      RAD=$(timeout 10 adb logcat -d -s itune-radio:I 2>/dev/null | grep -oE "n=[0-9]+" | tail -n 1 | cut -d= -f2)
+      [ -n "$RAD" ] && break; sleep 1
+    done
+    if [ -z "$RAD" ]; then log "MISSING (required): Start radio never finished (no itune-radio line)"; FAILS=$((FAILS + 1)); shot missing-radio
+    elif [ "$RAD" -gt 0 ]; then
+      sleep 2
+      if id mini_player 0 12 && wait_for text " radio" 10 contains; then log "radio started: $RAD songs, Playing from '... radio'"; shot radio-np
+      else log "MISSING (required): Now Playing source after Start radio"; FAILS=$((FAILS + 1)); shot missing-radio-source; fi
+      close_np
+    else
+      timeout 10 adb logcat -d -s itune-toast:I 2>/dev/null | grep -q "Couldn't start radio" \
+        && log "WARN: radio returned no songs (runner network); 'Couldn't start radio' shown" \
+        || { log "MISSING (required): toast when radio is empty"; FAILS=$((FAILS + 1)); }
+    fi
+    crash_check "start radio"
+  fi
+else
+  log "WARN: no search results for the radio check (runner network?)"
+fi
+
 # ---------------------------------------------------------------- random poking at the end
 log "== monkey"
 adb shell monkey -p $PKG --pct-syskeys 0 --pct-appswitch 0 --throttle 350 -s 7 -v 400 > "$O/monkey.txt" 2>&1 || true

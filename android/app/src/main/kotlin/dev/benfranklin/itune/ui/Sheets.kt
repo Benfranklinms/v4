@@ -155,6 +155,7 @@ fun SheetHost(s: AppState) {
                         RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp), dark = if (current.value == Sheet.Queue) 0.50f else 0.60f,
                         backdrop = true, sheen = 0.07f, rim = 0.65f, blur = 32.dp,
                         hazeState = dev.benfranklin.itune.ui.components.LocalSheetHaze.current, fallbackAlpha = 1f,
+                        tint = nameSheetTint(current.value),
                     )
                     // the sheet rides above the keyboard (edge-to-edge: the IME inset, which includes the nav bar,
                     // animates with the keyboard), so a focused field is never hidden behind it
@@ -206,6 +207,20 @@ fun SheetHost(s: AppState) {
     }
 }
 
+/**
+ * The other sheets pick up the album colour from what they blur: they sit low, over the album-tinted mini player
+ * and nav (or Now Playing's art glow). The New playlist / Rename sheet rides up on the keyboard over plain page
+ * content, so it blurred only neutral grey. It gets that same chrome tint laid over its blur instead, at the share
+ * the low sheets show through their 0.60 glass (~0.40). Nothing playing (or no live blur): no tint, as before.
+ */
+@Composable
+private fun nameSheetTint(sheet: Sheet?): Color? {
+    if (sheet !is Sheet.NamePlaylist || !dev.benfranklin.itune.ui.components.liveBlur) return null
+    val tint = dev.benfranklin.itune.ui.components.LocalChromeTint.current
+    if (tint == Color(dev.benfranklin.itune.ui.components.ChromeTint.NO_TRACK)) return null
+    return tint.copy(alpha = 0.40f)
+}
+
 @Composable
 internal fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Unit) {
     val c = LocalColors.current
@@ -219,7 +234,6 @@ internal fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Un
 private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, position: Int? = null, fromNowPlaying: Boolean = false, queueIndex: Int? = null) {
     val ctx = LocalContext.current
     val c = LocalColors.current
-    val scope = rememberCoroutineScope()
     val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
     val liked = t.id in likedIds
     Column {
@@ -247,9 +261,15 @@ private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, positio
         if (!t.id.startsWith("local:")) {
             MenuRow(Icons.Rounded.Radio, "Start radio", 4) {
                 s.sheet = null
-                scope.launch {
+                s.toast("Starting radio")
+                // app-lifetime scope: this menu leaves composition as soon as the sheet closes, and its own
+                // rememberCoroutineScope was cancelled with it before the radio came back (nothing played)
+                val app = ctx.applicationContext
+                App.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
                     val r = dev.benfranklin.itune.data.io { App.core.radio(t.id) }.orEmpty()
-                    Playback.play(ctx, listOf(t) + r, 0, "${t.title} radio")
+                    android.util.Log.i("itune-radio", "radio id=${t.id} n=${r.size}")
+                    if (r.isEmpty()) s.toast("Couldn't start radio")
+                    else Playback.play(app, listOf(t) + r, 0, "${t.title} radio")
                 }
             }
             val dlIds by dev.benfranklin.itune.data.Library.downloadIds.collectAsState()
