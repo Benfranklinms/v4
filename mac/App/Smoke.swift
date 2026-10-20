@@ -827,13 +827,13 @@ enum Smoke {
         m.range = "week"
         _ = await wait(5) { m.page?.range == "week" }
         await sleep(1.0)
-        shot("70-stats-week")
+        shot("80-stats-week")
 
         // hover scrubbing: the hero follows the bar under the pointer
         if let p = m.page, !p.bars.isEmpty {
             let i = p.bars.firstIndex { $0.minutes > 0 } ?? (p.bars.count - 1)
             m.hover = i; await sleep(0.6)
-            shot("71-stats-scrub")
+            shot("81-stats-scrub")
             record("stats_scrub", m.hover == i, "bar \(i) '\(p.bars[i].title)' (\(p.bars[i].minutes) min) line '\(p.bars[i].line)'")
             m.hover = -1
         } else { record("stats_scrub", false, "no bars") }
@@ -845,7 +845,7 @@ enum Smoke {
         m.pickHour(h)
         let gotHour = await wait(5) { m.hourDetail != nil }
         await sleep(0.6)
-        shot("72-stats-clock-hour")
+        shot("82-stats-clock-hour")
         record("stats_clock_hour", gotHour && m.hourDetail?.hour == UInt32(h), "hour \(h): \(m.hourDetail?.title ?? "-") \(m.hourDetail?.minutes ?? 0) min, \(m.hourDetail?.tracks.count ?? 0) tracks")
         m.pickHour(h)
 
@@ -859,14 +859,14 @@ enum Smoke {
         // Recap: renders a 1080x1920 card, Copy puts it on the pasteboard
         if let rc = await Engine.off({ try Engine.core.statsRecap(range: "week", tzOffsetMin: Engine.tzMinutes) }), let img = RecapRender.image(rc, art: nil, accent: Theme.shared.accent) {
             let px = img.representations.first.map { CGSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? img.size
-            if let d = RecapRender.png(img) { try? d.write(to: out.appendingPathComponent("73-recap-card.png")) }
+            if let d = RecapRender.png(img) { try? d.write(to: out.appendingPathComponent("83-recap-card.png")) }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([img])
             let pasted = NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
             record("stats_recap_render", Int(px.width) >= 1000 && abs(Double(px.height) / Double(max(1, px.width)) - 16.0 / 9.0) < 0.05 && pasted, "\(Int(px.width))x\(Int(px.height)), copied=\(pasted), '\(rc.title)' \(rc.periodLabel) \(rc.minutes) min")
         } else { record("stats_recap_render", false, "no recap") }
         m.recapOpen = true; await sleep(2.0)
-        shot("74-stats-recap-sheet", includeSheet: true)
+        shot("84-stats-recap-sheet", includeSheet: true)
         m.recapOpen = false; await sleep(0.8)
         nav.scrollTarget = nil
     }

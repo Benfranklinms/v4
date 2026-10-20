@@ -782,9 +782,14 @@ enum RecapRender {
     static func image(_ r: Recap, art: NSImage?, accent: Color) -> NSImage? {
         let rr = ImageRenderer(content: RecapCard(r: r, art: art, accent: accent))
         rr.scale = 3
-        return rr.nsImage
+        // a CGImage keeps the real pixel size (rr.nsImage reports points: 360x640)
+        guard let cg = rr.cgImage else { return nil }
+        let img = NSImage(size: NSSize(width: cg.width, height: cg.height))
+        img.addRepresentation(NSBitmapImageRep(cgImage: cg))
+        return img
     }
     static func png(_ img: NSImage) -> Data? {
+        if let rep = img.representations.compactMap({ $0 as? NSBitmapImageRep }).first { return rep.representation(using: .png, properties: [:]) }
         guard let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
     }
