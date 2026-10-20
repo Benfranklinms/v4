@@ -24,6 +24,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -91,6 +94,36 @@ fun BackBar(s: AppState, title: String = "", trailing: @Composable () -> Unit = 
     }
 }
 
+private class FilterHits(val list: List<Track>, val idx: List<Int>)
+
+/** Glass search pill under a list's header (same look as the Search tab field, smaller). */
+@Composable
+private fun ListSearchField(q: String, onChange: (String) -> Unit, reduce: Boolean, onDone: () -> Unit) {
+    val c = LocalColors.current
+    Row(
+        Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(40.dp).glass(RoundedCornerShape(20.dp), dark = 0.40f, sheen = 0.07f, rim = 0.65f).padding(start = 14.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(androidx.compose.material.icons.Icons.Rounded.Search, null, tint = c.t2, modifier = Modifier.size(16.dp))
+        Box(Modifier.weight(1f).padding(start = 8.dp)) {
+            if (q.isEmpty()) Text("Search", style = T.ui(13.5.sp, FontWeight.Medium, c.t3))
+            androidx.compose.foundation.text.BasicTextField(
+                q, onChange, singleLine = true, textStyle = T.ui(13.5.sp, FontWeight.Medium), cursorBrush = androidx.compose.ui.graphics.SolidColor(c.txt),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onDone() }),
+                modifier = Modifier.fillMaxWidth().testTag("list_search"),
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            q.isNotEmpty(),
+            enter = if (reduce) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.scaleIn(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeIn(),
+            exit = if (reduce) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.scaleOut(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeOut(),
+        ) {
+            Icon(androidx.compose.material.icons.Icons.Rounded.Close, "Clear", tint = c.t3, modifier = Modifier.size(28.dp).padding(4.dp).press { onChange("") }.testTag("list_search_clear"))
+        }
+    }
+}
+
 /** Shared layout for album / playlist / mix pages: art with glow, title, play + shuffle, tracks. */
 @Composable
 fun TrackListPage(
@@ -106,11 +139,31 @@ fun TrackListPage(
     albumMode: Boolean = false,
     onNearEnd: (() -> Unit)? = null,
     loadingMore: Boolean = false,
+    searchable: Boolean = true,
     extra: LazyListScope.() -> Unit = {},
 ) {
     val c = LocalColors.current
     val ctx = LocalContext.current
     val list = rememberLazyListState()
+    val reduce = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    // in-list search: filtered off the main thread (keys cached per track list), rows keep their keys so the
+    // list springs between full and filtered; a tap plays the FULL list from that song
+    var query by androidx.compose.runtime.saveable.rememberSaveable(source) { mutableStateOf("") }
+    val keyCache = remember { java.util.concurrent.atomic.AtomicReference<Pair<List<Track>, List<String>>?>(null) }
+    val hits by androidx.compose.runtime.produceState<FilterHits?>(null, tracks, query) {
+        val tl = tracks
+        val q = query
+        if (tl == null || q.isBlank()) { value = null; return@produceState }
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val cached = keyCache.get()
+            val keys = if (cached != null && cached.first === tl) cached.second
+                else tl.map { dev.benfranklin.itune.ui.components.TrackFilter.key(it.title, it.artists, it.album) }.also { keyCache.set(tl to it) }
+            FilterHits(tl, dev.benfranklin.itune.ui.components.TrackFilter.match(keys, q).orEmpty())
+        }
+        android.util.Log.i("itune-filter", "len=${q.length} hits=${value?.idx?.size} of=${tl.size}")
+    }
+    val filtered = hits?.takeIf { query.isNotBlank() }
     val collapsed by remember { derivedStateOf { list.firstVisibleItemIndex > 0 || list.firstVisibleItemScrollOffset > 420 } }
     val hiddenMap by dev.benfranklin.itune.ui.PendingRemovals.hidden.collectAsState()
     val hiddenRows = playlistId?.let { hiddenMap[it] }.orEmpty()
@@ -142,13 +195,32 @@ fun TrackListPage(
                         ) { Icon(Icons.Rounded.Shuffle, null, tint = c.txt, modifier = Modifier.size(20.dp)) }
                     }
                     Spacer(Modifier.height(16.dp))
+                    if (searchable && !tracks.isNullOrEmpty()) {
+                        ListSearchField(query, { query = it }, reduce) { focus.clearFocus() }
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
             }
             if (tracks == null) item { Shimmers() }
             if (tracks != null && tracks.isEmpty()) item {
                 EmptyState("Nothing here yet", if (playlistId != null) "Add songs from any song's menu (⋯ › Add to playlist)." else "No songs to show.", "Search") { s.select(dev.benfranklin.itune.ui.Tab.Search) }
             }
-            tracks?.let { tl ->
+            if (filtered != null) {
+                val fl = filtered.list
+                if (filtered.idx.isEmpty()) item(key = "no_matches") {
+                    Text("No matches", style = T.ui(14.sp, FontWeight.SemiBold, c.t2), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 36.dp).testTag("list_no_matches"))
+                }
+                // while filtering: no remove-from-playlist (positions are the full list's), rows keep their keys
+                items(filtered.idx, key = { i -> "$i${fl[i].id}" }) { i ->
+                    val t = fl[i]
+                    if (playlistId != null && i in hiddenRows) return@items
+                    Box(if (reduce) Modifier else Modifier.animateItem()) {
+                        dev.benfranklin.itune.ui.components.SwipeTrackRow(s, t) {
+                            TrackRow(t, i, onClick = { focus.clearFocus(); android.util.Log.i("itune-filter", "play idx=$i of=${fl.size}"); Playback.play(ctx, fl, i, source) }, onMore = { s.sheet = Sheet.TrackMenu(t) }, trailing = fmtDur(t.durationS.toInt()), showArt = !albumMode)
+                        }
+                    }
+                }
+            } else tracks?.let { tl ->
                 itemsIndexed(tl, key = { i, t -> "$i${t.id}" }) { i, t ->
                     if (playlistId != null && i in hiddenRows) return@itemsIndexed
                     Box(Modifier.animateItem()) {
@@ -308,7 +380,7 @@ fun ArtistScreen(s: AppState, id: String) {
     }
     val a = page
     TrackListPage(
-        s, a?.artist?.name ?: "", a?.artist?.subtitle ?: "", a?.artist?.thumb ?: "", a?.topTracks, a?.artist?.name ?: "Artist", circleArt = true,
+        s, a?.artist?.name ?: "", a?.artist?.subtitle ?: "", a?.artist?.thumb ?: "", a?.topTracks, a?.artist?.name ?: "Artist", circleArt = true, searchable = false,
         actions = {
             SaveButton(saved) {
                 val ar = a ?: return@SaveButton

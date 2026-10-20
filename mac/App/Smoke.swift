@@ -503,6 +503,9 @@ enum Smoke {
         // ---------------------------------------------------------------- 0.2.1 checks
         await checks021(track: track, results: results)
 
+        // ---------------------------------------------------------------- 0.2.5 in-list search
+        await listSearchChecks()
+
         // content scrolled underneath the floating glass player bar
         nav.go(.home); await sleep(1.5)
         nav.scrollTarget = "shelf_2"
@@ -789,6 +792,25 @@ enum Smoke {
         let p = frame.convert(NSPoint(x: pt.x, y: h - pt.y), from: nil)
         guard let hit = frame.hitTest(p) else { return (false, "nothing hit") }
         return (hit.isDescendant(of: content), String(describing: type(of: hit)))
+    }
+
+    /// In-list search: case/accent-insensitive, title/artist/album, every word; fast off the main actor.
+    static func listSearchChecks() async {
+        func t(_ title: String, _ artists: String, _ album: String?) -> Track {
+            Track(id: UUID().uuidString, title: title, artists: artists, artistId: nil, album: album, albumId: nil, durationS: 200, thumb: "")
+        }
+        let ts = [t("Café del Mar", "Energy 52", "Café del Mar"), t("Blinding Lights", "The Weeknd", "After Hours"),
+                  t("Señorita", "Shawn Mendes, Camila Cabello", nil), t("Hours", "Beabadoobee", "Beatopia")]
+        let keys = ts.map(ListFilter.key)
+        let cases: [(String, [Int]?)] = [("", nil), ("  ", nil), ("CAFE", [0]), ("café", [0]), ("senorita", [2]), ("SEÑOR", [2]),
+                                         ("weeknd", [1]), ("hours", [1, 3]), ("hours weeknd", [1]), ("camila", [2]), ("zzq", [])]
+        let bad = cases.filter { ListFilter.match(keys, $0.0) != $0.1 }.map { "'\($0.0)'" }
+        record("list search matches (case/accent, title/artist/album)", bad.isEmpty, bad.isEmpty ? "\(cases.count) cases" : "wrong: " + bad.joined(separator: ", "))
+        let big = (0..<5000).map { t("Song \($0) Ünïcödé", "Artist \($0 % 97)", "Album \($0 % 13)") }
+        let t0 = CACurrentMediaTime()
+        let hits = await ListFilter.run(big, "unicode artist 5")
+        let ms = Int((CACurrentMediaTime() - t0) * 1000)
+        record("list search 5000 tracks off main", !hits.isEmpty && ms < 1500, "\(hits.count) hits in \(ms) ms")
     }
 
     static func checks021(track: Track?, results: SearchResults?) async {

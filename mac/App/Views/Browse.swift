@@ -586,9 +586,14 @@ struct TrackListPage: View {
     var actions: AnyView? = nil
     var extra: AnyView? = nil
     var empty: String = "Nothing here yet."
+    /// Artist pages (a handful of top songs) have no in-list search.
+    var searchable = true
+    @State private var query = ""
+    @State private var hits: ListHits?
 
     var body: some View {
         let p = theme.p
+        let filtering = !ListFilter.isBlank(query)
         Page {
             Button { Nav.shared.pop() } label: { Label("Back", systemImage: "chevron.left").font(theme.ui(12.5, .semibold)).foregroundStyle(p.t2) }
                 .buttonStyle(PressStyle()).accessibilityIdentifier("back")
@@ -605,6 +610,10 @@ struct TrackListPage: View {
                         if let a = actions { a }
                     }.padding(.top, 10)
                 }
+                if searchable, let ts = tracks, !ts.isEmpty {
+                    Spacer(minLength: 16)
+                    ListSearchField(text: $query)
+                }
             }.padding(.top, 10).enter(0)
             Spacer().frame(height: 24)
             if let ts = tracks {
@@ -612,15 +621,25 @@ struct TrackListPage: View {
                     EmptyHint(icon: "music.note", text: empty)
                 }
                 let albumCol = showAlbum && Set(ts.compactMap { $0.album }).count > 1
-                ForEach(Array(ts.enumerated()), id: \.offset) { i, t in
-                    TrackRow(t: t, index: i, number: i + 1, showAlbum: albumCol, playlistId: playlistId, position: i) { player.play(ts, index: i, source: source) }
-                        .id("row_\(i)")
+                if filtering, let h = hits {
+                    // filtered: no remove-from-playlist (positions belong to the full list); a tap plays the full list
+                    if h.idx.isEmpty { NoMatches() }
+                    ForEach(h.idx, id: \.self) { i in
+                        TrackRow(t: h.list[i], index: i, number: i + 1, showAlbum: albumCol) { player.play(h.list, index: i, source: source) }
+                            .id("row_\(i)")
+                    }
+                } else {
+                    ForEach(Array(ts.enumerated()), id: \.offset) { i, t in
+                        TrackRow(t: t, index: i, number: i + 1, showAlbum: albumCol, playlistId: playlistId, position: i) { player.play(ts, index: i, source: source) }
+                            .id("row_\(i)")
+                    }
                 }
             } else {
                 Shimmer(count: 3)
             }
             if let e = extra { e }
         }
+        .listFilter(searchable ? tracks : nil, query, $hits)
     }
 }
 
@@ -731,7 +750,7 @@ struct ArtistView: View {
         let sub = page?.artist.subtitle ?? ""
         TrackListPage(title: page?.artist.name ?? seed?.title ?? "", subtitle: sub.lowercased().contains("subscriber") || sub.isEmpty ? "Artist" : sub,
                       art: page?.artist.thumb ?? seed?.thumb ?? "", tracks: page?.topTracks,
-                      source: page?.artist.name ?? "Artist", circle: true,
+                      source: page?.artist.name ?? "Artist", circle: true, searchable: false,
                       actions: AnyView(Group {
                           if let a = page?.artist { BookmarkButton(saved: lib.isSaved(artist: a.id)) { lib.toggleSaved(artist: a) } }
                       }),
@@ -809,15 +828,19 @@ struct DownloadsView: View {
     @State private var selecting = false
     @State private var selected: Set<String> = []
     @State private var confirmAll = false
+    @State private var query = ""
+    @State private var hits: ListHits?
 
     var body: some View {
         let p = theme.p
         let shown = (items ?? []).filter { lib.downloaded.contains($0.track.id) }
         let tracks = shown.map(\.track)
+        let filtering = !selecting && !ListFilter.isBlank(query)
         Page {
             HStack {
                 LargeTitle(text: "Downloads")
                 Spacer()
+                if !shown.isEmpty && !selecting { ListSearchField(text: $query) }
                 if !shown.isEmpty {
                     if selecting {
                         SecondaryButton(title: "Cancel") { selecting = false; selected = [] }
@@ -841,6 +864,12 @@ struct DownloadsView: View {
             Spacer().frame(height: 18)
             if items == nil { Shimmer(count: 3) }
             else if shown.isEmpty { EmptyHint(icon: "arrow.down.circle", text: "Download songs from any ⋯ menu to play them offline.") }
+            if filtering, let h = hits {
+                if h.idx.isEmpty { NoMatches() }
+                ForEach(h.idx, id: \.self) { i in
+                    TrackRow(t: h.list[i], index: i, number: i + 1) { player.play(h.list, index: i, source: "Downloads") }
+                }
+            } else {
             ForEach(Array(shown.enumerated()), id: \.element.track.id) { i, d in
                 HStack(spacing: 8) {
                     if selecting {
@@ -853,7 +882,9 @@ struct DownloadsView: View {
                     }
                 }
             }
+            }
         }
+        .listFilter(tracks, selecting ? "" : query, $hits)
         .confirmationDialog("Remove all downloads?", isPresented: $confirmAll) {
             Button("Remove all", role: .destructive) { lib.removeAllDownloads() }
             Button("Cancel", role: .cancel) {}

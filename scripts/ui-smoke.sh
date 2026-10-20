@@ -791,6 +791,32 @@ id filter_Albums 0 30
 if id search_album 1 30; then
   wait_for resource-id track_number 25 && log "album page: track numbers (no repeated art)" || log "WARN: album tracks not loaded"
   shot album
+  # in-list search: case/accent-insensitive filter, "No matches", clear, tap plays the FULL list from that song
+  log "== List search"
+  if id list_search 1 10; then
+    timeout 10 adb logcat -c >/dev/null 2>&1
+    type_text "LOVE"; sleep 1.5
+    FL=$(timeout 10 adb logcat -d -s itune-filter:I 2>/dev/null | grep "len=4 " | tail -n 1)
+    log "filter: ${FL:-none}"
+    FH=$(echo "$FL" | sed -n 's/.*hits=\([0-9]*\) of=\([0-9]*\).*/\1/p'); FN=$(echo "$FL" | sed -n 's/.*of=\([0-9]*\).*/\1/p')
+    if [ -n "$FH" ] && [ "$FH" -ge 1 ] && [ "$FH" -lt "${FN:-0}" ]; then log "list filter ok ($FH of $FN)"; else log "MISSING (required): list filter narrows the album (got '${FL}')"; FAILS=$((FAILS + 1)); fi
+    hide_kb; shot list-filter
+    if wait_for resource-id track_row 5; then
+      XY=$(find_node resource-id track_row); adb shell input tap $XY; sleep 2; crash_check "filtered row"
+      PL=$(timeout 10 adb logcat -d -s itune-filter:I 2>/dev/null | grep "play idx=" | tail -n 1)
+      PI=$(echo "$PL" | sed -n 's/.*play idx=\([0-9]*\).*/\1/p'); PO=$(echo "$PL" | sed -n 's/.*of=\([0-9]*\).*/\1/p')
+      TR=$(timeout 10 adb logcat -d 2>/dev/null | grep -E "track idx=${PI:-x} " | tail -n 1)
+      if [ -n "$PI" ] && [ "${PO:-0}" = "${FN:-x}" ]; then log "filtered tap plays full list from idx $PI of $PO${TR:+ (player: track idx=$PI)}"; else log "MISSING (required): filtered tap plays the full list ('$PL', full=$FN)"; FAILS=$((FAILS + 1)); fi
+      close_np
+    else log "MISSING (required): filtered rows shown"; FAILS=$((FAILS + 1)); fi
+    dump; if ! find_node resource-id list_search >/dev/null; then for _ in 1 2 3; do scroll_up; done; fi
+    id list_search
+    clear_field; type_text "zzqxw"; sleep 1.5; hide_kb
+    wait_for resource-id list_no_matches 5 && log "no matches state ok" || { log "MISSING (required): No matches"; FAILS=$((FAILS + 1)); shot missing-no-matches; }
+    id list_search_clear
+    wait_for resource-id track_number 5 && log "clear restores the full list" || { log "MISSING (required): full list after clear"; FAILS=$((FAILS + 1)); }
+    find_node resource-id list_no_matches >/dev/null && { log "MISSING (required): No matches still shown after clear"; FAILS=$((FAILS + 1)); }
+  fi
   id save_button
   wait_for text "Saved to Library" 6 || { log "MISSING (required): Saved to Library toast"; FAILS=$((FAILS + 1)); }
   shot album-saved
