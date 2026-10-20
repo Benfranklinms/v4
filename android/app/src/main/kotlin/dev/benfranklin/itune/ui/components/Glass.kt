@@ -212,11 +212,41 @@ fun BlurredArt(url: String?, modifier: Modifier = Modifier, dark: Float = 0.30f)
 fun AmbientWash(modifier: Modifier = Modifier) {
     val c = LocalColors.current
     if (liteGfx) { Box(modifier); return }
-    Box(modifier) {
-        Glow(c.glow, Modifier.fillMaxSize(), alpha = if (c.light) 0.14f else 0.30f, centerY = 0.08f, radiusFrac = 0.62f)
-        Glow(c.glow, Modifier.fillMaxSize().padding(start = 120.dp), alpha = if (c.light) 0.06f else 0.12f, centerY = 0.55f, radiusFrac = 0.45f)
-        Glow(c.glow, Modifier.fillMaxSize().padding(end = 140.dp), alpha = if (c.light) 0.05f else 0.11f, centerY = 0.95f, radiusFrac = 0.42f)
+    val theme by dev.benfranklin.itune.App.prefs.theme.state.collectAsState()
+    // Adaptive on dark art (e.g. a near-black teal cover with no vibrant swatch): the raw swatch is so dark that
+    // the wash vanished while the bars, which normalise the colour (ChromeTint), were still tinted. Lift only
+    // such dark colours to a floor brightness, same hue and saturation; normal art is untouched.
+    val glow = if (theme == "adaptive" && !c.light) washFloor(c.glow) else c.glow
+    // Same three glows as before, but each drawn across the WHOLE screen: the second and third used to sit in a
+    // padded Canvas (start 120dp / end 140dp) whose edge cut their gradient off, leaving vertical seams at about
+    // 1/3 and 2/3 of the width. Centres, radii, colours and alphas are unchanged.
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width; val h = size.height
+        fun wash(left: Float, right: Float, alpha: Float, centerY: Float, radiusFrac: Float) {
+            val bw = (right - left).coerceAtLeast(1f)
+            val r = maxOf(bw, h) * radiusFrac
+            drawRect(
+                Brush.radialGradient(
+                    0f to glow.copy(alpha = alpha), 0.45f to glow.copy(alpha = alpha * 0.45f), 1f to Color.Transparent,
+                    center = Offset(left + bw / 2, h * centerY), radius = r,
+                ),
+            )
+        }
+        val l = layoutDirection == androidx.compose.ui.unit.LayoutDirection.Ltr
+        val p120 = 120.dp.toPx(); val p140 = 140.dp.toPx()
+        wash(0f, w, if (c.light) 0.14f else 0.30f, 0.08f, 0.62f)
+        if (l) wash(p120, w, if (c.light) 0.06f else 0.12f, 0.55f, 0.45f) else wash(0f, w - p120, if (c.light) 0.06f else 0.12f, 0.55f, 0.45f)
+        if (l) wash(0f, w - p140, if (c.light) 0.05f else 0.11f, 0.95f, 0.42f) else wash(p140, w, if (c.light) 0.05f else 0.11f, 0.95f, 0.42f)
     }
+}
+
+/** Minimum HSV brightness of the Adaptive wash colour (dark album art only; brighter swatches pass through). */
+internal fun washFloor(c: Color, minV: Float = 0.55f): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(android.graphics.Color.argb(255, (c.red * 255).toInt(), (c.green * 255).toInt(), (c.blue * 255).toInt()), hsv)
+    if (hsv[2] >= minV) return c
+    hsv[2] = minV
+    return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
 /** Progressive blur for the status-bar edge (strong at the top, nothing at the bottom). */
