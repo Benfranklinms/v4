@@ -61,7 +61,35 @@ class AppState {
     var tab by mutableStateOf(Tab.Home)
     val stack = mutableStateListOf<Dest>()
     var nowPlaying by mutableStateOf(false)
-    var sheet by mutableStateOf<Sheet?>(null)
+    private val sheetState = mutableStateOf<Sheet?>(null)
+    /** Sheets opened from another sheet (a track menu from the Queue): Back returns to the one below. */
+    val sheetStack = mutableStateListOf<Sheet>()
+    /**
+     * The open sheet. Setting it replaces the current one and drops any sheets below (an action finished);
+     * use [openChildSheet] to open on top and [closeSheet] to go back one level.
+     */
+    var sheet: Sheet?
+        get() = sheetState.value
+        set(v) {
+            sheetStack.clear()
+            sheetState.value = v
+        }
+
+    /** Opens [v] above the current sheet; Back / dismiss on it returns to the current one, as it was. */
+    fun openChildSheet(v: Sheet) {
+        sheetState.value?.let { sheetStack.add(it) }
+        sheetState.value = v
+    }
+
+    /** Back / dismiss: closes ONLY the top sheet (never navigates, never touches Now Playing or the page). */
+    fun closeSheet() {
+        sheetState.value = if (sheetStack.isEmpty()) null else sheetStack.removeAt(sheetStack.lastIndex)
+        android.util.Log.i("itune-nav", "sheet closed -> ${sheetState.value?.let { it::class.simpleName } ?: "none"} stack=${stack.size} np=$nowPlaying tab=${tab.name}")
+    }
+
+    /** Queue sheet: the Recently played list, kept while the sheet stack is open (instant when coming back). */
+    var queueRecent by mutableStateOf<List<dev.benfranklin.itune.core.Track>>(emptyList())
+    val queueRecentList = androidx.compose.foundation.lazy.LazyListState()
     /** Last session's crash report, shown once in a glass dialog. */
     var crashReport by mutableStateOf<String?>(null)
     var glow by mutableStateOf(NoTrackGlow)

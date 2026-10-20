@@ -1,5 +1,8 @@
 package dev.benfranklin.itune.ui.components
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+
 import androidx.compose.ui.platform.testTag
 
 import androidx.compose.animation.core.animateFloatAsState
@@ -183,13 +186,15 @@ fun Card(modifier: Modifier = Modifier, padding: PaddingValues = PaddingValues(1
 }
 
 @Composable
-fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
+fun Toggle(on: Boolean, tag: String? = null, onChange: (Boolean) -> Unit) {
     val c = LocalColors.current
     val x by animateFloatAsState(if (on) 1f else 0f, spring(dampingRatio = 0.7f, stiffness = 500f), label = "tg")
     Box(
         Modifier.size(46.dp, 28.dp).clip(RoundedCornerShape(14.dp))
             .background(androidx.compose.ui.graphics.lerp(c.surf4, c.acc, x))
-            .press { onChange(!on) },
+            .press { onChange(!on) }
+            .then(if (tag != null) Modifier.testTag(tag) else Modifier)
+            .semantics { stateDescription = if (on) "on" else "off" },
     ) {
         Box(
             Modifier.padding(3.dp).size(22.dp).graphicsLayer { translationX = x * 18.dp.toPx() }

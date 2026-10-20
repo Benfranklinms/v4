@@ -131,7 +131,7 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
     val liked = tr.id in likedIds
     val dlIds by dev.benfranklin.itune.data.Library.downloadIds.collectAsState()
     val downloaded = tr.id in dlIds
-    var showLyrics by remember { mutableStateOf(false) }
+    val showLyrics by App.prefs.npLyrics.state.collectAsState()
     val sleepAt by Playback.sleepAt.collectAsState()
     var heartBurst by remember { mutableStateOf(0) }
     val drag = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -178,6 +178,11 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                 .androidx_nestedScroll(swipe.connection)
                 .testTag("now_playing"),
         ) {
+            // full-screen album art, blurred into bokeh: the adaptive glow behind the art, title and glass controls
+            // (dropped by mistake in 0.2.1, which left Now Playing flat black)
+            AnimatedContent(tr.thumb, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "backdrop") { url ->
+                dev.benfranklin.itune.ui.components.BlurredArt(url, Modifier.fillMaxSize())
+            }
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val artSize = minOf(maxWidth - 48.dp, maxHeight * 0.40f, 312.dp)
                 Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState())) {
@@ -266,7 +271,7 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
                     }
                     // glass icon row: lyrics, queue, download, like
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 22.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        GlassIconButton(Icons.Rounded.FormatQuote, "Lyrics", size = 48.dp, iconSize = 22.dp, selected = showLyrics, tag = "np_lyrics") { showLyrics = !showLyrics }
+                        GlassIconButton(Icons.Rounded.FormatQuote, "Lyrics", size = 48.dp, iconSize = 22.dp, selected = showLyrics, tag = "np_lyrics") { App.prefs.npLyrics.value = !showLyrics }
                         GlassIconButton(Icons.Rounded.QueueMusic, "Queue", size = 48.dp, iconSize = 22.dp, tag = "np_queue") { s.sheet = Sheet.Queue }
                         GlassIconButton(
                             if (downloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download, if (downloaded) "Remove download" else "Download",

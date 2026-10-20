@@ -138,7 +138,7 @@ object Playback {
                 _current.value = list[idx]
                 _position.value = saved.positionMs
                 _queue.value = q
-                android.util.Log.i(TAG, "restored idx=$idx/${list.size} id=${list[idx].id} pos=${saved.positionMs} title=${list[idx].title}")
+                android.util.Log.i(TAG, "restored idx=$idx/${list.size} id=${list[idx].id} pos=${saved.positionMs} title=${list[idx].title} n=${list.size}")
             }
         }
     }
@@ -164,6 +164,29 @@ object Playback {
                 onMain { reconcile(q) }
             }
         }
+    }
+
+    /**
+     * Exit paths (activity stop, task removed, service destroyed): save NOW and wait for it (bounded), so a process
+     * killed right after still has the latest track, queue and position. Main thread; at most ~1.5 s.
+     */
+    fun saveSessionNow(reason: String) {
+        val p = player ?: return
+        if (p.mediaItemCount == 0) return
+        val pos = p.currentPosition
+        val idx = p.currentMediaItemIndex
+        val id = p.currentMediaItem?.mediaId ?: return
+        val title = p.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty()
+        val n = p.mediaItemCount
+        runCatching {
+            kotlinx.coroutines.runBlocking(coreQ) {
+                kotlinx.coroutines.withTimeoutOrNull(1500) {
+                    val ci = alignCore(idx, id)
+                    Session.save(pos)
+                    android.util.Log.i(TAG, "saved idx=$idx core=$ci/$n id=$id pos=$pos title=$title (sync: $reason)")
+                }
+            }
+        }.onFailure { android.util.Log.w(TAG, "sync save failed ($reason)", it) }
     }
 
     private fun playerIds(p: ExoPlayer): List<String> = (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId }
@@ -301,6 +324,7 @@ object Playback {
     fun seek(ms: Long) {
         player?.seekTo(ms)
         _position.value = ms
+        saveSession()
     }
 
     fun jump(index: Int) {
@@ -316,6 +340,7 @@ object Playback {
             onMain {
                 rebuildTail(q)
                 _queue.value = q
+                saveSession()
             }
         }
     }
@@ -327,6 +352,7 @@ object Playback {
             onMain {
                 player?.repeatMode = repeatOf(r)
                 _queue.value = q
+                saveSession()
             }
         }
     }
@@ -348,6 +374,7 @@ object Playback {
                 pl.addMediaItem(at.coerceIn(0, pl.mediaItemCount), item(t))
                 reconcile(q)
                 _queue.value = q
+                saveSession()
             }
         }
     }
@@ -367,6 +394,7 @@ object Playback {
                 pl.addMediaItem(at.coerceIn(0, pl.mediaItemCount), item(t))
                 reconcile(q)
                 _queue.value = q
+                saveSession()
             }
         }
     }
@@ -382,6 +410,7 @@ object Playback {
                 if (index < pl.mediaItemCount && index != pl.currentMediaItemIndex) pl.removeMediaItem(index)
                 reconcile(q)
                 _queue.value = q
+                saveSession()
             }
         }
     }
@@ -408,6 +437,7 @@ object Playback {
                 if (f < pl.mediaItemCount && t < pl.mediaItemCount && pl.getMediaItemAt(f).mediaId == q0.tracks[f].id && f != pl.currentMediaItemIndex) pl.moveMediaItem(f, t)
                 reconcile(q)
                 _queue.value = q
+                saveSession()
             }
         }
     }

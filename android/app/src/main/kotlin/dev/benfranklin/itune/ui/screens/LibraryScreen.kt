@@ -82,7 +82,7 @@ private val SORTS = listOf("recent" to "Recent", "az" to "A–Z", "played" to "M
 @Composable
 fun LibraryScreen(s: AppState) {
     val c = LocalColors.current
-    var filter by remember { mutableStateOf("Playlists") }
+    val filter by App.prefs.libraryFilter.state.collectAsState()
     val playlists by Library.playlists.collectAsState()
     val saved by Library.savedPlaylists.collectAsState()
     val albums by Library.albums.collectAsState()
@@ -110,12 +110,7 @@ fun LibraryScreen(s: AppState) {
     // adaptive grid: 2 columns on phones, more on tablets / unfolded foldables
     val cols = ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32) / 168).coerceIn(2, 6)
     // scroll position survives back navigation and process death; re-applied once the list has loaded
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val restoreTo = remember { intArrayOf(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
-    LaunchedEffect(playlists != null) {
-        if (playlists != null && restoreTo[0] > 0 && listState.firstVisibleItemIndex < restoreTo[0]) runCatching { listState.scrollToItem(restoreTo[0], restoreTo[1]) }
-        if (playlists != null) restoreTo[0] = 0
-    }
+    val listState = dev.benfranklin.itune.data.rememberPersistentListState("library", playlists != null)
     Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().testTag("library_list"), state = listState, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
             item(key = "hdr") {
@@ -132,7 +127,7 @@ fun LibraryScreen(s: AppState) {
             item(key = "chips") {
                 Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     LazyRow(Modifier.weight(1f), contentPadding = PaddingValues(start = 16.dp, end = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        itemsIndexed(listOf("Playlists", "Albums", "Artists")) { i, f -> ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("lib_$f")) { filter = f; selecting = false; selected = emptySet() } }
+                        itemsIndexed(listOf("Playlists", "Albums", "Artists")) { i, f -> ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("lib_$f")) { App.prefs.libraryFilter.value = f; selecting = false; selected = emptySet() } }
                     }
                     if (filter == "Playlists") {
                         Icon(Icons.Rounded.Sort, "Sort", tint = c.t2, modifier = Modifier.size(40.dp).padding(10.dp).press {
@@ -202,7 +197,7 @@ fun LibraryScreen(s: AppState) {
                                     }
                                     Text(dev.benfranklin.itune.ui.components.withSongs(p.subtitle, p.trackCount?.toInt()), style = T.ui(12.sp, FontWeight.Medium, c.t3), maxLines = 1)
                                 }
-                                if (!selecting) Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t3, modifier = Modifier.size(32.dp).padding(5.dp).press { s.sheet = Sheet.PlaylistMenu(p) })
+                                if (!selecting) Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t3, modifier = Modifier.size(32.dp).padding(5.dp).press { s.sheet = Sheet.PlaylistMenu(p) }.testTag("lib_more"))
                             }
                         }
                     }

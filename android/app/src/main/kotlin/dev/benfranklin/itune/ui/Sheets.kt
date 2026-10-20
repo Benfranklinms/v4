@@ -121,7 +121,7 @@ fun SheetHost(s: AppState) {
     }
     val scrim by animateFloatAsState(if (open) 0.55f else 0f, tween(260), label = "scrim")
     if (scrim > 0.01f) {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim / 0.55f }.background(Color.Black.copy(alpha = 0.55f)).plainClick { s.sheet = null })
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim / 0.55f }.background(Color.Black.copy(alpha = 0.55f)).plainClick { s.closeSheet() })
     }
     val drag = remember { androidx.compose.animation.core.Animatable(0f) }
     val dragScope = rememberCoroutineScope()
@@ -164,7 +164,7 @@ fun SheetHost(s: AppState) {
                     Modifier.fillMaxWidth().height(40.dp).pointerInput(Unit) {
                         detectVerticalDragGestures(
                             onDragEnd = {
-                                if (drag.value > 160f) s.sheet = null
+                                if (drag.value > 160f) s.closeSheet()
                                 else dragScope.launch { drag.animateTo(0f, dev.benfranklin.itune.ui.components.glassSpring(reduceM)) }
                             },
                             onDragCancel = { dragScope.launch { drag.animateTo(0f, dev.benfranklin.itune.ui.components.glassSpring(reduceM)) } },
@@ -231,8 +231,8 @@ private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, positio
         Spacer(Modifier.height(6.dp))
         if (fromNowPlaying) {
             val sp by Playback.speed.collectAsState()
-            MenuRow(Icons.Rounded.Speed, "Playback speed · ${if (sp == 1f) "1×" else "%.2g×".format(sp)}", 0) { s.sheet = Sheet.Speed }
-            MenuRow(Icons.Rounded.Bedtime, "Sleep timer", 0) { s.sheet = Sheet.SleepTimer }
+            MenuRow(Icons.Rounded.Speed, "Playback speed · ${if (sp == 1f) "1×" else "%.2g×".format(sp)}", 0) { s.openChildSheet(Sheet.Speed) }
+            MenuRow(Icons.Rounded.Bedtime, "Sleep timer", 0) { s.openChildSheet(Sheet.SleepTimer) }
         }
         if (queueIndex != null) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove from queue", 0) { Playback.remove(queueIndex); s.sheet = null }
         if (!fromNowPlaying) MenuRow(Icons.Rounded.PlaylistPlay, "Play next", 0) { Playback.playNext(ctx, t); s.sheet = null; s.toast("Playing next") }
@@ -241,7 +241,7 @@ private fun TrackMenu(s: AppState, t: Track, playlistId: String? = null, positio
             val now = dev.benfranklin.itune.data.Likes.toggle(t)
             s.toast(if (now) "Added to Liked Songs" else "Removed from Liked Songs")
         }
-        MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to playlist", 3) { s.sheet = Sheet.AddToPlaylist(t) }
+        MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to playlist", 3) { s.openChildSheet(Sheet.AddToPlaylist(t)) }
         if (!t.id.startsWith("local:")) {
             MenuRow(Icons.Rounded.Radio, "Start radio", 4) {
                 s.sheet = null
@@ -289,7 +289,7 @@ private fun AddToPlaylist(s: AppState, t: Track) {
     Column {
         Text("Add to playlist", style = T.ui(17.sp, FontWeight.Bold), modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         MenuRow(Icons.Rounded.Add, "New playlist", 0) {
-            s.sheet = Sheet.NamePlaylist(listOf(t))
+            s.openChildSheet(Sheet.NamePlaylist(listOf(t)))
         }
         LazyColumn(Modifier.heightIn(max = 360.dp)) {
             itemsIndexed(lists, key = { _, p -> p.id }) { i, p ->
@@ -516,9 +516,10 @@ private fun QueueSheet(s: AppState) {
     val q by Playback.queue.collectAsState()
     val st = q ?: return
     val reduce = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
-    var tab by remember { mutableStateOf(0) }
-    var recent by remember { mutableStateOf<List<Track>>(emptyList()) }
-    LaunchedEffect(Unit) { recent = dev.benfranklin.itune.data.io { App.core.recent(40u) }.orEmpty() }
+    // the selected tab is a saved choice; Recently played shows the last list at once and refreshes it
+    val tab by App.prefs.queueTab.state.collectAsState()
+    val recent = s.queueRecent
+    LaunchedEffect(Unit) { dev.benfranklin.itune.data.io { App.core.recent(40u) }?.let { s.queueRecent = it } }
     val list = rememberLazyListState()
     var ap by remember { mutableStateOf(App.prefs.autoplay.value) }
     val likedIds by dev.benfranklin.itune.data.Likes.ids.collectAsState()
@@ -547,7 +548,7 @@ private fun QueueSheet(s: AppState) {
             )
             Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 listOf("Queue", "Recently played").forEachIndexed { i, l ->
-                    Box(Modifier.weight(1f).fillMaxHeight().press(scaleTo = 0.96f) { tab = i }.testTag("queue_tab_$i"), contentAlignment = Alignment.Center) {
+                    Box(Modifier.weight(1f).fillMaxHeight().press(scaleTo = 0.96f) { App.prefs.queueTab.value = i }.testTag("queue_tab_$i"), contentAlignment = Alignment.Center) {
                         Text(l, style = T.ui(14.5.sp, if (tab == i) FontWeight.Bold else FontWeight.SemiBold, if (tab == i) c.txt else c.t3))
                     }
                 }
@@ -555,11 +556,11 @@ private fun QueueSheet(s: AppState) {
         }
         Spacer(Modifier.height(8.dp))
         if (tab == 1) {
-            LazyColumn(Modifier.heightIn(max = 540.dp)) {
+            LazyColumn(Modifier.heightIn(max = 540.dp).testTag("queue_recent"), state = s.queueRecentList) {
                 if (recent.isEmpty()) item { Text("Songs you play show up here.", style = T.ui(13.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(24.dp)) }
                 itemsIndexed(recent, key = { i, t -> "h$i${t.id}" }) { i, t ->
                     QRow(t, false, onClick = { Playback.play(ctx, recent, i, "Recently played") }) {
-                        Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.sheet = Sheet.TrackMenu(t) }.padding(10.dp))
+                        Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.openChildSheet(Sheet.TrackMenu(t)) }.padding(10.dp).testTag("qrecent_more"))
                     }
                 }
             }
@@ -605,7 +606,7 @@ private fun QueueSheet(s: AppState) {
                                 onDrag = { ro.drag(it) },
                                 onDrop = { moved ->
                                     ro.drop()
-                                    if (!moved) s.sheet = Sheet.TrackMenu(e.track, queueIndex = ro.base + ro.entries.indexOf(e))
+                                    if (!moved) s.openChildSheet(Sheet.TrackMenu(e.track, queueIndex = ro.base + ro.entries.indexOf(e)))
                                 },
                             ),
                         onRemove = {
@@ -642,15 +643,15 @@ private fun QueueSheet(s: AppState) {
                     modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = spring(dampingRatio = 0.82f, stiffness = 420f)),
                     onRemove = { Playback.remove(i) },
                 ) {
-                    QRow(e.track, false, onClick = { Playback.jump(i) }, onLong = { s.sheet = Sheet.TrackMenu(e.track, queueIndex = i) }) {
-                        Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.sheet = Sheet.TrackMenu(e.track, queueIndex = i) }.padding(10.dp))
+                    QRow(e.track, false, onClick = { Playback.jump(i) }, onLong = { s.openChildSheet(Sheet.TrackMenu(e.track, queueIndex = i)) }) {
+                        Icon(Icons.Rounded.MoreHoriz, "More", tint = c.t2, modifier = Modifier.size(40.dp).press { s.openChildSheet(Sheet.TrackMenu(e.track, queueIndex = i)) }.padding(10.dp))
                     }
                 }
             }
             item(key = "q_save") {
                 Text(
                     "Save queue as playlist", style = T.ui(13.sp, FontWeight.SemiBold, c.t2),
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp).press { s.sheet = Sheet.NamePlaylist(st.tracks) }.testTag("queue_save"),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp).press { s.openChildSheet(Sheet.NamePlaylist(st.tracks)) }.testTag("queue_save"),
                 )
             }
         }

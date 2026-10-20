@@ -175,6 +175,61 @@ tab() {
   id "tab_$1"
 }
 home_tab() { tab Home; local i; for i in 1 2 3 4 5 6; do scroll_up; dump; find_node resource-id home_settings >/dev/null && break; done; }
+# a text in the middle band of the screen (proves a list position), skipping the sheet if one is up
+mid_anchor() {
+  python3 - "$O/ui.xml" "$SH" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(0)
+H = int(sys.argv[2])
+def walk(n, in_sheet):
+    rid = n.get('resource-id','').split('/')[-1]
+    in_sheet = in_sheet or rid in ('sheet',)
+    t = n.get('text','')
+    m = re.findall(r'\d+', n.get('bounds',''))
+    if not in_sheet and t and len(t) > 3 and len(m) == 4 and not re.match(r'^-?\d+:\d\d$', t):
+        y = (int(m[1]) + int(m[3])) // 2
+        if 0.28 * H < y < 0.66 * H: print(t); sys.exit(0)
+    for k in n: walk(k, in_sheet)
+walk(r, False)
+PY
+}
+# menu_back_check <label> <tap|long> <resource-id> [queue]: opening an options menu never navigates, and Back
+# closes ONLY the menu: same page, same scroll anchor, same Now Playing state (and the Queue sheet for "queue")
+menu_back_check() {
+  local label=$1 how=$2 rid=$3 mode=${4:-}
+  dump
+  if ! find_node resource-id "$rid" >/dev/null; then log "WARN: menu check '$label' skipped ($rid not on screen)"; return; fi
+  local anchor npb; anchor=$(mid_anchor); np_open && npb=1 || npb=0
+  if [ "$mode" = queue ]; then anchor=$(texts_of queue_user_title | head -1); [ -z "$anchor" ] && anchor=$(python3 - "$O/ui.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+r = ET.parse(sys.argv[1]).getroot()
+for n in r.iter('node'):
+    if n.get('resource-id','').endswith('queue_recent'):
+        for k in n.iter('node'):
+            t = k.get('text','')
+            if len(t) > 3: print(t); sys.exit(0)
+PY
+); fi
+  if [ "$how" = long ]; then long_press resource-id "$rid" || return; else id "$rid" || return; fi
+  if ! wait_for resource-id sheet 6; then log "MISSING (required): menu '$label' did not open"; FAILS=$((FAILS + 1)); shot "missing-menu-$label"; return; fi
+  shot "menu-$label"
+  [ -n "$anchor" ] && { find_node text "$anchor" >/dev/null || log "WARN: '$label' anchor not in the tree while the menu is up"; }
+  back; sleep 1
+  dump
+  local ok=1 why=""
+  if [ "$mode" = queue ]; then
+    find_node resource-id queue_sheet >/dev/null || { ok=0; why="queue sheet gone"; }
+    find_node resource-id queue_recent >/dev/null || { ok=0; why="$why; Recently played tab not kept"; }
+  else
+    find_node resource-id sheet >/dev/null && { ok=0; why="menu still open"; }
+  fi
+  [ -n "$anchor" ] && { find_node text "$anchor" >/dev/null || { ok=0; why="$why; anchor '$anchor' gone (page/scroll changed)"; }; }
+  local npa; np_open && npa=1 || npa=0
+  [ "$npa" = "$npb" ] || { ok=0; why="$why; Now Playing $npb -> $npa"; }
+  if [ $ok = 1 ]; then log "menu back ok: $label (anchor '$anchor', np=$npa)"; else log "MISSING (required): menu back '$label': $why"; FAILS=$((FAILS + 1)); shot "missing-menuback-$label"; fi
+  timeout 10 adb logcat -d -s itune-nav:I 2>/dev/null | tail -n 1 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+}
 # submit a search: IME Enter, and if the suggestions list is still up (Enter not delivered on some images), tap the
 # suggestion row that repeats the query
 has_results() { find_node resource-id track_row >/dev/null || find_node resource-id search_album >/dev/null || find_node resource-id search_artist >/dev/null || find_node resource-id search_playlist >/dev/null; }
@@ -204,6 +259,18 @@ sleep 12
 adb shell input keyevent KEYCODE_BACK; sleep 1
 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null; sleep 3
 crash_check launch
+
+# ---------------------------------------------------------------- Liquid Glass state (tag itune-glass)
+# The app logs at start whether this device draws live blur and why. Emulator: false (flat fallback), unless the
+# informational leg forces the real Haze path (SMOKE_BLUR=1). Phones: always true (unit test GlassPolicyTest);
+# real-device blur itself can't be checked visually on CI.
+GL=$(timeout 10 adb logcat -d -s itune-glass:I 2>/dev/null | grep "liveBlur=" | tail -n 1)
+[ -z "$GL" ] && GL=$(grep "itune-glass" "$O/../logcat-live.txt" 2>/dev/null | grep "liveBlur=" | tail -n 1)
+log "glass: ${GL#*: }"
+if [ -z "$GL" ]; then log "MISSING (required): itune-glass start line"; FAILS=$((FAILS + 1))
+elif [ "${SMOKE_BLUR:-0}" = 1 ]; then echo "$GL" | grep -q "liveBlur=true" || { log "MISSING (required): forced live blur on the blur leg"; FAILS=$((FAILS + 1)); }
+else echo "$GL" | grep -q "liveBlur=false reason=emulator" || { log "MISSING (required): emulator must report liveBlur=false reason=emulator:*"; FAILS=$((FAILS + 1)); }
+fi
 
 # ---------------------------------------------------------------- Home
 log "== Home"
@@ -450,6 +517,31 @@ fi
 # ---------------------------------------------------------------- session restore: force-stop + relaunch keeps the song
 log "== Session restore"
 refocus; close_np
+# seek to 1:00 on the scrubber (tap at 60 s / duration), so the restore can be checked for position too
+SEEK=0
+if id mini_player 0; then
+  sleep 1.5; dump
+  read SX1 SX2 SY DUR < <(python3 - "$O/ui.xml" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+r = ET.parse(sys.argv[1]).getroot()
+sc = None; times = []
+for n in r.iter('node'):
+    rid = n.get('resource-id','').split('/')[-1]
+    m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+    if rid == 'np_scrubber' and len(m) == 4: sc = m
+    t = n.get('text','')
+    mm = re.match(r'^(-?)(\d+):(\d\d)$', t)
+    if mm and len(times) < 2: times.append(int(mm.group(2)) * 60 + int(mm.group(3)))
+if sc and len(times) == 2: print(sc[0], sc[2], (sc[1] + sc[3]) // 2, times[0] + times[1])
+PY
+)
+  if [ -n "${DUR:-}" ] && [ "$DUR" -gt 75 ]; then
+    TX=$(( SX1 + (SX2 - SX1) * 60 / DUR ))
+    adb shell input tap $TX $SY; sleep 1.5; crash_check "seek"
+    SEEK=1; log "seek to ~1:00 (duration ${DUR}s, tap x=$TX)"
+  else log "WARN: no scrubber/duration for the 1:00 seek (dur='${DUR:-}')"; fi
+  close_np
+fi
 dump
 BEFORE=$(python3 - "$O/ui.xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
@@ -473,14 +565,52 @@ if [ -n "$BEFORE" ]; then
   timeout 30 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null; sleep 6
   if wait_for text "$BEFORE" 15; then log "session restored: $BEFORE"; shot session-restored
   else log "MISSING (required): restored session ($BEFORE)"; FAILS=$((FAILS + 1)); shot missing-session; fi
-  timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep " restored " | tail -n 1 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+  RESTORED=$(timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep " restored " | tail -n 1)
+  echo "[ui]   ${RESTORED#*: }" | tee -a "$O/steps.txt"
+  # same position (+-3 s of the last save, and of 1:00 when the seek took) and the same queue length
+  SP=$(echo "$SAVED" | sed -n 's/.* pos=\([0-9]*\).*/\1/p'); SN=$(echo "$SAVED" | sed -n 's/.* core=-\{0,1\}[0-9]*\/\([0-9]*\).*/\1/p')
+  RP=$(echo "$RESTORED" | sed -n 's/.* pos=\([0-9]*\).*/\1/p'); RN=$(echo "$RESTORED" | sed -n 's/.* n=\([0-9]*\).*/\1/p')
+  if [ -n "$SP" ] && [ -n "$RP" ]; then
+    D=$(( RP > SP ? RP - SP : SP - RP ))
+    [ $D -le 3000 ] && log "session position kept (${SP} -> ${RP} ms)" || { log "MISSING (required): session position (${SP} -> ${RP} ms)"; FAILS=$((FAILS + 1)); }
+    if [ $SEEK = 1 ]; then
+      D6=$(( RP > 60000 ? RP - 60000 : 60000 - RP ))
+      [ $D6 -le 3000 ] && log "restored at ~1:00 ($RP ms)" || log "WARN: restored at $RP ms, not ~1:00 (the scrubber tap may have missed)"
+    fi
+  else log "MISSING (required): session save/restore positions in the log (saved='$SP' restored='$RP')"; FAILS=$((FAILS + 1)); fi
+  if [ -n "$SN" ] && [ -n "$RN" ]; then
+    [ "$SN" = "$RN" ] && log "queue length kept ($RN)" || { log "MISSING (required): queue length ($SN -> $RN)"; FAILS=$((FAILS + 1)); }
+  fi
 else
   log "WARN: no mini player title to compare (stream unavailable?)"
+fi
+
+# ---------------------------------------------------------------- options menus: open never navigates, Back closes only it
+log "== Options menus + Back"
+home_tab
+for _ in 1 2 3 4 5 6; do dump; find_node resource-id recent_item >/dev/null && break; scroll_down; done
+menu_back_check home-recent long recent_item
+tab Search
+menu_back_check search-track tap track_more
+tab Library
+menu_back_check library-playlist tap lib_more
+if id "pl_Smoke list" 0; then sleep 2; menu_back_check playlist-track tap track_more; back; fi
+if id mini_player 0; then
+  sleep 1.5
+  menu_back_check nowplaying tap np_more
+  if id np_queue 0; then
+    id queue_tab_1 0; sleep 1.5
+    menu_back_check queue-recent tap qrecent_more queue
+    id queue_tab_0 0
+    id sheet_close 0
+  fi
+  close_np
 fi
 
 # ---------------------------------------------------------------- cached Home: offline cold start still shows the shelves
 log "== Cached Home"
 if [ $SHELVES = 1 ]; then
+  home_tab   # the relaunch reopens the last tab
   timeout 10 adb shell input keyevent KEYCODE_HOME; sleep 1
   timeout 15 adb shell am force-stop $PKG; sleep 1
   timeout 10 adb shell svc wifi disable; timeout 10 adb shell svc data disable; sleep 2
@@ -663,6 +793,58 @@ id "srow_Diagnostics"
 shot diagnostics
 back
 scroll_down; scroll_down
+back
+
+# ---------------------------------------------------------------- choices + place survive a force-stop
+log "== Options + place kept across a kill"
+timeout 10 adb logcat -c >/dev/null 2>&1
+tab Stats; id range_week 0
+home_tab; id home_settings
+for _ in 1 2 3 4 5 6; do dump; find_node resource-id toggle_haptics >/dev/null && break; scroll_down; done
+id toggle_haptics 0
+for _ in 1 2 3 4; do dump; find_node resource-id "srow_Theme, text and fonts" >/dev/null && break; scroll_down; done
+if id "srow_Theme, text and fonts" 0; then
+  for _ in 1 2 3 4 5; do dump; find_node resource-id toggle_pure_black >/dev/null && break; scroll_down; done
+  id toggle_pure_black 0; back
+fi
+back
+tab Library
+id lib_Albums 0; id lib_sort 0
+scroll_down; scroll_down
+dump; LANCHOR=$(mid_anchor); log "library anchor before kill: '$LANCHOR'"
+timeout 10 adb shell input keyevent KEYCODE_HOME; sleep 2
+SETS=$(timeout 10 adb logcat -d -s itune-prefs:I 2>/dev/null | grep " set " | sed 's/.* set //' )
+timeout 15 adb shell am force-stop $PKG; sleep 2
+timeout 10 adb logcat -c >/dev/null 2>&1
+timeout 30 adb shell am start -W -n $PKG/dev.benfranklin.itune.MainActivity >/dev/null; sleep 5
+crash_check "options relaunch"
+START=$(timeout 10 adb logcat -d -s itune-prefs:I 2>/dev/null | grep "library_sort=" | tail -n 1)
+log "prefs at start: ${START#*: }"
+declare -A LASTSET=()
+while read -r kv; do [ -n "$kv" ] && LASTSET[${kv%%=*}]=$kv; done <<< "$SETS"
+NK=0
+for k in library_sort library_filter stats_range haptics pure_black; do
+  kv=${LASTSET[$k]:-}
+  [ -z "$kv" ] && { log "WARN: option $k was not flipped"; continue; }
+  NK=$((NK + 1))
+  echo " $START " | grep -q " $kv " && log "option kept: $kv" || { log "MISSING (required): option $kv after force-stop"; FAILS=$((FAILS + 1)); }
+done
+[ $NK -ge 3 ] || { log "MISSING (required): could not flip enough options ($NK)"; FAILS=$((FAILS + 1)); }
+if wait_for resource-id lib_sort 10; then log "relaunch reopened Library"; else log "MISSING (required): last tab (Library) after force-stop"; FAILS=$((FAILS + 1)); fi
+if [ -n "$LANCHOR" ]; then
+  wait_for text "$LANCHOR" 10 && log "library scroll kept across the kill ('$LANCHOR')" || { log "MISSING (required): library scroll after force-stop ('$LANCHOR')"; FAILS=$((FAILS + 1)); shot missing-lib-scroll; }
+fi
+shot options-kept
+# put the visual options back for the remaining screenshots
+id lib_Playlists 0
+home_tab; id home_settings
+for _ in 1 2 3 4 5 6; do dump; find_node resource-id toggle_haptics >/dev/null && break; scroll_down; done
+id toggle_haptics 0
+for _ in 1 2 3 4; do dump; find_node resource-id "srow_Theme, text and fonts" >/dev/null && break; scroll_down; done
+if id "srow_Theme, text and fonts" 0; then
+  for _ in 1 2 3 4 5; do dump; find_node resource-id toggle_pure_black >/dev/null && break; scroll_down; done
+  id toggle_pure_black 0; back
+fi
 back
 
 # ---------------------------------------------------------------- name + font scale 1.3 audit

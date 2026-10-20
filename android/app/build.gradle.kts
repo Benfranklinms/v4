@@ -107,3 +107,6 @@ dependencies {
     coreLibraryDesugaring(libs.desugar)
     testImplementation(libs.junit)
 }
+
+// The glass guard (live blur on real phones, legible album-tinted chrome) runs with every release build.
+tasks.matching { it.name == "assembleRelease" }.configureEach { dependsOn("testReleaseUnitTest") }

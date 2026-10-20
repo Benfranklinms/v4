@@ -60,6 +60,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -130,7 +131,7 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
     var focused by remember { mutableStateOf(false) }
-    var lengthIdx by remember { mutableStateOf(0) }
+    val lengthIdx by App.prefs.isaLength.state.collectAsState()
     var state by remember { mutableStateOf<IsaState>(IsaState.Idle) }
     var sugg by remember { mutableStateOf<List<String>>(emptyList()) }
     var job by remember { mutableStateOf<Job?>(null) }
@@ -265,7 +266,7 @@ fun IsaCommandCard(s: AppState, modifier: Modifier = Modifier) {
             // length: a small, light outline chip
             Row(
                 Modifier.height(28.dp).clip(RoundedCornerShape(14.dp)).border(0.6.dp, c.t4, RoundedCornerShape(14.dp))
-                    .press { lengthIdx = (lengthIdx + 1) % LENGTHS.size }.padding(horizontal = 11.dp).testTag("isa_length"),
+                    .press { App.prefs.isaLength.value = (lengthIdx + 1) % LENGTHS.size }.padding(horizontal = 11.dp).testTag("isa_length"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Rounded.Schedule, null, tint = c.t3, modifier = Modifier.size(12.dp))

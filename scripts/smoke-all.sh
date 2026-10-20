@@ -17,5 +17,10 @@ timeout 20 adb shell settings put global package_verifier_enable 0 >/dev/null 2>
 timeout 20 adb shell am kill-all >/dev/null 2>&1 || true
 # diagnostic leg: flat glass (no gradients / ambient wash) on the emulator only
 [ "${SMOKE_LITE:-0}" = 1 ] && adb shell setprop debug.itune.lite 1
+# informational full-glass leg on API 34 (SwiftShader-ANGLE): force the real Haze blur path that phones run, so a
+# crash in it shows up somewhere (the gating lite leg never blurs)
+if [ "${SMOKE_LITE:-0}" != 1 ] && [ "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" -ge 33 ] 2>/dev/null; then
+  adb shell setprop debug.itune.blur 1; export SMOKE_BLUR=1
+fi
 export SMOKE_CI=1
 bash scripts/smoke.sh "" ci

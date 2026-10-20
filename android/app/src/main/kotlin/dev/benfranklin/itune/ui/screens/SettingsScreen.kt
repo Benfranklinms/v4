@@ -206,7 +206,7 @@ fun SettingsScreen(s: AppState) {
                             colors = SliderDefaults.colors(thumbColor = c.txt, activeTrackColor = c.txt, inactiveTrackColor = c.surf4), modifier = Modifier.weight(1f).testTag("crossfade"),
                         )
                     }
-                    SRow("Haptics", "Gentle taps on key actions", 1) { Toggle(haptics) { p.haptics.value = it } }
+                    SRow("Haptics", "Gentle taps on key actions", 1) { Toggle(haptics, "toggle_haptics") { p.haptics.value = it } }
                     val pm = ctx.getSystemService(PowerManager::class.java)
                     val unrestricted = pm.isIgnoringBatteryOptimizations(ctx.packageName)
                     SRow("Battery", if (unrestricted) "Unrestricted · background playback is safe" else "Set to Unrestricted so OnePlus doesn't stop music in the background", 2, onClick = {
@@ -451,7 +451,7 @@ fun AppearanceScreen(s: AppState) {
                         Icon(Icons.Rounded.ExpandMore, null, tint = c.t2, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = r })
                     }
                     SRow("Follow system", "Switch between a dark and a light theme with the system", 1) { Toggle(follow) { p.followSystem.value = it } }
-                    SRow("Pure black", "True black background for dark themes", 2) { Toggle(black) { p.pureBlack.value = it } }
+                    SRow("Pure black", "True black background for dark themes", 2) { Toggle(black, "toggle_pure_black") { p.pureBlack.value = it } }
                 }
             }
             item {

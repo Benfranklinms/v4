@@ -123,14 +123,7 @@ fun HomeScreen(s: AppState) {
     ) {
     // scroll position survives back navigation and process death (saveable state). After process death the feed
     // arrives a moment later, so re-apply the restored position once it is there.
-    val list = androidx.compose.foundation.lazy.rememberLazyListState()
-    val restoreTo = remember { intArrayOf(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset) }
-    LaunchedEffect(feed != null) {
-        if (feed != null && restoreTo[0] > 0 && list.firstVisibleItemIndex < restoreTo[0]) {
-            runCatching { list.scrollToItem(restoreTo[0], restoreTo[1]) }
-        }
-        if (feed != null) restoreTo[0] = 0
-    }
+    val list = dev.benfranklin.itune.data.rememberPersistentListState("home", feed != null)
     LazyColumn(Modifier.fillMaxSize().testTag("home_list"), state = list, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
         item(key = "hdr") {
             Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -199,7 +192,7 @@ fun HomeScreen(s: AppState) {
                 item(key = "recent") {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                         itemsIndexed(f.recent.take(12), key = { i, t -> "r$i${t.id}" }) { i, t ->
-                            Column(Modifier.width(160.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, f.recent, i, "Recently played") }) {
+                            Column(Modifier.width(160.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, f.recent, i, "Recently played") }.testTag("recent_item")) {
                                 Artwork(t.thumb, 160.dp, 14.dp)
                                 Text(t.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                                 Text(t.artists, style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)

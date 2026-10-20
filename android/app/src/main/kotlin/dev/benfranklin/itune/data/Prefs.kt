@@ -17,6 +17,7 @@ class Prefs(ctx: Context) {
             set(v) {
                 flow.value = v
                 sp.edit().apply { write(key, v) }.apply()
+                if (!key.startsWith("resume") && !key.startsWith("last_")) android.util.Log.i("itune-prefs", "set $key=$v")
             }
     }
 
@@ -55,4 +56,12 @@ class Prefs(ctx: Context) {
     /** "What should I call you?" (Settings). Empty = use the signed-in account's first name. */
     val callName = str("call_name", "")
     val localFiles = bool("local_files", false)
+    // on-screen choices that must survive navigation, relaunch and process kill (single source of truth)
+    val libraryFilter = str("library_filter", "Playlists")
+    val searchFilter = str("search_filter", "All")
+    val searchQuery = str("search_query", "")
+    val statsRange = str("stats_range", "month")
+    val isaLength = int("isa_length", 0)
+    val npLyrics = bool("np_lyrics", false)
+    val queueTab = int("queue_tab", 0)
 }

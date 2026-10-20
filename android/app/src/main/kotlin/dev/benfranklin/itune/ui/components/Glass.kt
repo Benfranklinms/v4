@@ -69,10 +69,20 @@ val LocalSheetHaze = staticCompositionLocalOf<HazeState?> { null }
  * gfxstream) crashed the whole emulator mid-animation with blur layers. Phones always get the real blur;
  * the emulator draws the same glass with the translucent fallback tint.
  */
-val liveBlur: Boolean by lazy {
-    val h = Build.HARDWARE.lowercase()
-    val f = Build.FINGERPRINT.lowercase()
-    !(h.contains("ranchu") || h.contains("goldfish") || f.contains("generic") || f.contains("emulator") || Build.PRODUCT.contains("sdk_gphone"))
+val blurDecision: BlurDecision by lazy {
+    val d = GlassPolicy.decide(Build.HARDWARE.orEmpty(), Build.FINGERPRINT.orEmpty(), Build.PRODUCT.orEmpty(), Build.VERSION.SDK_INT)
+    // emulator-only probe (`setprop debug.itune.blur 1`, non-gating CI leg): run the real Haze path there too
+    if (!d.liveBlur && sysProp("debug.itune.blur") == "1") BlurDecision(true, "forced:debug.itune.blur(${d.reason})") else d
+}
+
+private fun sysProp(k: String): String? = runCatching {
+    Class.forName("android.os.SystemProperties").getMethod("get", String::class.java).invoke(null, k) as String
+}.getOrNull()
+val liveBlur: Boolean get() = blurDecision.liveBlur
+
+/** One line at start (tag itune-glass): whether this device draws live blur, and why. Smoke reads it. */
+fun logGlassState() {
+    android.util.Log.i("itune-glass", "liveBlur=${blurDecision.liveBlur} reason=${blurDecision.reason} lite=$liteGfx sdk=${Build.VERSION.SDK_INT} hw=${Build.HARDWARE}")
 }
 /**
  * Emulator-only diagnostic switch (`adb shell setprop debug.itune.lite 1`): glass draws as flat translucent
@@ -318,4 +328,46 @@ fun bottomInset(extra: Dp = 24.dp): Dp {
     val nav = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val playing = dev.benfranklin.itune.player.Playback.current.collectAsState().value != null
     return nav + 8.dp + dev.benfranklin.itune.ui.NAV_H.dp + (if (playing) (dev.benfranklin.itune.ui.MINI_H + 10).dp else 0.dp) + extra
+}
+
+/** The album-tinted chrome colour (animated ~400 ms on track change); #09090A with nothing playing. */
+val LocalChromeTint = staticCompositionLocalOf { Color(ChromeTint.NO_TRACK) }
+
+/** White text / icons on the tinted chrome, and the inactive label colour (>= 4.5:1, see [ChromeTint]). */
+val ChromeOn = Color(ChromeTint.LABEL_ACTIVE)
+val ChromeOnMuted = Color(ChromeTint.LABEL_INACTIVE)
+
+/** Subtle shadow under chrome text, so glyphs keep an edge over bright art moving behind the glass. */
+val ChromeTextShadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.45f), androidx.compose.ui.geometry.Offset(0f, 1f), 3f)
+
+/**
+ * Floating chrome glass (mini player, bottom nav, top bar): real Haze blur (~40dp) of what scrolls behind,
+ * tinted with the album colour at [ChromeTint.ALPHA], 2% grain, a 1px hairline (white 30% at the top fading to
+ * 6%). Without live blur (emulator) an opaque tinted fill.
+ */
+@Composable
+fun Modifier.chromeGlass(shape: Shape, haze: HazeState? = LocalHaze.current): Modifier {
+    val c = LocalColors.current
+    val tint = LocalChromeTint.current
+    var m = this.clip(shape)
+    m = if (haze != null && liveBlur) m.hazeEffect(
+        haze,
+        HazeStyle(
+            backgroundColor = c.bg,
+            tint = HazeTint(tint.copy(alpha = ChromeTint.ALPHA)),
+            blurRadius = 40.dp,
+            noiseFactor = 0.02f,
+            fallbackTint = HazeTint(tint.copy(alpha = 0.97f)),
+        ),
+    ) else m.background(tint)
+    if (liteGfx) return m
+    return m.drawWithContent {
+        drawContent()
+        val outline = shape.createOutline(size, layoutDirection, this)
+        drawOutline(
+            outline,
+            Brush.verticalGradient(0f to Color.White.copy(alpha = 0.30f), 0.5f to Color.White.copy(alpha = 0.06f), 1f to Color.White.copy(alpha = 0.06f)),
+            style = Stroke(1.dp.toPx()),
+        )
+    }
 }

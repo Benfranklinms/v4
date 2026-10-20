@@ -35,7 +35,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
-        handle(intent)
+        // where the user was (tab, open pages): back after a swipe-away / process kill. Now Playing stays closed.
+        runCatching { dev.benfranklin.itune.data.UiStore.restore(state) }
+        // a recreated activity keeps its launch intent: only act on it once (Now Playing never re-opens by itself)
+        if (savedInstanceState == null) handle(intent)
         val crash = CrashLog.take(this)
         dev.benfranklin.itune.data.Likes.load()
         dev.benfranklin.itune.data.Library.refresh()
@@ -92,7 +95,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         state.flushPending()
-        dev.benfranklin.itune.player.Playback.saveSession()
+        runCatching { dev.benfranklin.itune.data.UiStore.save(state) }
+        dev.benfranklin.itune.player.Playback.saveSessionNow("activity stop")
         super.onStop()
     }
 
@@ -108,6 +112,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         requestHighRefresh(false)
+        runCatching { dev.benfranklin.itune.data.UiStore.save(state) }
+        dev.benfranklin.itune.player.Playback.saveSession()
         super.onPause()
     }
 
@@ -118,7 +124,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handle(i: Intent?) {
         if (i == null) return
-        if (i.getBooleanExtra("open_now_playing", false)) state.nowPlaying = true
+        if (i.getBooleanExtra("open_now_playing", false)) {
+            i.removeExtra("open_now_playing")
+            state.nowPlaying = true
+        }
         if (i.action == Intent.ACTION_SEND) {
             val text = i.getStringExtra(Intent.EXTRA_TEXT) ?: return
             if (text.contains("spotify.com") || text.contains("music.apple.com")) {

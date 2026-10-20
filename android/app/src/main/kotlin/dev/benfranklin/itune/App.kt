@@ -17,7 +17,10 @@ class App : Application(), ImageLoaderFactory {
         super.onCreate()
         instance = this
         CrashLog.install(this)
+        runCatching { dev.benfranklin.itune.ui.components.logGlassState() }
         prefs = Prefs(this)
+        // the saved on-screen choices as read at start (smoke checks they survive a force-stop)
+        android.util.Log.i("itune-prefs", "library_sort=${prefs.librarySort.value} library_filter=${prefs.libraryFilter.value} stats_range=${prefs.statsRange.value} haptics=${prefs.haptics.value} pure_black=${prefs.pureBlack.value} theme=${prefs.theme.value} queue_tab=${prefs.queueTab.value} np_lyrics=${prefs.npLyrics.value}")
         // Lean storage: trim the stream cache to its cap on every start.
         scope.launch { runCatching { dev.benfranklin.itune.player.DataSources.applyCap(this@App) } }
         // open the Rust core (SQLite + catalogue client) off the main thread at start

@@ -30,6 +30,7 @@ import dev.benfranklin.itune.ui.components.glass
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,7 +73,7 @@ import kotlin.math.sin
 fun StatsScreen(s: AppState) {
     val c = LocalColors.current
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var range by remember { mutableStateOf("month") }
+    val range by App.prefs.statsRange.state.collectAsState()
     var st by remember { mutableStateOf<StatsSummary?>(null) }
     LaunchedEffect(range) { st = dev.benfranklin.itune.data.io { App.core.stats(range, tzMin()) } }
     val reduce = LocalReduceMotion.current
@@ -101,7 +102,7 @@ fun StatsScreen(s: AppState) {
                     Box(Modifier.graphicsLayer { translationX = w.toPx() * pill.value.coerceIn(-0.2f, opts.size - 0.8f) }.width(w).fillMaxHeight().glass(RoundedCornerShape(16.dp), dark = 0.06f, sheen = 0.20f, rim = 0.85f).background(c.txt.copy(alpha = 0.10f)))
                     Row(Modifier.fillMaxSize()) {
                         opts.forEach { (k, l) ->
-                            Box(Modifier.weight(1f).fillMaxSize().press { range = k }.testTag("range_$k"), contentAlignment = Alignment.Center) {
+                            Box(Modifier.weight(1f).fillMaxSize().press { App.prefs.statsRange.value = k }.testTag("range_$k"), contentAlignment = Alignment.Center) {
                                 Text(l, style = T.ui(12.5.sp, FontWeight.SemiBold, if (k == range) c.txt else c.t3))
                             }
                         }

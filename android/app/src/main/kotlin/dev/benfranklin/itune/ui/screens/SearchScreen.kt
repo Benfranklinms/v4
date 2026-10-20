@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,13 +88,13 @@ fun SearchScreen(s: AppState) {
     val ctx = LocalContext.current
     val focus = LocalFocusManager.current
     val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    var q by rememberSaveable { mutableStateOf(SearchCache.query) }
-    var submitted by remember { mutableStateOf(SearchCache.query) }
+    var q by rememberSaveable { mutableStateOf(SearchCache.query.ifEmpty { App.prefs.searchQuery.value }) }
+    var submitted by remember { mutableStateOf(SearchCache.query.ifEmpty { App.prefs.searchQuery.value }) }
     var res by remember { mutableStateOf(SearchCache.results) }
     var sugg by remember { mutableStateOf<List<String>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
-    var filter by rememberSaveable { mutableStateOf("All") }
+    val filter by App.prefs.searchFilter.state.collectAsState()
     var recents by remember { mutableStateOf<List<String>>(emptyList()) }
     val recentPlays by produceState<List<dev.benfranklin.itune.core.Track>>(emptyList()) { value = dev.benfranklin.itune.data.io { App.core.recent(8u) }.orEmpty() }
     LaunchedEffect(Unit) { recents = dev.benfranklin.itune.data.io { App.core.recentSearches(12u) }.orEmpty() }
@@ -122,6 +123,7 @@ fun SearchScreen(s: AppState) {
     fun go(text: String) {
         q = text
         submitted = text
+        App.prefs.searchQuery.value = text
         sugg = emptyList()
         focus.clearFocus()
         kb?.hide()
@@ -151,12 +153,12 @@ fun SearchScreen(s: AppState) {
                     modifier = Modifier.fillMaxWidth().testTag("search_field"),
                 )
             }
-            if (q.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = c.t3, modifier = Modifier.size(20.dp).press { q = ""; sugg = emptyList(); submitted = ""; res = null; SearchCache.query = ""; SearchCache.results = null })
+            if (q.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = c.t3, modifier = Modifier.size(20.dp).press { q = ""; sugg = emptyList(); submitted = ""; res = null; SearchCache.query = ""; SearchCache.results = null; App.prefs.searchQuery.value = "" })
         }
         if (res != null && sugg.isEmpty()) {
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 itemsIndexed(listOf("All", "Songs", "Albums", "Artists", "Playlists", "Videos"), key = { k, v -> "$k:" + v.hashCode() }) { i, f ->
-                    ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("filter_$f")) { filter = f }
+                    ChipButton(f, selected = filter == f, modifier = Modifier.enter(i).testTag("filter_$f")) { App.prefs.searchFilter.value = f }
                 }
             }
         }
@@ -173,7 +175,7 @@ fun SearchScreen(s: AppState) {
                 }
             } else {
                 val r = res
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
+                LazyColumn(Modifier.fillMaxSize(), state = dev.benfranklin.itune.data.rememberPersistentListState("search", res != null), contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
                     if (loading) item { Shimmers() }
                     if (r == null && !loading && failed && submitted.isNotBlank()) {
                         item {

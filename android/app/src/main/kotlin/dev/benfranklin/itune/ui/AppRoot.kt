@@ -68,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -104,6 +105,10 @@ import dev.benfranklin.itune.ui.theme.T
 import dev.chrisbanes.haze.HazeProgressive
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
+import dev.benfranklin.itune.ui.components.chromeGlass
+import dev.benfranklin.itune.ui.components.ChromeOn
+import dev.benfranklin.itune.ui.components.ChromeOnMuted
+import dev.benfranklin.itune.ui.components.ChromeTextShadow
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.delay
 
@@ -148,12 +153,23 @@ fun AppRoot(s: AppState) {
         LaunchedEffect(key) { chrome.reset() }
         LaunchedEffect(s.nowPlaying) { if (!s.nowPlaying) chrome.show() }
         BackHandler(enabled = s.sheet != null || s.nowPlaying || s.stack.isNotEmpty()) {
+            // one level per Back: the top sheet only, then Now Playing, then the page
             when {
-                s.sheet != null -> s.sheet = null
+                s.sheet != null -> s.closeSheet()
                 s.nowPlaying -> s.nowPlaying = false
                 else -> s.pop()
             }
         }
+        // album-tinted chrome glass: darkened, desaturated art colour (near-mono on Pure Mono), eased on track change
+        val chromeTarget = Color(dev.benfranklin.itune.ui.components.ChromeTint.of(
+            if (current == null || s.glow == NoTrackGlow) null else s.glow.toArgb(), mono = theme == "mono",
+        ))
+        val chromeTint by androidx.compose.animation.animateColorAsState(chromeTarget, tween(if (reduce) 0 else 400), label = "chromeTint")
+        // where the user is (tab + open pages) is kept for the next launch, whatever ends this one
+        LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { s.tab to s.stack.toList() }.collect { dev.benfranklin.itune.data.UiStore.save(s) }
+        }
+        androidx.compose.runtime.CompositionLocalProvider(dev.benfranklin.itune.ui.components.LocalChromeTint provides chromeTint) {
         CompositionLocalProviderHaze(haze, chrome) {
             // Crossfade the whole UI when the font changes (no jump).
             AnimatedContent(targetState = "$font|$customPath|$customNum", transitionSpec = { fadeIn(tween(320)) togetherWith fadeOut(tween(220)) }, label = "font") { _ ->
@@ -161,8 +177,12 @@ fun AppRoot(s: AppState) {
                     Box(Modifier.fillMaxSize()) {
                         // everything under the sheets (pages, chrome, Now Playing) is the sheets' haze source
                         Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(sheetHaze) else Modifier)) {
-                            // everything that scrolls is the haze source: the floating glass blurs it
-                            Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(haze) else Modifier).nestedScroll(chrome.connection)) {
+                            // everything that scrolls is the haze source: the floating glass blurs it.
+                            // zIndex -1: Haze only lets an effect draw areas whose compound zIndex is BELOW the source it
+                            // sits in. The chrome (mini player, nav, top bar, Now Playing) sits inside the sheets' source
+                            // (compound 0), so this inner area must be < 0 or the chrome blurs nothing and shows the
+                            // content crisp (0.2.1 regression). Glass inside the content (compound -1) still skips it.
+                            Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(haze, zIndex = -1f) else Modifier).nestedScroll(chrome.connection)) {
                                 AmbientWash(Modifier.fillMaxSize())
                                 Content(s)
                             }
@@ -178,6 +198,7 @@ fun AppRoot(s: AppState) {
                     }
                 }
             }
+        }
         }
     }
 }
@@ -278,14 +299,14 @@ private fun TopGlassBar(s: AppState, chrome: ChromeState) {
     Box(
         Modifier.fillMaxWidth()
             .graphicsLayer { translationY = -size.height * (1f - v.value) * 1.1f; alpha = (v.value * 1.4f).coerceIn(0f, 1f) }
-            .glass(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), dark = 0.30f, backdrop = true, sheen = 0.04f, rim = 0.5f, blur = 18.dp)
+            .chromeGlass(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
             .testTag("top_bar"),
     ) {
         Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 12.dp).fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
             PulseMark(Modifier.size(20.dp))
-            Text(s.tab.label, style = T.ui(16.sp, FontWeight.Bold), modifier = Modifier.padding(start = 10.dp).weight(1f))
-            if (s.tab != Tab.Search) Icon(Icons.Rounded.Search, "Search", tint = c.txt, modifier = Modifier.size(40.dp).padding(10.dp).press { s.select(Tab.Search) })
-            Icon(Icons.Rounded.Settings, "Settings", tint = c.txt, modifier = Modifier.size(40.dp).padding(10.dp).press { s.push(Dest.Settings) })
+            Text(s.tab.label, style = T.ui(16.sp, FontWeight.Bold, ChromeOn).copy(shadow = ChromeTextShadow), modifier = Modifier.padding(start = 10.dp).weight(1f))
+            if (s.tab != Tab.Search) Icon(Icons.Rounded.Search, "Search", tint = ChromeOn, modifier = Modifier.size(40.dp).padding(10.dp).press { s.select(Tab.Search) })
+            Icon(Icons.Rounded.Settings, "Settings", tint = ChromeOn, modifier = Modifier.size(40.dp).padding(10.dp).press { s.push(Dest.Settings) })
             Box(Modifier.padding(start = 4.dp).size(30.dp).glass(CircleShape, dark = 0.5f, sheen = 0.1f).press { s.sheet = Sheet.Account }, contentAlignment = Alignment.Center) {
                 val av = account?.avatar
                 if (!av.isNullOrEmpty()) Artwork(av, 30.dp, circle = true)
@@ -351,8 +372,7 @@ private fun MiniPlayer(s: AppState, shared: SharedTransitionScope, scope: Animat
                 .height(MINI_H.dp)
                 .graphicsLayer { translationX = dx.value * 0.5f; translationY = dragY.coerceAtMost(0f) * 0.4f; alpha = 1f - (kotlin.math.abs(dx.value) / 900f).coerceIn(0f, 0.4f) }
                 .sharedBounds(rememberSharedContentState("player-bg"), scope, resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds)
-                .glass(RoundedCornerShape(30.dp), dark = 0.16f, backdrop = true, sheen = 0.09f, rim = 0.62f, blur = 18.dp)
-                .drawBehind { drawRect(androidx.compose.ui.graphics.Brush.horizontalGradient(0f to c.glow.copy(alpha = 0.16f), 0.5f to Color.Transparent)) }
+                .chromeGlass(RoundedCornerShape(30.dp))
                 .pointerInput(tr.id) {
                     // swipe left/right = next/previous, swipe up = open Now Playing
                     detectDragGestures(
@@ -376,29 +396,29 @@ private fun MiniPlayer(s: AppState, shared: SharedTransitionScope, scope: Animat
                 }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
-                        tr.title, style = T.ui(14.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        tr.title, style = T.ui(14.sp, FontWeight.SemiBold, ChromeOn).copy(shadow = ChromeTextShadow), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.sharedBounds(rememberSharedContentState("title"), scope).testTag("mini_title"),
                     )
-                    Text(tr.artists, style = T.ui(12.sp, FontWeight.Medium, c.t2), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(tr.artists, style = T.ui(12.sp, FontWeight.Medium, ChromeOnMuted).copy(shadow = ChromeTextShadow), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 val hs by animateFloatAsState(if (liked) 1f else 0.9f, spring(dampingRatio = 0.4f, stiffness = 600f), label = "mheart")
                 Icon(
-                    if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (liked) "Unlike" else "Like", tint = c.txt,
+                    if (liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (liked) "Unlike" else "Like", tint = ChromeOn,
                     modifier = Modifier.size(40.dp).graphicsLayer { scaleX = hs * 1.08f; scaleY = hs * 1.08f }.press { dev.benfranklin.itune.data.Likes.toggle(tr) }.padding(10.dp),
                 )
                 AnimatedContent(playing, transitionSpec = { scaleIn(spring(dampingRatio = 0.6f)) togetherWith scaleOut(tween(90)) }, label = "mpp") { pl ->
                     Icon(
-                        if (pl) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (pl) "Pause" else "Play", tint = c.txt,
+                        if (pl) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (pl) "Pause" else "Play", tint = ChromeOn,
                         modifier = Modifier.size(42.dp).press { Playback.toggle() }.padding(8.dp),
                     )
                 }
-                Icon(Icons.Rounded.SkipNext, "Next", tint = c.txt, modifier = Modifier.size(40.dp).press { Playback.next() }.padding(9.dp))
+                Icon(Icons.Rounded.SkipNext, "Next", tint = ChromeOn, modifier = Modifier.size(40.dp).press { Playback.next() }.padding(9.dp))
             }
             // progress hairline hugging the bottom of the capsule (drawn from state, no recomposition per tick)
             Box(Modifier.align(Alignment.BottomStart).padding(start = 30.dp, end = 30.dp, bottom = 2.dp).fillMaxWidth().height(1.6.dp).drawBehind {
                 val f = if (dur.value > 0) (pos.value.toFloat() / dur.value).coerceIn(0f, 1f) else 0f
-                drawRect(c.t4.copy(alpha = 0.7f))
-                drawRect(c.acc, size = androidx.compose.ui.geometry.Size(size.width * f, size.height))
+                drawRect(Color.White.copy(alpha = 0.22f))
+                drawRect(ChromeOn, size = androidx.compose.ui.geometry.Size(size.width * f, size.height))
             })
         }
     }
@@ -413,7 +433,7 @@ private fun BottomNav(s: AppState, modifier: Modifier = Modifier) {
     val lensA = animateFloatAsState(if (idx < 0) 0.45f else 1f, glassSpring(reduce), label = "lensA")
     BoxWithConstraints(
         modifier.padding(horizontal = EDGE.dp).fillMaxWidth().height(NAV_H.dp)
-            .glass(RoundedCornerShape(32.dp), dark = 0.28f, backdrop = true, sheen = 0.08f, rim = 0.62f, blur = 18.dp),
+            .chromeGlass(RoundedCornerShape(32.dp)),
     ) {
         val cell = (maxWidth - 12.dp) / Tab.entries.size
         // the selected tab is a brighter glass lens that slides between tabs
@@ -421,7 +441,7 @@ private fun BottomNav(s: AppState, modifier: Modifier = Modifier) {
             Modifier.padding(start = 8.dp, top = 6.dp, bottom = 6.dp).width(cell - 4.dp).fillMaxHeight()
                 .graphicsLayer { translationX = lens.value * cell.toPx(); alpha = lensA.value }
                 .glass(RoundedCornerShape(26.dp), dark = 0.0f, sheen = 0.16f, rim = 0.8f)
-                .background(c.txt.copy(alpha = 0.10f)),
+                .background(Color.White.copy(alpha = 0.10f)),
         )
         Row(Modifier.fillMaxSize().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Tab.entries.forEach { t ->
@@ -433,9 +453,9 @@ private fun BottomNav(s: AppState, modifier: Modifier = Modifier) {
                     Tab.Stats -> Icons.Rounded.BarChart
                 }
                 Column(Modifier.weight(1f).fillMaxHeight().press(scaleTo = 0.92f) { s.select(t) }.testTag("tab_${t.label}"), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                    Icon(icon, t.label, tint = if (on) c.txt else c.t2, modifier = Modifier.size(20.dp))
+                    Icon(icon, t.label, tint = if (on) ChromeOn else ChromeOnMuted, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.height(3.dp))
-                    Text(t.label, style = T.ui(11.5.sp, if (on) FontWeight.Bold else FontWeight.SemiBold, if (on) c.txt else c.t2))
+                    Text(t.label, style = T.ui(11.5.sp, if (on) FontWeight.Bold else FontWeight.SemiBold, if (on) ChromeOn else ChromeOnMuted).copy(shadow = ChromeTextShadow))
                 }
             }
         }
