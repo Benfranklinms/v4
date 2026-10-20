@@ -999,21 +999,78 @@ sleep 6                  # let the undo window pass (commit)
 shot deleted
 id "pl_Smoke list 2" 0 && { log "playlist still there after delete"; FAILS=$((FAILS + 1)); }
 
-# ---------------------------------------------------------------- Stats with zero/low data
+# ---------------------------------------------------------------- Stats (0.2.8 redesign)
 log "== Stats"
+# x1 y1 x2 y2 of the first node with <resource-id>
+node_bounds() {
+  python3 - "$O/ui.xml" "$1" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(1)
+for n in r.iter('node'):
+    if n.get('resource-id','').split('/')[-1] != sys.argv[2]: continue
+    m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+    if len(m) == 4 and m[2] > m[0] and m[3] > m[1]: print(*m); sys.exit(0)
+sys.exit(1)
+PY
+}
+stats_log() { timeout 10 adb logcat -d -s itune-stats:I itune-recap:I 2>/dev/null; }
 tab Stats
-shot stats-top
-for r in week month year all; do id "range_$r"; done
-scroll_down; scroll_down; scroll_up; scroll_up
-tap_at 28 45; tap_at 75 45; tap_at 50 70; sleep 1; crash_check "stats taps"
-shot stats
-tab Stats                # a stray tap may have opened an artist: re-selecting the tab pops back to Stats
 for _ in 1 2 3; do scroll_up; done
-id stats_wrapped
-sleep 2
-tap_at 85 50; tap_at 85 50; tap_at 85 50; tap_at 10 50
-shot wrapped
-back
+wait_for resource-id stats_hero 10 || { log "MISSING (required): stats hero card"; FAILS=$((FAILS + 1)); }
+shot stats-top
+timeout 10 adb logcat -c >/dev/null 2>&1
+for r in month year all week; do id "range_$r"; sleep 0.8; done
+sleep 1.5
+NP=$(stats_log | grep -c "page range=")
+log "stats pages loaded while switching: $NP ($(stats_log | grep "page range=" | tail -n 4 | sed 's/.*page //' | tr '\n' '|'))"
+[ "$NP" -ge 3 ] || { log "MISSING (required): stats pages for each range"; FAILS=$((FAILS + 1)); }
+shot stats-week
+# scrub: press and drag across the bars (hero follows the finger, haptic tick per bar)
+dump
+if B=$(node_bounds stats_chart); then
+  read -r X1 Y1 X2 Y2 <<< "$B"; CY=$(( (Y1 + Y2) / 2 + (Y2 - Y1) / 4 ))
+  timeout 10 adb logcat -c >/dev/null 2>&1
+  adb shell input motionevent DOWN $((X1 + 12)) $CY; sleep 0.6
+  for k in 1 2 3 4 5; do adb shell input motionevent MOVE $(( X1 + 12 + (X2 - X1 - 24) * k / 7 )) $CY; sleep 0.3; done
+  shot stats-scrub
+  adb shell input motionevent UP $(( X1 + 12 + (X2 - X1 - 24) * 5 / 7 )) $CY; sleep 1
+  crash_check "stats scrub"
+  if stats_log | grep -q "scrub start" && stats_log | grep -q "scrub end"; then log "stats scrub OK: $(stats_log | grep scrub | tr '\n' ' ' | sed 's/[^ ]*itune-stats: //g')"
+  else log "MISSING (required): stats scrub (no scrub start/end)"; FAILS=$((FAILS + 1)); fi
+  # tap the last bar (today): that day's plays
+  adb shell input tap $(( X2 - (X2 - X1) / 14 )) $CY; sleep 1.5
+  if wait_for resource-id stats_day_sheet 4; then log "stats day sheet OK: $(stats_log | grep "day sheet" | tail -n 1 | sed 's/.*itune-stats: //')"; shot stats-day; back
+  else log "WARN: today's bar opened no day sheet (no plays today?)"; fi
+else log "MISSING (required): stats_chart"; FAILS=$((FAILS + 1)); fi
+# clock: tap an hour -> it springs open with that hour's tracks
+if seek_id stats_clock_face; then
+  dump; read -r X1 Y1 X2 Y2 <<< "$(node_bounds stats_clock_face)"
+  if [ $(( (Y1 + Y2) / 2 )) -gt $(py 62) ]; then scroll_down; dump; read -r X1 Y1 X2 Y2 <<< "$(node_bounds stats_clock_face)"; fi
+  adb shell input tap $(( X2 - (X2 - X1) / 5 )) $(( Y1 + (Y2 - Y1) / 5 )); sleep 1.5
+  if wait_for resource-id stats_hour_detail 6; then log "stats clock hour OK: $(stats_log | grep "clock hour" | tail -n 1 | sed 's/.*itune-stats: //')"; shot stats-clock-hour
+  else log "MISSING (required): stats clock hour detail"; FAILS=$((FAILS + 1)); shot missing-clock-hour; fi
+else log "MISSING (required): stats clock"; FAILS=$((FAILS + 1)); fi
+# daily goal picker
+if seek_id goal_edit; then id goal_edit 0 && { id goal_15 0 && log "goal set 15: $(stats_log | grep "goal set" | tail -n 1 | sed 's/.*itune-stats: //')"; }; fi
+for _ in 1 2 3 4 5 6; do dump; find_node resource-id stats_skipped >/dev/null && break; scroll_down; done
+shot stats-lower
+# Recap: 9:16 card rendered to PNG, Save
+for _ in 1 2 3 4 5 6; do scroll_up; done
+timeout 10 adb logcat -c >/dev/null 2>&1
+id stats_recap
+if wait_for resource-id recap_card 8; then
+  for _ in 1 2 3 4 5 6 7 8; do stats_log | grep -q "rendered range" && break; sleep 1; done
+  if stats_log | grep -q "rendered range"; then log "recap OK: $(stats_log | grep "rendered range" | tail -n 1 | sed 's/.*itune-recap: //')"
+  else log "MISSING (required): recap card render"; FAILS=$((FAILS + 1)); fi
+  shot stats-recap
+  id recap_month 0; sleep 2
+  id recap_save 0; sleep 2
+  log "recap save: $(stats_log | grep "save ->" | tail -n 1 | sed 's/.*itune-recap: //')"
+  back
+else log "MISSING (required): recap sheet"; FAILS=$((FAILS + 1)); fi
+crash_check "stats"
+id range_month 0          # leave Stats on Month: the options step below flips it back to Week
 
 # ---------------------------------------------------------------- Account + Settings
 log "== Account / Settings"

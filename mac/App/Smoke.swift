@@ -506,6 +506,9 @@ enum Smoke {
         // ---------------------------------------------------------------- 0.2.5 in-list search
         await listSearchChecks()
 
+        // ---------------------------------------------------------------- 0.2.8 Stats redesign
+        await statsChecks()
+
         // content scrolled underneath the floating glass player bar
         nav.go(.home); await sleep(1.5)
         nav.scrollTarget = "shelf_2"
@@ -795,6 +798,79 @@ enum Smoke {
     }
 
     /// In-list search: case/accent-insensitive, title/artist/album, every word; fast off the main actor.
+    static func statsChecks() async {
+        let nav = Nav.shared, m = StatsModel.shared
+        nav.closeNowPlaying(); nav.queueOpen = false; nav.closeIsa(); nav.flushPending(); nav.snack = nil
+        await resize(CGSize(width: 1280, height: 860))
+        nav.go(.stats); await sleep(1.5)
+        // core: every range builds, with the right number of bars
+        var bad: [String] = []
+        var detail: [String] = []
+        for (r, n) in [("week", 7), ("month", 30), ("year", 12), ("all", 1)] {
+            let t0 = CACurrentMediaTime()
+            let p = await Engine.off { try Engine.core.statsPage(range: r, tzOffsetMin: Engine.tzMinutes) }
+            let ms = Int((CACurrentMediaTime() - t0) * 1000)
+            guard let p else { bad.append(r); continue }
+            if r == "all" ? p.bars.isEmpty : p.bars.count != n { bad.append("\(r) bars=\(p.bars.count)") }
+            if p.clock.count != 24 || p.goalWeek.count != 7 { bad.append("\(r) clock/goal") }
+            detail.append("\(r): \(p.bars.count) bars, \(p.minutes) min, \(p.topTracks.count) songs, \(ms) ms")
+        }
+        record("stats_page_ranges", bad.isEmpty, bad.isEmpty ? detail.joined(separator: "; ") : "bad: " + bad.joined(separator: ", "))
+
+        // range switch from the UI model, main thread stays free while it loads
+        m.range = "week"; await sleep(0.3)
+        let before = m.loads
+        let stall = await mainStall(1.5) { m.range = "month" }
+        let switched = await wait(5) { m.page?.range == "month" && m.loads > before }
+        record("stats_range_switch", switched, String(format: "month page shown=%@, worst main stall %.0f ms", switched ? "yes" : "no", stall))
+        record("stats_range_switch_smooth", stall < 400, String(format: "worst main stall %.0f ms while switching", stall), soft: true)
+        m.range = "week"
+        _ = await wait(5) { m.page?.range == "week" }
+        await sleep(1.0)
+        shot("70-stats-week")
+
+        // hover scrubbing: the hero follows the bar under the pointer
+        if let p = m.page, !p.bars.isEmpty {
+            let i = p.bars.firstIndex { $0.minutes > 0 } ?? (p.bars.count - 1)
+            m.hover = i; await sleep(0.6)
+            shot("71-stats-scrub")
+            record("stats_scrub", m.hover == i, "bar \(i) '\(p.bars[i].title)' (\(p.bars[i].minutes) min) line '\(p.bars[i].line)'")
+            m.hover = -1
+        } else { record("stats_scrub", false, "no bars") }
+
+        // clock hour: tap -> that hour's tracks
+        let peak = Int(m.page?.peakHour ?? -1)
+        let h = peak >= 0 ? peak : 22
+        m.hour = -1
+        m.pickHour(h)
+        let gotHour = await wait(5) { m.hourDetail != nil }
+        await sleep(0.6)
+        shot("72-stats-clock-hour")
+        record("stats_clock_hour", gotHour && m.hourDetail?.hour == UInt32(h), "hour \(h): \(m.hourDetail?.title ?? "-") \(m.hourDetail?.minutes ?? 0) min, \(m.hourDetail?.tracks.count ?? 0) tracks")
+        m.pickHour(h)
+
+        // goal pref round-trip
+        let g0 = Engine.core.statsGoal()
+        try? Engine.core.setStatsGoal(minutes: 15)
+        let g1 = Engine.core.statsGoal()
+        try? Engine.core.setStatsGoal(minutes: g0)
+        record("stats_goal_pref", g1 == 15 && Engine.core.statsGoal() == g0, "15 stored, restored \(g0)")
+
+        // Recap: renders a 1080x1920 card, Copy puts it on the pasteboard
+        if let rc = await Engine.off({ try Engine.core.statsRecap(range: "week", tzOffsetMin: Engine.tzMinutes) }), let img = RecapRender.image(rc, art: nil, accent: Theme.shared.accent) {
+            let px = img.representations.first.map { CGSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? img.size
+            if let d = RecapRender.png(img) { try? d.write(to: out.appendingPathComponent("73-recap-card.png")) }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects([img])
+            let pasted = NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
+            record("stats_recap_render", Int(px.width) >= 1000 && abs(Double(px.height) / Double(max(1, px.width)) - 16.0 / 9.0) < 0.05 && pasted, "\(Int(px.width))x\(Int(px.height)), copied=\(pasted), '\(rc.title)' \(rc.periodLabel) \(rc.minutes) min")
+        } else { record("stats_recap_render", false, "no recap") }
+        m.recapOpen = true; await sleep(2.0)
+        shot("74-stats-recap-sheet", includeSheet: true)
+        m.recapOpen = false; await sleep(0.8)
+        nav.scrollTarget = nil
+    }
+
     static func listSearchChecks() async {
         func t(_ title: String, _ artists: String, _ album: String?) -> Track {
             Track(id: UUID().uuidString, title: title, artists: artists, artistId: nil, album: album, albumId: nil, durationS: 200, thumb: "")

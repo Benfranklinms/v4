@@ -199,6 +199,9 @@ fun SheetHost(s: AppState) {
                         is Sheet.NamePlaylist -> NamePlaylistSheet(s, sh.tracks, sh.edit)
                         Sheet.Account -> AccountSheet(s)
                         Sheet.SleepTimer -> SleepTimerSheet(s)
+                        is Sheet.StatsDay -> StatsDaySheet(s, sh)
+                        Sheet.StatsGoal -> StatsGoalSheet(s)
+                        is Sheet.Recap -> RecapSheet(s, sh.range)
                         null -> Spacer(Modifier.height(1.dp))
                     }
                 }

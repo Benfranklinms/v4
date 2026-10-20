@@ -49,6 +49,10 @@ sealed interface Sheet {
     data class NamePlaylist(val tracks: List<Track> = emptyList(), val edit: Playlist? = null) : Sheet
     data object Account : Sheet
     data object SleepTimer : Sheet
+    /** Stats: the plays inside one bar of the chart (a day or a month). */
+    data class StatsDay(val title: String, val from: Long, val to: Long) : Sheet
+    data object StatsGoal : Sheet
+    data class Recap(val range: String) : Sheet
 }
 
 /** Glow with nothing playing: neutral mono, so Adaptive looks like Pure Mono until a track plays. */

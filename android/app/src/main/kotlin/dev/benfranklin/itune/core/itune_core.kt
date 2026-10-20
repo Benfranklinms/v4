@@ -937,6 +937,28 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -1062,6 +1084,8 @@ internal interface UniffiLib : Library {
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_library_counts(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_library_revision(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     fun uniffi_itune_core_fn_method_core_liked(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_local_tracks(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
@@ -1126,6 +1150,8 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_itune_core_fn_method_core_restore_session(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_restore_to_playlist(`ptr`: Pointer,`playlistId`: RustBuffer.ByValue,`position`: Int,`track`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_itune_core_fn_method_core_save_album(`ptr`: Pointer,`album`: RustBuffer.ByValue,`saved`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_itune_core_fn_method_core_save_artist(`ptr`: Pointer,`artist`: RustBuffer.ByValue,`saved`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1158,11 +1184,27 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_itune_core_fn_method_core_set_shuffle(`ptr`: Pointer,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_fn_method_core_set_stats_goal(`ptr`: Pointer,`minutes`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     fun uniffi_itune_core_fn_method_core_sign_in_cookie(`ptr`: Pointer,`cookie`: RustBuffer.ByValue,
     ): Long
     fun uniffi_itune_core_fn_method_core_sign_out(`ptr`: Pointer,
     ): Long
     fun uniffi_itune_core_fn_method_core_stats(`ptr`: Pointer,`range`: RustBuffer.ByValue,`tzOffsetMin`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_stats_album_id(`ptr`: Pointer,`name`: RustBuffer.ByValue,`artist`: RustBuffer.ByValue,
+    ): Long
+    fun uniffi_itune_core_fn_method_core_stats_goal(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    fun uniffi_itune_core_fn_method_core_stats_hour(`ptr`: Pointer,`range`: RustBuffer.ByValue,`hour`: Int,`tzOffsetMin`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_stats_mix(`ptr`: Pointer,`range`: RustBuffer.ByValue,`artist`: RustBuffer.ByValue,`tzOffsetMin`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_stats_page(`ptr`: Pointer,`range`: RustBuffer.ByValue,`tzOffsetMin`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_stats_plays_between(`ptr`: Pointer,`from`: Long,`to`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_method_core_stats_recap(`ptr`: Pointer,`range`: RustBuffer.ByValue,`tzOffsetMin`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun uniffi_itune_core_fn_method_core_stream(`ptr`: Pointer,`id`: RustBuffer.ByValue,
     ): Long
@@ -1175,6 +1217,8 @@ internal interface UniffiLib : Library {
     fun uniffi_itune_core_fn_method_core_sync_library(`ptr`: Pointer,
     ): Long
     fun uniffi_itune_core_fn_method_core_version(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_itune_core_fn_func_home_cached_peek(`dataDir`: RustBuffer.ByValue,`tzOffsetMin`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_itune_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1288,6 +1332,8 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_itune_core_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    fun uniffi_itune_core_checksum_func_home_cached_peek(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_account_info(
     ): Short
     fun uniffi_itune_core_checksum_method_core_add_recent_search(
@@ -1388,6 +1434,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_library_counts(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_library_revision(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_liked(
     ): Short
     fun uniffi_itune_core_checksum_method_core_local_tracks(
@@ -1452,6 +1500,8 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_restore_session(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_restore_to_playlist(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_save_album(
     ): Short
     fun uniffi_itune_core_checksum_method_core_save_artist(
@@ -1484,11 +1534,27 @@ internal interface UniffiLib : Library {
     ): Short
     fun uniffi_itune_core_checksum_method_core_set_shuffle(
     ): Short
+    fun uniffi_itune_core_checksum_method_core_set_stats_goal(
+    ): Short
     fun uniffi_itune_core_checksum_method_core_sign_in_cookie(
     ): Short
     fun uniffi_itune_core_checksum_method_core_sign_out(
     ): Short
     fun uniffi_itune_core_checksum_method_core_stats(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_stats_album_id(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_stats_goal(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_stats_hour(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_stats_mix(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_stats_page(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_stats_plays_between(
+    ): Short
+    fun uniffi_itune_core_checksum_method_core_stats_recap(
     ): Short
     fun uniffi_itune_core_checksum_method_core_stream(
     ): Short
@@ -1521,6 +1587,9 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
+    if (lib.uniffi_itune_core_checksum_func_home_cached_peek() != 7647.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_account_info() != 28278.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1671,6 +1740,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_library_counts() != 24808.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_library_revision() != 25273.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_liked() != 52153.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1767,6 +1839,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_restore_session() != 65095.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_restore_to_playlist() != 42466.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_save_album() != 63956.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1815,6 +1890,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_itune_core_checksum_method_core_set_shuffle() != 15683.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_itune_core_checksum_method_core_set_stats_goal() != 12336.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_itune_core_checksum_method_core_sign_in_cookie() != 56126.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1822,6 +1900,27 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_stats() != 5299.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_stats_album_id() != 21578.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_stats_goal() != 46039.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_stats_hour() != 43102.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_stats_mix() != 45466.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_stats_page() != 1899.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_stats_plays_between() != 59724.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_itune_core_checksum_method_core_stats_recap() != 50549.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_itune_core_checksum_method_core_stream() != 56106.toShort()) {
@@ -2509,6 +2608,13 @@ public interface CoreInterface {
     
     fun `libraryCounts`(): LibraryCounts
     
+    /**
+     * Library revision: a number that goes up after every change to likes, playlists (create, rename,
+     * add, remove, delete), saved albums / artists / playlists and downloads. Poll it (cheap, no SQLite)
+     * or compare after a write to refresh counts and lists live.
+     */
+    fun `libraryRevision`(): kotlin.ULong
+    
     fun `liked`(): List<Track>
     
     fun `localTracks`(): List<Track>
@@ -2598,6 +2704,11 @@ public interface CoreInterface {
      */
     fun `restoreSession`(): Session?
     
+    /**
+     * Undo for removing a track from a playlist: puts it back at `position`.
+     */
+    fun `restoreToPlaylist`(`playlistId`: kotlin.String, `position`: kotlin.UInt, `track`: Track)
+    
     fun `saveAlbum`(`album`: Album, `saved`: kotlin.Boolean)
     
     fun `saveArtist`(`artist`: Artist, `saved`: kotlin.Boolean)
@@ -2641,6 +2752,8 @@ public interface CoreInterface {
     
     fun `setShuffle`(`on`: kotlin.Boolean)
     
+    fun `setStatsGoal`(`minutes`: kotlin.UInt)
+    
     /**
      * Cookie header captured from a music.youtube.com web sign-in. Optional; everything works signed out.
      */
@@ -2652,6 +2765,38 @@ public interface CoreInterface {
      * range: "week" | "month" | "year" | "all"
      */
     fun `stats`(`range`: kotlin.String, `tzOffsetMin`: kotlin.Int): StatsSummary
+    
+    /**
+     * Top albums carry no album id: look it up once by name (+ artist) and remember it.
+     */
+    suspend fun `statsAlbumId`(`name`: kotlin.String, `artist`: kotlin.String): kotlin.String?
+    
+    /**
+     * Daily listening goal in minutes (15 / 30 / 60; default 30).
+     */
+    fun `statsGoal`(): kotlin.UInt
+    
+    /**
+     * Tracks played around a local hour inside the range (clock card).
+     */
+    fun `statsHour`(`range`: kotlin.String, `hour`: kotlin.UInt, `tzOffsetMin`: kotlin.Int): HourDetail
+    
+    /**
+     * "Play mix": the top artists' most played tracks, interleaved. `artist` = only that artist.
+     */
+    fun `statsMix`(`range`: kotlin.String, `artist`: kotlin.String?, `tzOffsetMin`: kotlin.Int): List<Track>
+    
+    /**
+     * The Stats page for "week" | "month" | "year" | "all" (0.2.8). Call off the main thread.
+     */
+    fun `statsPage`(`range`: kotlin.String, `tzOffsetMin`: kotlin.Int): StatsPage
+    
+    /**
+     * Plays between two epoch seconds (a bar's start/end), newest first.
+     */
+    fun `statsPlaysBetween`(`from`: kotlin.Long, `to`: kotlin.Long): List<PlayEntry>
+    
+    fun `statsRecap`(`range`: kotlin.String, `tzOffsetMin`: kotlin.Int): Recap
     
     /**
      * Resolve a stream URL (cached until shortly before it expires).
@@ -3588,6 +3733,23 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
 
     
+    /**
+     * Library revision: a number that goes up after every change to likes, playlists (create, rename,
+     * add, remove, delete), saved albums / artists / playlists and downloads. Poll it (cheap, no SQLite)
+     * or compare after a write to refresh counts and lists live.
+     */override fun `libraryRevision`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_library_revision(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `liked`(): List<Track> {
             return FfiConverterSequenceTypeTrack.lift(
     callWithPointer {
@@ -4043,6 +4205,21 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
 
     
+    /**
+     * Undo for removing a track from a playlist: puts it back at `position`.
+     */
+    @Throws(CoreException::class)override fun `restoreToPlaylist`(`playlistId`: kotlin.String, `position`: kotlin.UInt, `track`: Track)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_restore_to_playlist(
+        it, FfiConverterString.lower(`playlistId`),FfiConverterUInt.lower(`position`),FfiConverterTypeTrack.lower(`track`),_status)
+}
+    }
+    
+    
+
+    
     @Throws(CoreException::class)override fun `saveAlbum`(`album`: Album, `saved`: kotlin.Boolean)
         = 
     callWithPointer {
@@ -4266,6 +4443,18 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     
 
     
+    @Throws(CoreException::class)override fun `setStatsGoal`(`minutes`: kotlin.UInt)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_set_stats_goal(
+        it, FfiConverterUInt.lower(`minutes`),_status)
+}
+    }
+    
+    
+
+    
     /**
      * Cookie header captured from a music.youtube.com web sign-in. Optional; everything works signed out.
      */
@@ -4321,6 +4510,122 @@ open class Core: Disposable, AutoCloseable, CoreInterface {
     callWithPointer {
     uniffiRustCallWithError(CoreException) { _status ->
     UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats(
+        it, FfiConverterString.lower(`range`),FfiConverterInt.lower(`tzOffsetMin`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Top albums carry no album id: look it up once by name (+ artist) and remember it.
+     */
+    @Throws(CoreException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+    override suspend fun `statsAlbumId`(`name`: kotlin.String, `artist`: kotlin.String) : kotlin.String? {
+        return uniffiRustCallAsync(
+        callWithPointer { thisPtr ->
+            UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats_album_id(
+                thisPtr,
+                FfiConverterString.lower(`name`),FfiConverterString.lower(`artist`),
+            )
+        },
+        { future, callback, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.INSTANCE.ffi_itune_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterOptionalString.lift(it) },
+        // Error FFI converter
+        CoreException.ErrorHandler,
+    )
+    }
+
+    
+    /**
+     * Daily listening goal in minutes (15 / 30 / 60; default 30).
+     */override fun `statsGoal`(): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithPointer {
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats_goal(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Tracks played around a local hour inside the range (clock card).
+     */
+    @Throws(CoreException::class)override fun `statsHour`(`range`: kotlin.String, `hour`: kotlin.UInt, `tzOffsetMin`: kotlin.Int): HourDetail {
+            return FfiConverterTypeHourDetail.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats_hour(
+        it, FfiConverterString.lower(`range`),FfiConverterUInt.lower(`hour`),FfiConverterInt.lower(`tzOffsetMin`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * "Play mix": the top artists' most played tracks, interleaved. `artist` = only that artist.
+     */
+    @Throws(CoreException::class)override fun `statsMix`(`range`: kotlin.String, `artist`: kotlin.String?, `tzOffsetMin`: kotlin.Int): List<Track> {
+            return FfiConverterSequenceTypeTrack.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats_mix(
+        it, FfiConverterString.lower(`range`),FfiConverterOptionalString.lower(`artist`),FfiConverterInt.lower(`tzOffsetMin`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The Stats page for "week" | "month" | "year" | "all" (0.2.8). Call off the main thread.
+     */
+    @Throws(CoreException::class)override fun `statsPage`(`range`: kotlin.String, `tzOffsetMin`: kotlin.Int): StatsPage {
+            return FfiConverterTypeStatsPage.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats_page(
+        it, FfiConverterString.lower(`range`),FfiConverterInt.lower(`tzOffsetMin`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Plays between two epoch seconds (a bar's start/end), newest first.
+     */
+    @Throws(CoreException::class)override fun `statsPlaysBetween`(`from`: kotlin.Long, `to`: kotlin.Long): List<PlayEntry> {
+            return FfiConverterSequenceTypePlayEntry.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats_plays_between(
+        it, FfiConverterLong.lower(`from`),FfiConverterLong.lower(`to`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(CoreException::class)override fun `statsRecap`(`range`: kotlin.String, `tzOffsetMin`: kotlin.Int): Recap {
+            return FfiConverterTypeRecap.lift(
+    callWithPointer {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_method_core_stats_recap(
         it, FfiConverterString.lower(`range`),FfiConverterInt.lower(`tzOffsetMin`),_status)
 }
     }
@@ -4611,6 +4916,60 @@ public object FfiConverterTypeAlbumPage: FfiConverterRustBuffer<AlbumPage> {
 
 
 
+data class AlbumStat (
+    /**
+     * Album name as played (grouping key is the lowercased name).
+     */
+    var `name`: kotlin.String, 
+    var `artist`: kotlin.String, 
+    /**
+     * Empty when no play carried an album id: resolve with `stats_album_id` when tapped.
+     */
+    var `albumId`: kotlin.String, 
+    var `thumb`: kotlin.String, 
+    var `plays`: kotlin.UInt, 
+    var `minutes`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAlbumStat: FfiConverterRustBuffer<AlbumStat> {
+    override fun read(buf: ByteBuffer): AlbumStat {
+        return AlbumStat(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AlbumStat) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterString.allocationSize(value.`artist`) +
+            FfiConverterString.allocationSize(value.`albumId`) +
+            FfiConverterString.allocationSize(value.`thumb`) +
+            FfiConverterUInt.allocationSize(value.`plays`) +
+            FfiConverterUInt.allocationSize(value.`minutes`)
+    )
+
+    override fun write(value: AlbumStat, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterString.write(value.`artist`, buf)
+            FfiConverterString.write(value.`albumId`, buf)
+            FfiConverterString.write(value.`thumb`, buf)
+            FfiConverterUInt.write(value.`plays`, buf)
+            FfiConverterUInt.write(value.`minutes`, buf)
+    }
+}
+
+
+
 data class Artist (
     var `id`: kotlin.String, 
     var `name`: kotlin.String, 
@@ -4767,6 +5126,45 @@ public object FfiConverterTypeGenreShare: FfiConverterRustBuffer<GenreShare> {
 
 
 
+data class GoalDay (
+    /**
+     * "M", "T", ...
+     */
+    var `label`: kotlin.String, 
+    var `minutes`: kotlin.UInt, 
+    var `isToday`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeGoalDay: FfiConverterRustBuffer<GoalDay> {
+    override fun read(buf: ByteBuffer): GoalDay {
+        return GoalDay(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: GoalDay) = (
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterUInt.allocationSize(value.`minutes`) +
+            FfiConverterBoolean.allocationSize(value.`isToday`)
+    )
+
+    override fun write(value: GoalDay, buf: ByteBuffer) {
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterUInt.write(value.`minutes`, buf)
+            FfiConverterBoolean.write(value.`isToday`, buf)
+    }
+}
+
+
+
 data class HomeFeed (
     var `greeting`: kotlin.String, 
     var `mixes`: List<Mix>, 
@@ -4917,6 +5315,49 @@ public object FfiConverterTypeHomeShelf: FfiConverterRustBuffer<HomeShelf> {
             FfiConverterString.write(value.`title`, buf)
             FfiConverterString.write(value.`layout`, buf)
             FfiConverterSequenceTypeHomeItem.write(value.`items`, buf)
+    }
+}
+
+
+
+data class HourDetail (
+    var `hour`: kotlin.UInt, 
+    /**
+     * "Around 11 PM"
+     */
+    var `title`: kotlin.String, 
+    var `minutes`: kotlin.UInt, 
+    var `tracks`: List<TrackStat>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeHourDetail: FfiConverterRustBuffer<HourDetail> {
+    override fun read(buf: ByteBuffer): HourDetail {
+        return HourDetail(
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceTypeTrackStat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: HourDetail) = (
+            FfiConverterUInt.allocationSize(value.`hour`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterUInt.allocationSize(value.`minutes`) +
+            FfiConverterSequenceTypeTrackStat.allocationSize(value.`tracks`)
+    )
+
+    override fun write(value: HourDetail, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`hour`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterUInt.write(value.`minutes`, buf)
+            FfiConverterSequenceTypeTrackStat.write(value.`tracks`, buf)
     }
 }
 
@@ -5509,6 +5950,53 @@ public object FfiConverterTypeNamedCount: FfiConverterRustBuffer<NamedCount> {
 
 
 
+data class PlayEntry (
+    var `track`: Track, 
+    var `startedAt`: kotlin.Long, 
+    /**
+     * "9:41 PM" in the play's own local time.
+     */
+    var `time`: kotlin.String, 
+    var `listenedS`: kotlin.UInt, 
+    var `skipped`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePlayEntry: FfiConverterRustBuffer<PlayEntry> {
+    override fun read(buf: ByteBuffer): PlayEntry {
+        return PlayEntry(
+            FfiConverterTypeTrack.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PlayEntry) = (
+            FfiConverterTypeTrack.allocationSize(value.`track`) +
+            FfiConverterLong.allocationSize(value.`startedAt`) +
+            FfiConverterString.allocationSize(value.`time`) +
+            FfiConverterUInt.allocationSize(value.`listenedS`) +
+            FfiConverterBoolean.allocationSize(value.`skipped`)
+    )
+
+    override fun write(value: PlayEntry, buf: ByteBuffer) {
+            FfiConverterTypeTrack.write(value.`track`, buf)
+            FfiConverterLong.write(value.`startedAt`, buf)
+            FfiConverterString.write(value.`time`, buf)
+            FfiConverterUInt.write(value.`listenedS`, buf)
+            FfiConverterBoolean.write(value.`skipped`, buf)
+    }
+}
+
+
+
 data class Playlist (
     var `id`: kotlin.String, 
     var `title`: kotlin.String, 
@@ -5630,6 +6118,42 @@ public object FfiConverterTypePlaylistPage: FfiConverterRustBuffer<PlaylistPage>
 
 
 
+data class PlaylistSlot (
+    var `playlistId`: kotlin.String, 
+    var `title`: kotlin.String, 
+    var `position`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePlaylistSlot: FfiConverterRustBuffer<PlaylistSlot> {
+    override fun read(buf: ByteBuffer): PlaylistSlot {
+        return PlaylistSlot(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PlaylistSlot) = (
+            FfiConverterString.allocationSize(value.`playlistId`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterUInt.allocationSize(value.`position`)
+    )
+
+    override fun write(value: PlaylistSlot, buf: ByteBuffer) {
+            FfiConverterString.write(value.`playlistId`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterUInt.write(value.`position`, buf)
+    }
+}
+
+
+
 data class QueueState (
     var `tracks`: List<Track>, 
     var `index`: kotlin.Int, 
@@ -5683,6 +6207,89 @@ public object FfiConverterTypeQueueState: FfiConverterRustBuffer<QueueState> {
             FfiConverterBoolean.write(value.`autoplay`, buf)
             FfiConverterInt.write(value.`autoplayFrom`, buf)
             FfiConverterString.write(value.`sourceTitle`, buf)
+    }
+}
+
+
+
+data class Recap (
+    var `range`: kotlin.String, 
+    /**
+     * "Your week" / "Your month"
+     */
+    var `title`: kotlin.String, 
+    var `periodLabel`: kotlin.String, 
+    var `minutes`: kotlin.UInt, 
+    var `plays`: kotlin.UInt, 
+    var `changePercent`: kotlin.Int?, 
+    var `topArtist`: NamedCount?, 
+    var `topTrack`: TrackStat?, 
+    var `topTracks`: List<TrackStat>, 
+    var `topArtists`: List<NamedCount>, 
+    var `moodLine`: kotlin.String, 
+    var `peakHour`: kotlin.Int, 
+    var `goalStreak`: kotlin.UInt, 
+    var `newArtists`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRecap: FfiConverterRustBuffer<Recap> {
+    override fun read(buf: ByteBuffer): Recap {
+        return Recap(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterOptionalInt.read(buf),
+            FfiConverterOptionalTypeNamedCount.read(buf),
+            FfiConverterOptionalTypeTrackStat.read(buf),
+            FfiConverterSequenceTypeTrackStat.read(buf),
+            FfiConverterSequenceTypeNamedCount.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Recap) = (
+            FfiConverterString.allocationSize(value.`range`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`periodLabel`) +
+            FfiConverterUInt.allocationSize(value.`minutes`) +
+            FfiConverterUInt.allocationSize(value.`plays`) +
+            FfiConverterOptionalInt.allocationSize(value.`changePercent`) +
+            FfiConverterOptionalTypeNamedCount.allocationSize(value.`topArtist`) +
+            FfiConverterOptionalTypeTrackStat.allocationSize(value.`topTrack`) +
+            FfiConverterSequenceTypeTrackStat.allocationSize(value.`topTracks`) +
+            FfiConverterSequenceTypeNamedCount.allocationSize(value.`topArtists`) +
+            FfiConverterString.allocationSize(value.`moodLine`) +
+            FfiConverterInt.allocationSize(value.`peakHour`) +
+            FfiConverterUInt.allocationSize(value.`goalStreak`) +
+            FfiConverterUInt.allocationSize(value.`newArtists`)
+    )
+
+    override fun write(value: Recap, buf: ByteBuffer) {
+            FfiConverterString.write(value.`range`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`periodLabel`, buf)
+            FfiConverterUInt.write(value.`minutes`, buf)
+            FfiConverterUInt.write(value.`plays`, buf)
+            FfiConverterOptionalInt.write(value.`changePercent`, buf)
+            FfiConverterOptionalTypeNamedCount.write(value.`topArtist`, buf)
+            FfiConverterOptionalTypeTrackStat.write(value.`topTrack`, buf)
+            FfiConverterSequenceTypeTrackStat.write(value.`topTracks`, buf)
+            FfiConverterSequenceTypeNamedCount.write(value.`topArtists`, buf)
+            FfiConverterString.write(value.`moodLine`, buf)
+            FfiConverterInt.write(value.`peakHour`, buf)
+            FfiConverterUInt.write(value.`goalStreak`, buf)
+            FfiConverterUInt.write(value.`newArtists`, buf)
     }
 }
 
@@ -5836,6 +6443,293 @@ public object FfiConverterTypeSession: FfiConverterRustBuffer<Session> {
             FfiConverterInt.write(value.`autoplayFrom`, buf)
             FfiConverterString.write(value.`sourceTitle`, buf)
             FfiConverterLong.write(value.`savedAt`, buf)
+    }
+}
+
+
+
+data class SkippedTrack (
+    var `track`: Track, 
+    var `skips`: kotlin.UInt, 
+    var `plays`: kotlin.UInt, 
+    /**
+     * Your playlists that hold this track (for "Remove").
+     */
+    var `playlists`: List<PlaylistSlot>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSkippedTrack: FfiConverterRustBuffer<SkippedTrack> {
+    override fun read(buf: ByteBuffer): SkippedTrack {
+        return SkippedTrack(
+            FfiConverterTypeTrack.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceTypePlaylistSlot.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SkippedTrack) = (
+            FfiConverterTypeTrack.allocationSize(value.`track`) +
+            FfiConverterUInt.allocationSize(value.`skips`) +
+            FfiConverterUInt.allocationSize(value.`plays`) +
+            FfiConverterSequenceTypePlaylistSlot.allocationSize(value.`playlists`)
+    )
+
+    override fun write(value: SkippedTrack, buf: ByteBuffer) {
+            FfiConverterTypeTrack.write(value.`track`, buf)
+            FfiConverterUInt.write(value.`skips`, buf)
+            FfiConverterUInt.write(value.`plays`, buf)
+            FfiConverterSequenceTypePlaylistSlot.write(value.`playlists`, buf)
+    }
+}
+
+
+
+/**
+ * One bar of the hero chart: a day (week/month) or a month (year/all).
+ */
+data class StatsBar (
+    /**
+     * Short axis label: "W", "17", "O", "Oct".
+     */
+    var `label`: kotlin.String, 
+    /**
+     * Long label for scrubbing: "Saturday 17 Oct", "October 2026".
+     */
+    var `title`: kotlin.String, 
+    var `minutes`: kotlin.UInt, 
+    var `plays`: kotlin.UInt, 
+    /**
+     * "Mostly Illuminati, after 9 PM" ("" when nothing was played).
+     */
+    var `line`: kotlin.String, 
+    var `topTrackId`: kotlin.String, 
+    /**
+     * Local hour with the most listening, -1 when empty.
+     */
+    var `peakHour`: kotlin.Int, 
+    /**
+     * Epoch seconds of the bucket start / end (exclusive).
+     */
+    var `start`: kotlin.Long, 
+    var `end`: kotlin.Long, 
+    var `isCurrent`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeStatsBar: FfiConverterRustBuffer<StatsBar> {
+    override fun read(buf: ByteBuffer): StatsBar {
+        return StatsBar(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: StatsBar) = (
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterUInt.allocationSize(value.`minutes`) +
+            FfiConverterUInt.allocationSize(value.`plays`) +
+            FfiConverterString.allocationSize(value.`line`) +
+            FfiConverterString.allocationSize(value.`topTrackId`) +
+            FfiConverterInt.allocationSize(value.`peakHour`) +
+            FfiConverterLong.allocationSize(value.`start`) +
+            FfiConverterLong.allocationSize(value.`end`) +
+            FfiConverterBoolean.allocationSize(value.`isCurrent`)
+    )
+
+    override fun write(value: StatsBar, buf: ByteBuffer) {
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterUInt.write(value.`minutes`, buf)
+            FfiConverterUInt.write(value.`plays`, buf)
+            FfiConverterString.write(value.`line`, buf)
+            FfiConverterString.write(value.`topTrackId`, buf)
+            FfiConverterInt.write(value.`peakHour`, buf)
+            FfiConverterLong.write(value.`start`, buf)
+            FfiConverterLong.write(value.`end`, buf)
+            FfiConverterBoolean.write(value.`isCurrent`, buf)
+    }
+}
+
+
+
+data class StatsPage (
+    var `range`: kotlin.String, 
+    /**
+     * "14 – 20 Oct", "October 2026", "Since 19 Oct".
+     */
+    var `periodLabel`: kotlin.String, 
+    var `minutes`: kotlin.UInt, 
+    var `prevMinutes`: kotlin.UInt, 
+    /**
+     * false when the previous period has no history (no % chip).
+     */
+    var `hasPrev`: kotlin.Boolean, 
+    var `plays`: kotlin.UInt, 
+    var `bars`: List<StatsBar>, 
+    /**
+     * Same-position minutes of the previous period (ghost bars), empty for "all".
+     */
+    var `prevBars`: List<kotlin.UInt>, 
+    /**
+     * Mean minutes over the bars that are not in the future.
+     */
+    var `avgMinutes`: kotlin.UInt, 
+    /**
+     * 24 buckets of minutes by local hour.
+     */
+    var `clock`: List<kotlin.UInt>, 
+    var `peakHour`: kotlin.Int, 
+    /**
+     * "night" | "morning" | "afternoon" | "evening" | "mixed" | "" (no data)
+     */
+    var `mood`: kotlin.String, 
+    /**
+     * "Mostly late nights this week".
+     */
+    var `moodLine`: kotlin.String, 
+    var `topTracks`: List<TrackStat>, 
+    var `topArtists`: List<NamedCount>, 
+    var `topAlbums`: List<AlbumStat>, 
+    /**
+     * Artists first played inside this range (all: last 30 days).
+     */
+    var `newArtists`: List<NamedCount>, 
+    /**
+     * false until there are ~14 days of history: "New to you" stays hidden.
+     */
+    var `newArtistsReady`: kotlin.Boolean, 
+    var `skipped`: List<SkippedTrack>, 
+    var `goalMinutes`: kotlin.UInt, 
+    var `goalWeek`: List<GoalDay>, 
+    var `goalStreak`: kotlin.UInt, 
+    var `goalBest`: kotlin.UInt, 
+    var `todayMinutes`: kotlin.UInt, 
+    /**
+     * Distinct local days with any listening (all time) and days since the first play (1 = today only).
+     */
+    var `activeDays`: kotlin.UInt, 
+    var `historyDays`: kotlin.UInt, 
+    var `firstPlayAt`: kotlin.Long
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeStatsPage: FfiConverterRustBuffer<StatsPage> {
+    override fun read(buf: ByteBuffer): StatsPage {
+        return StatsPage(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceTypeStatsBar.read(buf),
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeTrackStat.read(buf),
+            FfiConverterSequenceTypeNamedCount.read(buf),
+            FfiConverterSequenceTypeAlbumStat.read(buf),
+            FfiConverterSequenceTypeNamedCount.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterSequenceTypeSkippedTrack.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceTypeGoalDay.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterLong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: StatsPage) = (
+            FfiConverterString.allocationSize(value.`range`) +
+            FfiConverterString.allocationSize(value.`periodLabel`) +
+            FfiConverterUInt.allocationSize(value.`minutes`) +
+            FfiConverterUInt.allocationSize(value.`prevMinutes`) +
+            FfiConverterBoolean.allocationSize(value.`hasPrev`) +
+            FfiConverterUInt.allocationSize(value.`plays`) +
+            FfiConverterSequenceTypeStatsBar.allocationSize(value.`bars`) +
+            FfiConverterSequenceUInt.allocationSize(value.`prevBars`) +
+            FfiConverterUInt.allocationSize(value.`avgMinutes`) +
+            FfiConverterSequenceUInt.allocationSize(value.`clock`) +
+            FfiConverterInt.allocationSize(value.`peakHour`) +
+            FfiConverterString.allocationSize(value.`mood`) +
+            FfiConverterString.allocationSize(value.`moodLine`) +
+            FfiConverterSequenceTypeTrackStat.allocationSize(value.`topTracks`) +
+            FfiConverterSequenceTypeNamedCount.allocationSize(value.`topArtists`) +
+            FfiConverterSequenceTypeAlbumStat.allocationSize(value.`topAlbums`) +
+            FfiConverterSequenceTypeNamedCount.allocationSize(value.`newArtists`) +
+            FfiConverterBoolean.allocationSize(value.`newArtistsReady`) +
+            FfiConverterSequenceTypeSkippedTrack.allocationSize(value.`skipped`) +
+            FfiConverterUInt.allocationSize(value.`goalMinutes`) +
+            FfiConverterSequenceTypeGoalDay.allocationSize(value.`goalWeek`) +
+            FfiConverterUInt.allocationSize(value.`goalStreak`) +
+            FfiConverterUInt.allocationSize(value.`goalBest`) +
+            FfiConverterUInt.allocationSize(value.`todayMinutes`) +
+            FfiConverterUInt.allocationSize(value.`activeDays`) +
+            FfiConverterUInt.allocationSize(value.`historyDays`) +
+            FfiConverterLong.allocationSize(value.`firstPlayAt`)
+    )
+
+    override fun write(value: StatsPage, buf: ByteBuffer) {
+            FfiConverterString.write(value.`range`, buf)
+            FfiConverterString.write(value.`periodLabel`, buf)
+            FfiConverterUInt.write(value.`minutes`, buf)
+            FfiConverterUInt.write(value.`prevMinutes`, buf)
+            FfiConverterBoolean.write(value.`hasPrev`, buf)
+            FfiConverterUInt.write(value.`plays`, buf)
+            FfiConverterSequenceTypeStatsBar.write(value.`bars`, buf)
+            FfiConverterSequenceUInt.write(value.`prevBars`, buf)
+            FfiConverterUInt.write(value.`avgMinutes`, buf)
+            FfiConverterSequenceUInt.write(value.`clock`, buf)
+            FfiConverterInt.write(value.`peakHour`, buf)
+            FfiConverterString.write(value.`mood`, buf)
+            FfiConverterString.write(value.`moodLine`, buf)
+            FfiConverterSequenceTypeTrackStat.write(value.`topTracks`, buf)
+            FfiConverterSequenceTypeNamedCount.write(value.`topArtists`, buf)
+            FfiConverterSequenceTypeAlbumStat.write(value.`topAlbums`, buf)
+            FfiConverterSequenceTypeNamedCount.write(value.`newArtists`, buf)
+            FfiConverterBoolean.write(value.`newArtistsReady`, buf)
+            FfiConverterSequenceTypeSkippedTrack.write(value.`skipped`, buf)
+            FfiConverterUInt.write(value.`goalMinutes`, buf)
+            FfiConverterSequenceTypeGoalDay.write(value.`goalWeek`, buf)
+            FfiConverterUInt.write(value.`goalStreak`, buf)
+            FfiConverterUInt.write(value.`goalBest`, buf)
+            FfiConverterUInt.write(value.`todayMinutes`, buf)
+            FfiConverterUInt.write(value.`activeDays`, buf)
+            FfiConverterUInt.write(value.`historyDays`, buf)
+            FfiConverterLong.write(value.`firstPlayAt`, buf)
     }
 }
 
@@ -6140,6 +7034,42 @@ public object FfiConverterTypeTrack: FfiConverterRustBuffer<Track> {
 
 
 
+data class TrackStat (
+    var `track`: Track, 
+    var `plays`: kotlin.UInt, 
+    var `minutes`: kotlin.UInt
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTrackStat: FfiConverterRustBuffer<TrackStat> {
+    override fun read(buf: ByteBuffer): TrackStat {
+        return TrackStat(
+            FfiConverterTypeTrack.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TrackStat) = (
+            FfiConverterTypeTrack.allocationSize(value.`track`) +
+            FfiConverterUInt.allocationSize(value.`plays`) +
+            FfiConverterUInt.allocationSize(value.`minutes`)
+    )
+
+    override fun write(value: TrackStat, buf: ByteBuffer) {
+            FfiConverterTypeTrack.write(value.`track`, buf)
+            FfiConverterUInt.write(value.`plays`, buf)
+            FfiConverterUInt.write(value.`minutes`, buf)
+    }
+}
+
+
+
 data class UpdateInfo (
     var `version`: kotlin.String, 
     var `tag`: kotlin.String, 
@@ -6392,6 +7322,38 @@ public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
         } else {
             buf.put(1)
             FfiConverterUInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalInt: FfiConverterRustBuffer<kotlin.Int?> {
+    override fun read(buf: ByteBuffer): kotlin.Int? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Int?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Int?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterInt.write(value, buf)
         }
     }
 }
@@ -6658,6 +7620,38 @@ public object FfiConverterOptionalTypeLyrics: FfiConverterRustBuffer<Lyrics?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeNamedCount: FfiConverterRustBuffer<NamedCount?> {
+    override fun read(buf: ByteBuffer): NamedCount? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeNamedCount.read(buf)
+    }
+
+    override fun allocationSize(value: NamedCount?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeNamedCount.allocationSize(value)
+        }
+    }
+
+    override fun write(value: NamedCount?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeNamedCount.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypePlaylistPage: FfiConverterRustBuffer<PlaylistPage?> {
     override fun read(buf: ByteBuffer): PlaylistPage? {
         if (buf.get().toInt() == 0) {
@@ -6744,6 +7738,38 @@ public object FfiConverterOptionalTypeTrack: FfiConverterRustBuffer<Track?> {
         } else {
             buf.put(1)
             FfiConverterTypeTrack.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeTrackStat: FfiConverterRustBuffer<TrackStat?> {
+    override fun read(buf: ByteBuffer): TrackStat? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeTrackStat.read(buf)
+    }
+
+    override fun allocationSize(value: TrackStat?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeTrackStat.allocationSize(value)
+        }
+    }
+
+    override fun write(value: TrackStat?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeTrackStat.write(value, buf)
         }
     }
 }
@@ -6866,6 +7892,34 @@ public object FfiConverterSequenceTypeAlbum: FfiConverterRustBuffer<List<Album>>
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeAlbumStat: FfiConverterRustBuffer<List<AlbumStat>> {
+    override fun read(buf: ByteBuffer): List<AlbumStat> {
+        val len = buf.getInt()
+        return List<AlbumStat>(len) {
+            FfiConverterTypeAlbumStat.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AlbumStat>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAlbumStat.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AlbumStat>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAlbumStat.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeArtist: FfiConverterRustBuffer<List<Artist>> {
     override fun read(buf: ByteBuffer): List<Artist> {
         val len = buf.getInt()
@@ -6940,6 +7994,34 @@ public object FfiConverterSequenceTypeGenreShare: FfiConverterRustBuffer<List<Ge
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeGenreShare.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeGoalDay: FfiConverterRustBuffer<List<GoalDay>> {
+    override fun read(buf: ByteBuffer): List<GoalDay> {
+        val len = buf.getInt()
+        return List<GoalDay>(len) {
+            FfiConverterTypeGoalDay.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<GoalDay>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeGoalDay.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<GoalDay>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeGoalDay.write(it, buf)
         }
     }
 }
@@ -7146,6 +8228,34 @@ public object FfiConverterSequenceTypeNamedCount: FfiConverterRustBuffer<List<Na
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypePlayEntry: FfiConverterRustBuffer<List<PlayEntry>> {
+    override fun read(buf: ByteBuffer): List<PlayEntry> {
+        val len = buf.getInt()
+        return List<PlayEntry>(len) {
+            FfiConverterTypePlayEntry.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PlayEntry>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePlayEntry.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PlayEntry>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePlayEntry.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypePlaylist: FfiConverterRustBuffer<List<Playlist>> {
     override fun read(buf: ByteBuffer): List<Playlist> {
         val len = buf.getInt()
@@ -7164,6 +8274,34 @@ public object FfiConverterSequenceTypePlaylist: FfiConverterRustBuffer<List<Play
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypePlaylist.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePlaylistSlot: FfiConverterRustBuffer<List<PlaylistSlot>> {
+    override fun read(buf: ByteBuffer): List<PlaylistSlot> {
+        val len = buf.getInt()
+        return List<PlaylistSlot>(len) {
+            FfiConverterTypePlaylistSlot.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PlaylistSlot>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePlaylistSlot.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PlaylistSlot>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePlaylistSlot.write(it, buf)
         }
     }
 }
@@ -7202,6 +8340,62 @@ public object FfiConverterSequenceTypeReleaseAsset: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeSkippedTrack: FfiConverterRustBuffer<List<SkippedTrack>> {
+    override fun read(buf: ByteBuffer): List<SkippedTrack> {
+        val len = buf.getInt()
+        return List<SkippedTrack>(len) {
+            FfiConverterTypeSkippedTrack.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<SkippedTrack>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeSkippedTrack.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<SkippedTrack>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeSkippedTrack.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeStatsBar: FfiConverterRustBuffer<List<StatsBar>> {
+    override fun read(buf: ByteBuffer): List<StatsBar> {
+        val len = buf.getInt()
+        return List<StatsBar>(len) {
+            FfiConverterTypeStatsBar.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<StatsBar>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeStatsBar.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<StatsBar>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeStatsBar.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeTrack: FfiConverterRustBuffer<List<Track>> {
     override fun read(buf: ByteBuffer): List<Track> {
         val len = buf.getInt()
@@ -7227,8 +8421,50 @@ public object FfiConverterSequenceTypeTrack: FfiConverterRustBuffer<List<Track>>
 
 
 
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeTrackStat: FfiConverterRustBuffer<List<TrackStat>> {
+    override fun read(buf: ByteBuffer): List<TrackStat> {
+        val len = buf.getInt()
+        return List<TrackStat>(len) {
+            FfiConverterTypeTrackStat.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TrackStat>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTrackStat.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TrackStat>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTrackStat.write(it, buf)
+        }
+    }
+}
 
 
 
+
+
+
+
+
+        /**
+         * Cold-launch fast path: the last saved Home feed read straight from the DB file (read-only, no network,
+         * no `Core` construction), so the UI can paint shelves before the core is even up. None if nothing saved.
+         * `data_dir` is the same folder passed to `Core::new`.
+         */ fun `homeCachedPeek`(`dataDir`: kotlin.String, `tzOffsetMin`: kotlin.Int): HomeFeed? {
+            return FfiConverterOptionalTypeHomeFeed.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_itune_core_fn_func_home_cached_peek(
+        FfiConverterString.lower(`dataDir`),FfiConverterInt.lower(`tzOffsetMin`),_status)
+}
+    )
+    }
+    
 
 
