@@ -125,13 +125,19 @@ fun Modifier.glass(
     fallbackAlpha: Float? = null,
     /** Extra colour laid over the blurred backdrop (live blur only); null = none (every glass surface but one). */
     tint: Color? = null,
+    /**
+     * For a page-local [hazeState] whose source is a sibling inside the app's content source (a page's own pinned
+     * bar): Haze would skip it (an effect inside a source only draws areas with a lower compound zIndex), so draw
+     * every area of that state.
+     */
+    drawAllAreas: Boolean = false,
 ): Modifier {
     val c = LocalColors.current
     val haze = hazeState ?: LocalHaze.current
     val base = glassBase(c)
     val rimColor = if (c.light) Color.Black else Color.White
     var m = this.clip(shape)
-    m = if (backdrop && haze != null && liveBlur) m.hazeEffect(haze, glassStyle(c, dark, blur)).let { if (tint != null) it.background(tint) else it }
+    m = if (backdrop && haze != null && liveBlur) m.pageAwareHaze(haze, glassStyle(c, dark, blur), drawAllAreas).let { if (tint != null) it.background(tint) else it }
     else m.background(base.copy(alpha = fallbackAlpha ?: (dark + 0.22f).coerceAtMost(0.96f)))
     if (liteGfx) return m
     return m.drawWithContent {
@@ -153,6 +159,10 @@ fun Modifier.glass(
         }
     }
 }
+
+@OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
+private fun Modifier.pageAwareHaze(state: HazeState, style: HazeStyle, all: Boolean): Modifier =
+    if (all) hazeEffect(state, style) { canDrawArea = { true } } else hazeEffect(state, style)
 
 /** Round glass icon button (mic, send, collapse, more, lyrics, queue, download, like). */
 @Composable
@@ -375,7 +385,7 @@ val ChromeOnMuted = Color(ChromeTint.LABEL_INACTIVE)
 val ChromeTextShadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.45f), androidx.compose.ui.geometry.Offset(0f, 1f), 3f)
 
 /**
- * Floating chrome glass (mini player, bottom nav, top bar): real Haze blur (~40dp) of what scrolls behind,
+ * Floating chrome glass (mini player, bottom nav, top bar): real Haze blur (~28dp) of what scrolls behind,
  * tinted with the album colour at [ChromeTint.ALPHA], 2% grain, a 1px hairline (white 30% at the top fading to
  * 6%). Without live blur (emulator) an opaque tinted fill.
  */
@@ -389,7 +399,7 @@ fun Modifier.chromeGlass(shape: Shape, haze: HazeState? = LocalHaze.current): Mo
         HazeStyle(
             backgroundColor = c.bg,
             tint = HazeTint(tint.copy(alpha = ChromeTint.ALPHA)),
-            blurRadius = 40.dp,
+            blurRadius = 28.dp,
             noiseFactor = 0.02f,
             fallbackTint = HazeTint(tint.copy(alpha = 0.97f)),
         ),

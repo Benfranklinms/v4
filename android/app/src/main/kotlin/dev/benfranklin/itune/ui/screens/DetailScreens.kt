@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.lazy.LazyColumn
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -210,8 +211,12 @@ fun TrackListPage(
         val near by remember { derivedStateOf { val li = list.layoutInfo; val last = li.visibleItemsInfo.lastOrNull()?.index ?: 0; li.totalItemsCount > 0 && last >= li.totalItemsCount - 12 } }
         LaunchedEffect(near, tracks?.size) { if (near) onNearEnd() }
     }
+    // the page's own haze: its pinned top bar sits INSIDE the app's content source, where Haze can't sample that
+    // source, so the list (and the header glow) is also a page-local source the bar blurs (0.2.7)
+    val pageHaze = remember { dev.chrisbanes.haze.HazeState() }
     Box(Modifier.fillMaxSize()) {
-        // the header's glow leaves with the header while searching (rows have a solid backing and would show as a band over it)
+      Box(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(pageHaze) else Modifier)) {
+        // the header's glow leaves with the header while searching
         val glowA by androidx.compose.animation.core.animateFloatAsState(if (showSearch) 0f else 0.28f, if (reduce) androidx.compose.animation.core.snap<Float>() else androidx.compose.animation.core.tween<Float>(260), label = "glowA")
         Glow(c.glow, Modifier.fillMaxWidth().height(420.dp), alpha = glowA, centerY = 0.2f)
         LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = bottomPad)) {
@@ -288,9 +293,13 @@ fun TrackListPage(
             if (loadingMore) item(key = "more") { Box(Modifier.fillMaxWidth().padding(vertical = 18.dp).testTag("loading_more"), contentAlignment = Alignment.Center) { Text("Loading more…", style = T.ui(12.sp, FontWeight.Medium, c.t2)) } }
             extra()
         }
+      }
         val barA = androidx.compose.animation.core.animateFloatAsState(if (collapsed || showSearch) 1f else 0f, dev.benfranklin.itune.ui.components.glassSpring(), label = "dbar")
+        // live blur of the rows under the pinned bar only while it shows (no blur pass for an invisible bar)
+        val barOn by remember { derivedStateOf { barA.value > 0.01f } }
+        val live = dev.benfranklin.itune.ui.components.liveBlur && barOn
         Box(Modifier.fillMaxWidth()) {
-            Box(Modifier.matchParentSize().graphicsLayer { alpha = barA.value }.glass(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), dark = 0.62f, sheen = 0.04f, rim = 0.5f))
+            Box(Modifier.matchParentSize().graphicsLayer { alpha = barA.value }.glass(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp), dark = if (live) 0.45f else 0.62f, sheen = 0.04f, rim = 0.5f, backdrop = live, hazeState = pageHaze, drawAllAreas = true, fallbackAlpha = 0.84f).testTag("list_top_bar"))
             // the search pill lives up here, next to Back, so it and the rows under it stay above the keyboard
             Row(Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 dev.benfranklin.itune.ui.components.GlassIconButton(Icons.Rounded.ArrowBack, "Back", modifier = Modifier.padding(start = 8.dp, end = 10.dp), size = 36.dp, iconSize = 20.dp, tag = "back") { if (showSearch) closeSearch() else s.pop() }

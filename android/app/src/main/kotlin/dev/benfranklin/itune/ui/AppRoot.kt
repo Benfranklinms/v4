@@ -434,7 +434,7 @@ private fun BottomNav(s: AppState, modifier: Modifier = Modifier) {
     val lensA = animateFloatAsState(if (idx < 0) 0.45f else 1f, glassSpring(reduce), label = "lensA")
     BoxWithConstraints(
         modifier.padding(horizontal = EDGE.dp).fillMaxWidth().height(NAV_H.dp)
-            .chromeGlass(RoundedCornerShape(32.dp)),
+            .chromeGlass(RoundedCornerShape(32.dp)).testTag("bottom_nav"),
     ) {
         val cell = (maxWidth - 12.dp) / Tab.entries.size
         // the selected tab is a brighter glass lens that slides between tabs

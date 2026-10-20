@@ -28,11 +28,13 @@ object GlassPolicy {
 /**
  * Album-tinted chrome glass (mini player, bottom nav, top bar; approved option B): the current art colour,
  * darkened and desaturated (hue kept, S <= 0.45, or <= 0.08 on Pure Mono so it stays near-mono, V ~0.20 and
- * relative luminance <= 0.03), laid over a ~40dp blur at [ALPHA]. With that, white text and the #D0D0D0 inactive
- * labels stay >= 4.5:1 even over a pure white backdrop (unit-tested).
+ * relative luminance <= 0.03), laid over a ~28dp blur at [ALPHA]. 0.2.2-0.2.6 used 0.82 over 40dp, which hid the
+ * content completely (the bars read as opaque pills). At 0.55 what scrolls behind shows through blurred; labels
+ * stay >= 4.5:1 (#D0D0D0) and >= 7:1 (white) over typical art, and white stays >= 3:1 (plus its text shadow) even
+ * over a pure white backdrop (unit-tested).
  */
 object ChromeTint {
-    const val ALPHA = 0.82f
+    const val ALPHA = 0.55f
     const val NO_TRACK = 0xFF09090A.toInt()
     const val LABEL_INACTIVE = 0xFFD0D0D0.toInt()
     const val LABEL_ACTIVE = 0xFFFFFFFF.toInt()

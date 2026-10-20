@@ -42,9 +42,15 @@ struct SettingsView: View {
                             if let a = account.info?.avatar, !a.isEmpty { ArtView(url: a, size: 36, circle: true) }
                             else { Image(systemName: "person.fill").foregroundStyle(p.t2) }
                         }.frame(width: 36, height: 36)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(account.info?.name ?? (account.signedIn ? "Google account" : "Sign in with Google")).font(theme.ui(13.5, .semibold)).foregroundStyle(p.txt)
-                            Text(account.signedIn ? (account.info?.handle ?? "Signed in") : "Sync likes and playlists. Optional.").font(theme.ui(11.5)).foregroundStyle(p.t2)
+                        if account.signedIn {
+                            // which account is signed in, on one line: name · email
+                            Text([account.info?.name ?? "", account.info?.email ?? ""].filter { !$0.isEmpty }.joined(separator: " · ").nonEmpty ?? "Google account")
+                                .font(theme.ui(13.5, .semibold)).foregroundStyle(p.txt).lineLimit(1).truncationMode(.tail)
+                        } else {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Sign in with Google").font(theme.ui(13.5, .semibold)).foregroundStyle(p.txt)
+                                Text("Sync likes and playlists. Optional.").font(theme.ui(11.5)).foregroundStyle(p.t2)
+                            }
                         }
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(p.t3)
@@ -68,7 +74,6 @@ struct SettingsView: View {
                                 .transition(.opacity)
                         }
                     }
-                    Text("Used in the Home greeting. Leave empty to use your account name.").font(theme.ui(11.5)).foregroundStyle(p.t2)
                 }
                 .animation(Motion.spring, value: nameDraft != prefs.displayName)
             }
@@ -391,4 +396,8 @@ struct FlowChips: View {
             ForEach(items, id: \.0) { it in Chip(label: it.1, selected: it.0 == selected) { onPick(it.0) } }
         }
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }

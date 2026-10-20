@@ -37,6 +37,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -158,8 +160,7 @@ fun SettingsScreen(s: AppState) {
                     val callName by p.callName.state.collectAsState()
                     var draft by remember { mutableStateOf(callName) }
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text("What should I call you?", style = T.ui(14.5.sp, FontWeight.SemiBold))
-                        Text("Used in the Home greeting. Leave empty to use your account name.", style = T.ui(12.sp, FontWeight.Medium, c.t3), modifier = Modifier.padding(bottom = 10.dp))
+                        Text("What should I call you?", style = T.ui(14.5.sp, FontWeight.SemiBold), modifier = Modifier.padding(bottom = 10.dp))
                         dev.benfranklin.itune.ui.Field(draft, { draft = it.take(30); p.callName.value = draft.trim() }, App.prefs.userName.value, Modifier.testTag("call_name_field"), onDone = {
                             p.callName.value = draft.trim()
                             dev.benfranklin.itune.ui.hideKeyboardHint()
@@ -169,15 +170,47 @@ fun SettingsScreen(s: AppState) {
             }
             item {
                 Group("Account") {
-                    SRow(
-                        if (signedIn) "Signed in with Google" else "Sign in with Google (optional)",
-                        if (signedIn) "Your liked songs and playlists sync into your library" else "Everything works without an account. Sign in to bring your library over.",
-                        0, onClick = {
-                            if (signedIn) scope.launch {
-                                dev.benfranklin.itune.data.ioResult { App.core.syncLibrary() }.onSuccess { s.toast("Synced ${it.liked} liked songs"); dev.benfranklin.itune.data.Library.refresh() }.onFailure { s.toast("Couldn't sync right now") }
-                            } else signIn.launch(Intent(ctx, SignInActivity::class.java))
-                        },
-                    ) { if (signedIn) Text("Sync", style = T.ui(13.sp, FontWeight.SemiBold, c.t2)) else Chevron() }
+                    if (signedIn) {
+                        // which account is signed in: avatar + name · email on one line, a small glass Sync pill
+                        val info by dev.benfranklin.itune.data.Account.info.collectAsState()
+                        LaunchedEffect(Unit) { if (info == null) dev.benfranklin.itune.data.Account.load() }
+                        var sync by remember { mutableStateOf(0) } // 0 idle, 1 syncing, 2 done
+                        Row(Modifier.fillMaxWidth().testTag("srow_account").padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val nm = info?.name?.takeIf { it.isNotBlank() } ?: App.prefs.userName.value
+                            val av = info?.avatar
+                            if (!av.isNullOrEmpty()) dev.benfranklin.itune.ui.components.Artwork(av, 28.dp, circle = true)
+                            else Box(Modifier.size(28.dp).glass(CircleShape, dark = 0.30f, sheen = 0.12f, rim = 0.8f), contentAlignment = Alignment.Center) {
+                                Text(nm.take(1).uppercase().ifEmpty { "G" }, style = T.ui(12.sp, FontWeight.Bold))
+                            }
+                            val line = listOf(nm, info?.email.orEmpty()).filter { it.isNotBlank() }.joinToString(" · ").ifEmpty { "Google account" }
+                            Text(line, style = T.ui(14.5.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 12.dp, end = 10.dp))
+                            Row(
+                                Modifier.height(30.dp).glass(RoundedCornerShape(15.dp), dark = 0.30f, sheen = 0.10f, rim = 0.7f)
+                                    .press(scaleTo = 0.94f) {
+                                        if (sync == 1) return@press
+                                        sync = 1
+                                        scope.launch {
+                                            dev.benfranklin.itune.data.ioResult { App.core.syncLibrary() }
+                                                .onSuccess { sync = 2; s.toast("Synced ${it.liked} liked songs"); dev.benfranklin.itune.data.Library.refresh(); kotlinx.coroutines.delay(1800); if (sync == 2) sync = 0 }
+                                                .onFailure { sync = 0; s.toast("Couldn't sync right now") }
+                                        }
+                                    }
+                                    .testTag("account_sync").padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                when (sync) {
+                                    1 -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(12.dp), color = c.txt, strokeWidth = 1.6.dp)
+                                    2 -> Icon(Icons.Rounded.Check, null, tint = c.txt, modifier = Modifier.size(14.dp))
+                                    else -> Icon(Icons.Rounded.Sync, null, tint = c.txt, modifier = Modifier.size(14.dp))
+                                }
+                                Text(if (sync == 1) "Syncing" else if (sync == 2) "Synced" else "Sync", style = T.ui(12.5.sp, FontWeight.SemiBold), modifier = Modifier.padding(start = 6.dp))
+                            }
+                        }
+                    } else SRow(
+                        "Sign in with Google (optional)",
+                        "Everything works without an account. Sign in to bring your library over.",
+                        0, onClick = { signIn.launch(Intent(ctx, SignInActivity::class.java)) },
+                    ) { Chevron() }
                     if (signedIn) SRow("Sign out", null, 1, onClick = {
                         p.signedIn.value = false
                         dev.benfranklin.itune.data.Account.info.value = null

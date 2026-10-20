@@ -499,6 +499,78 @@ fi
 log "== Now Playing stress"
 # y (centre) of the first node with <resource-id>, or empty
 node_y() { local xy; xy=$(find_node resource-id "$1") && echo "${xy#* }"; }
+# node_bounds <resource-id> -> "x1 y1 x2 y2" of the first match
+node_bounds() {
+  python3 - "$O/ui.xml" "$1" <<'PY2'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(1)
+for n in r.iter('node'):
+    if n.get('resource-id','').split('/')[-1] != sys.argv[2]: continue
+    m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+    if len(m) == 4 and m[2] > m[0] and m[3] > m[1]: print(*m); sys.exit(0)
+sys.exit(1)
+PY2
+}
+# glass_check <name>: the floating mini player + nav must show the content scrolling under them (0.2.7).
+# Two screenshots with the list moved ~22% of the screen between them (scrolling UP, so the chrome stays shown);
+# inside the mini player / nav bounds (inset, minus the progress hairline) the pixels must change when the glass
+# blurs live (SMOKE_BLUR=1 leg). The flat-glass legs draw the opaque fallback there by design: logged only.
+glass_check() {
+  local name=$1 MB NB
+  scroll_down; scroll_down
+  adb shell input swipe $(px 50) $(py 30) $(px 50) $(py 52) 400; sleep 1.5; crash_check "glass $name"
+  dump; MB=$(node_bounds mini_player); NB=$(node_bounds bottom_nav)
+  timeout 20 adb exec-out screencap -p > "$O/glass-$name-a.png" 2>/dev/null; shot "glass-$name"
+  adb shell input swipe $(px 50) $(py 30) $(px 50) $(py 52) 400; sleep 1.5; crash_check "glass $name"
+  timeout 20 adb exec-out screencap -p > "$O/glass-$name-b.png" 2>/dev/null
+  if [ -z "$NB" ]; then log "MISSING (required): bottom nav on $name for the glass check"; FAILS=$((FAILS + 1)); return; fi
+  local R; R=$(python3 - "$O/glass-$name-a.png" "$O/glass-$name-b.png" "${MB:-}" "$NB" <<'PY2'
+import sys, zlib, struct
+def png(path):
+    d = open(path, 'rb').read()
+    assert d[:8] == b'\x89PNG\r\n\x1a\n'
+    i, idat, w = 8, b'', 0
+    while i < len(d):
+        n, t = struct.unpack('>I4s', d[i:i+8]); c = d[i+8:i+8+n]; i += 12 + n
+        if t == b'IHDR': w, h, bd, ct = struct.unpack('>IIBB', c[:10]); bpp = {6: 4, 2: 3}[ct]
+        elif t == b'IDAT': idat += c
+    raw = zlib.decompress(idat); st = w * bpp; rows = []; prev = bytearray(st); p = 0
+    for _ in range(h):
+        f = raw[p]; line = bytearray(raw[p+1:p+1+st]); p += 1 + st
+        for x in range(st):
+            a = line[x-bpp] if x >= bpp else 0; b = prev[x]; cc = prev[x-bpp] if x >= bpp else 0
+            if f == 1: line[x] = (line[x] + a) & 255
+            elif f == 2: line[x] = (line[x] + b) & 255
+            elif f == 3: line[x] = (line[x] + ((a + b) >> 1)) & 255
+            elif f == 4:
+                pa, pb, pc = abs(b - cc), abs(a - cc), abs(a + b - 2 * cc)
+                line[x] = (line[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else cc)) & 255
+        rows.append(line); prev = line
+    return w, bpp, rows
+wa, ba, A = png(sys.argv[1]); wb, bb, B = png(sys.argv[2])
+def diff(bounds, inset_bottom):
+    if not bounds: return None
+    x1, y1, x2, y2 = map(int, bounds.split())
+    x1 += 24; x2 -= 24; y1 += 10; y2 -= inset_bottom
+    tot = n = 0
+    for y in range(y1, y2, 2):
+        ra, rb = A[y], B[y]
+        for x in range(x1, x2, 2):
+            for k in range(3): tot += abs(ra[x*ba+k] - rb[x*bb+k])
+            n += 3
+    return tot / max(n, 1)
+m = diff(sys.argv[3], 16); nv = diff(sys.argv[4], 10)
+print('%s %.2f' % ('-' if m is None else '%.2f' % m, nv))
+PY2
+)
+  local MD=${R% *} ND=${R#* }
+  log "glass $name: content change under mini player=${MD:-?} nav=${ND:-?} (mean |diff| 0-255)"
+  if [ "${SMOKE_BLUR:-0}" = 1 ]; then
+    if awk "BEGIN{exit !(${ND:-0} >= 0.6)}" && { [ "$MD" = "-" ] || awk "BEGIN{exit !(${MD:-0} >= 0.6)}"; }; then log "glass $name: rows show through the mini player and nav ok"
+    else log "MISSING (required): glass $name shows the content under the mini player / nav (mini=$MD nav=$ND)"; FAILS=$((FAILS + 1)); fi
+  else log "glass $name: flat-glass leg (opaque fallback by design), informational"; fi
+}
 anr_count() { timeout 10 adb logcat -d 2>/dev/null | grep -cE "ANR in $PKG|Input dispatching timed out.*$PKG|Application Not Responding: $PKG"; }
 ANR0=$(anr_count)
 refocus; close_np
@@ -845,6 +917,10 @@ if id search_album 1 30; then
       elif find_node resource-id list_search_open >/dev/null; then log "back closes search, page kept ok"; else log "MISSING (required): album page kept after Back closed search"; FAILS=$((FAILS + 1)); shot missing-back-search; fi
     fi
   fi
+  # the floating glass shows the album rows scrolling under it (0.2.7: they were hidden by opaque chrome / row backing)
+  log "== Glass see-through (album page)"
+  glass_check album
+  for _ in 1 2 3 4; do scroll_up; done
   id save_button
   wait_for text "Saved to Library" 6 || { log "MISSING (required): Saved to Library toast"; FAILS=$((FAILS + 1)); }
   shot album-saved
@@ -947,6 +1023,9 @@ shot account
 back
 id home_settings
 shot settings
+log "== Glass see-through (Settings)"
+glass_check settings
+for _ in 1 2 3 4 5 6; do scroll_up; done
 for _ in 1 2 3 4 5 6; do dump; find_node resource-id "srow_Diagnostics" >/dev/null && break; scroll_down; done
 id "srow_Diagnostics"
 shot diagnostics

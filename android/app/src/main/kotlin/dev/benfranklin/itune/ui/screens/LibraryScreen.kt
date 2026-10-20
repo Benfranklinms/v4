@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -111,8 +112,11 @@ fun LibraryScreen(s: AppState) {
     val cols = ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp - 32) / 168).coerceIn(2, 6)
     // scroll position survives back navigation and process death; re-applied once the list has loaded
     val listState = dev.benfranklin.itune.data.rememberPersistentListState("library", playlists != null)
+    // page-local haze for the floating select bar: it sits inside the app's content source, where Haze can't
+    // sample that source, so the list is its own source (0.2.7; before, the bar's blur drew nothing)
+    val pageHaze = remember { dev.chrisbanes.haze.HazeState() }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().testTag("library_list"), state = listState, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
+        LazyColumn(Modifier.fillMaxSize().then(if (dev.benfranklin.itune.ui.components.liveBlur) Modifier.hazeSource(pageHaze) else Modifier).testTag("library_list"), state = listState, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
             item(key = "hdr") {
                 Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 12.dp, top = 22.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     RiseText(if (selecting) "${selected.size} selected" else "Library", T.ui(22.sp, FontWeight.Bold), Modifier.weight(1f))
@@ -228,7 +232,7 @@ fun LibraryScreen(s: AppState) {
         // multi-select action bar
         AnimatedVisibility(selecting, modifier = Modifier.align(Alignment.BottomCenter), enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut(tween(120))) {
             Row(
-                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 160.dp).fillMaxWidth().height(56.dp).glass(RoundedCornerShape(28.dp), dark = 0.34f, backdrop = true, sheen = 0.08f, rim = 0.65f, fallbackAlpha = 1f).padding(horizontal = 8.dp),
+                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 160.dp).fillMaxWidth().height(56.dp).glass(RoundedCornerShape(28.dp), dark = 0.34f, backdrop = true, sheen = 0.08f, rim = 0.65f, hazeState = pageHaze, drawAllAreas = true, fallbackAlpha = 1f).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(

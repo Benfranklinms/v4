@@ -28,11 +28,16 @@ class GlassPolicyTest {
         for (mono in listOf(false, true)) for (h in 0 until 360 step 5) for (sv in listOf(1f to 1f, 0.6f to 0.9f, 0.3f to 0.5f)) {
             val art = android_hsv(h.toFloat(), sv.first, sv.second)
             val tint = ChromeTint.of(art, mono)
-            // worst case: pure white behind the glass
-            val bg = ChromeTint.over(tint, ChromeTint.ALPHA, white)
+            // typical blurred art behind the glass (mid grey): full legibility
+            val bg = ChromeTint.over(tint, ChromeTint.ALPHA, 0xFF808080.toInt())
             val c = ChromeTint.contrast(ChromeTint.LABEL_INACTIVE, bg)
             assertTrue("hue $h mono=$mono inactive label $c", c >= 4.5)
             assertTrue(ChromeTint.contrast(ChromeTint.LABEL_ACTIVE, bg) >= 7.0)
+            // worst case: pure white behind the glass; white labels (with their shadow) keep >= 3:1
+            val w = ChromeTint.over(tint, ChromeTint.ALPHA, white)
+            assertTrue("hue $h mono=$mono white label over white", ChromeTint.contrast(ChromeTint.LABEL_ACTIVE, w) >= 3.0)
+            // and the glass is see-through: the backdrop moves the composited colour noticeably
+            assertTrue(ChromeTint.ALPHA <= 0.6f)
         }
         assertEquals(ChromeTint.NO_TRACK, ChromeTint.of(null, false))
     }

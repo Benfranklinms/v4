@@ -48,10 +48,14 @@ fun SwipeTrackRow(s: AppState, t: Track, content: @Composable () -> Unit) {
         },
         positionalThreshold = { it * 0.32f },
     )
+    // the row is see-through at rest (the ambient wash continues behind the list and the floating glass blurs the
+    // rows, as on every other page); only while a swipe is under way does it get a solid backing over the action
+    val swiping = st.dismissDirection != SwipeToDismissBoxValue.Settled
     SwipeToDismissBox(
         state = st,
         backgroundContent = {
             val dir = st.dismissDirection
+            if (dir == SwipeToDismissBoxValue.Settled) return@SwipeToDismissBox
             Row(
                 Modifier.fillMaxSize().background(c.surf2).padding(horizontal = 24.dp),
                 horizontalArrangement = if (dir == SwipeToDismissBoxValue.EndToStart) Arrangement.End else Arrangement.Start,
@@ -66,5 +70,5 @@ fun SwipeTrackRow(s: AppState, t: Track, content: @Composable () -> Unit) {
                 }
             }
         },
-    ) { Box(Modifier.background(c.bg)) { content() } }
+    ) { Box(if (swiping) Modifier.background(c.bg) else Modifier) { content() } }
 }
