@@ -175,6 +175,8 @@ tab() {
   id "tab_$1"
 }
 home_tab() { tab Home; local i; for i in 1 2 3 4 5 6; do scroll_up; dump; find_node resource-id home_settings >/dev/null && break; done; }
+# scroll a page to the top, then down until <resource-id> is on screen
+seek_id() { local i; for i in 1 2 3 4 5; do scroll_up; done; for i in 1 2 3 4 5 6 7 8; do dump; find_node resource-id "$1" >/dev/null && return 0; scroll_down; done; return 1; }
 # a text in the middle band of the screen (proves a list position), skipping the sheet if one is up
 mid_anchor() {
   python3 - "$O/ui.xml" "$SH" <<'PY'
@@ -417,7 +419,10 @@ if id mini_player 0 12; then
   id np_like; id np_like
   # speed + sleep live in the ... menu now
   id np_more; tap text "Playback speed" 1 contains; shot speed; back
-  id np_more; txt "Sleep timer"; txt "15m" 0
+  # a sheet opened from the menu goes back ONE level: to the track menu, not past it
+  if wait_for text "Sleep timer" 5; then log "back from Playback speed -> track menu"
+  else log "MISSING (required): Back from Playback speed returns to the track menu"; FAILS=$((FAILS + 1)); shot missing-speed-back; id np_more; fi
+  txt "Sleep timer"; txt "15m" 0
   id np_more; txt "Sleep timer"; txt "Turn off" 0
   # pause first: on the CI runner every stream hits the bot check and a playing queue keeps auto-skipping,
   # which shifts "Next in queue" under the reorder check and changes the song before the session check
@@ -558,7 +563,7 @@ if [ -n "$BEFORE" ]; then
   # stream error moved the player on between the screen read and the kill, the last save is the song it was on
   SAVED=$(timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep " saved " | tail -n 1)
   timeout 15 adb shell am force-stop $PKG; sleep 2
-  LAST=$(echo "$SAVED" | sed -n 's/.* title=//p')
+  LAST=$(echo "$SAVED" | sed -n 's/.* title=//p' | sed 's/ (sync: [^)]*)$//')
   [ -n "$SAVED" ] && log "  last save: ${SAVED#*: }"
   if [ -n "$LAST" ] && [ "$LAST" != "$BEFORE" ]; then log "WARN: the player moved on before the kill ($BEFORE -> $LAST); expecting $LAST"; BEFORE="$LAST"; fi
   timeout 10 adb logcat -c >/dev/null 2>&1
@@ -800,16 +805,14 @@ log "== Options + place kept across a kill"
 timeout 10 adb logcat -c >/dev/null 2>&1
 tab Stats; id range_week 0
 home_tab; id home_settings
-for _ in 1 2 3 4 5 6; do dump; find_node resource-id toggle_haptics >/dev/null && break; scroll_down; done
-id toggle_haptics 0
-for _ in 1 2 3 4; do dump; find_node resource-id "srow_Theme, text and fonts" >/dev/null && break; scroll_down; done
+seek_id toggle_haptics; id toggle_haptics 0
+seek_id "srow_Theme, text and fonts"
 if id "srow_Theme, text and fonts" 0; then
-  for _ in 1 2 3 4 5; do dump; find_node resource-id toggle_pure_black >/dev/null && break; scroll_down; done
-  id toggle_pure_black 0; back
+  seek_id toggle_pure_black; id toggle_pure_black 0; back
 fi
 back
 tab Library
-id lib_Albums 0; id lib_sort 0
+id lib_Playlists 0; id lib_sort 0; id lib_Albums 0
 scroll_down; scroll_down
 dump; LANCHOR=$(mid_anchor); log "library anchor before kill: '$LANCHOR'"
 timeout 10 adb shell input keyevent KEYCODE_HOME; sleep 2
@@ -830,20 +833,19 @@ for k in library_sort library_filter stats_range haptics pure_black; do
   echo " $START " | grep -q " $kv " && log "option kept: $kv" || { log "MISSING (required): option $kv after force-stop"; FAILS=$((FAILS + 1)); }
 done
 [ $NK -ge 3 ] || { log "MISSING (required): could not flip enough options ($NK)"; FAILS=$((FAILS + 1)); }
-if wait_for resource-id lib_sort 10; then log "relaunch reopened Library"; else log "MISSING (required): last tab (Library) after force-stop"; FAILS=$((FAILS + 1)); fi
+if wait_for resource-id library_list 10; then log "relaunch reopened Library"; else log "MISSING (required): last tab (Library) after force-stop"; FAILS=$((FAILS + 1)); fi
 if [ -n "$LANCHOR" ]; then
   wait_for text "$LANCHOR" 10 && log "library scroll kept across the kill ('$LANCHOR')" || { log "MISSING (required): library scroll after force-stop ('$LANCHOR')"; FAILS=$((FAILS + 1)); shot missing-lib-scroll; }
 fi
 shot options-kept
 # put the visual options back for the remaining screenshots
+for _ in 1 2 3; do scroll_up; done
 id lib_Playlists 0
 home_tab; id home_settings
-for _ in 1 2 3 4 5 6; do dump; find_node resource-id toggle_haptics >/dev/null && break; scroll_down; done
-id toggle_haptics 0
-for _ in 1 2 3 4; do dump; find_node resource-id "srow_Theme, text and fonts" >/dev/null && break; scroll_down; done
+seek_id toggle_haptics; id toggle_haptics 0
+seek_id "srow_Theme, text and fonts"
 if id "srow_Theme, text and fonts" 0; then
-  for _ in 1 2 3 4 5; do dump; find_node resource-id toggle_pure_black >/dev/null && break; scroll_down; done
-  id toggle_pure_black 0; back
+  seek_id toggle_pure_black; id toggle_pure_black 0; back
 fi
 back
 
@@ -853,7 +855,13 @@ home_tab
 id home_settings
 for _ in 1 2 3; do scroll_up; done
 if id call_name_field 0; then
-  clear_field; type_text "Smokey"; hide_kb; back
+  clear_field; type_text "Smokey"
+  # the field may not have taken focus from the first tap (it can sit under the top bar): check the saved value, retry once
+  if ! timeout 10 adb logcat -d -s itune-prefs:I 2>/dev/null | grep -q "set call_name=Smokey"; then
+    log "call name not typed yet: tapping the field again"
+    dump; XY=$(find_node resource-id call_name_field) && { adb shell input tap $XY; sleep 1; clear_field; type_text "Smokey"; }
+  fi
+  hide_kb; back
   home_tab
   wait_for text "Smokey" 6 contains && log "greeting uses call name" || { log "MISSING (required): greeting with call name"; FAILS=$((FAILS + 1)); }
   id home_settings; for _ in 1 2 3; do scroll_up; done; id call_name_field; clear_field; hide_kb; back
