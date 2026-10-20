@@ -203,7 +203,7 @@ object Playback {
             runCatching {
                 val ci = alignCore(idx, id)
                 Session.save(pos)
-                android.util.Log.i(TAG, "saved idx=$idx core=$ci/$n id=$id pos=$pos title=$title (sync: $reason) in ${android.os.SystemClock.uptimeMillis() - t0}ms")
+                android.util.Log.i(TAG, "saved idx=$idx core=$ci/$n id=$id pos=$pos title=$title (sync: $reason, ${android.os.SystemClock.uptimeMillis() - t0}ms)")
             }.onFailure { android.util.Log.w(TAG, "exit save failed ($reason)", it) }
         }, "itune-exit-save")
         th.start()

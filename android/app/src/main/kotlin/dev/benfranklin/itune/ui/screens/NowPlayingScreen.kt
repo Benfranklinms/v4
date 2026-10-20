@@ -486,8 +486,8 @@ fun LyricsCard(tr: Track, modifier: Modifier) {
             }
             else -> LazyColumn(
                 state = list, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 120.dp),
-                // a drag inside the lyrics scrolls the lyrics only: a pull past their top never scrolls the page or
-                // minimises Now Playing (the swipe-down lives on the rest of the screen)
+                // a drag inside the lyrics scrolls the lyrics (then the page with what is left over), but a pull past
+                // their top never minimises Now Playing (the swipe-down lives on the rest of the screen)
                 modifier = Modifier.fillMaxSize().nestedScroll(LyricsScrollGuard).testTag("np_lyrics_list"),
             ) {
                 itemsIndexed(lines, key = { i, _ -> i }) { i, l ->
@@ -527,14 +527,18 @@ private fun KaraokeLine(l: dev.benfranklin.itune.core.LyricLine, smooth: android
     Text(txt, style = style, modifier = modifier)
 }
 
-/** Keeps leftover downward drags / flings inside the lyrics list (see [LyricsCard]). */
+/**
+ * Marks drags that happen inside the lyrics list (see [LyricsCard]): the page may still scroll with what the lyrics
+ * leave over, but such a drag never pulls Now Playing down to minimise it ([NpSwipe] checks [lyricsDragAt]).
+ */
+@Volatile private var lyricsDragAt = 0L
 private val LyricsScrollGuard = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
-    override fun onPostScroll(consumed: Offset, available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset =
-        if (available.y > 0f) Offset(0f, available.y) else Offset.Zero
-
-    override suspend fun onPostFling(consumed: androidx.compose.ui.unit.Velocity, available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity =
-        if (available.y > 0f) androidx.compose.ui.unit.Velocity(0f, available.y) else androidx.compose.ui.unit.Velocity.Zero
+    override fun onPreScroll(available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
+        if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) lyricsDragAt = android.os.SystemClock.uptimeMillis()
+        return Offset.Zero
+    }
 }
+private fun inLyricsDrag(): Boolean = android.os.SystemClock.uptimeMillis() - lyricsDragAt < 150
 
 
 private fun Modifier.androidx_onHeight(onHeight: (Float) -> Unit): Modifier =
@@ -625,6 +629,7 @@ private class NpSwipe(
 
         override fun onPostScroll(consumed: Offset, available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
             if (blocking) return available
+            if (available.y > 0f && source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput && pos == 0f && inLyricsDrag()) return Offset.Zero
             if (available.y > 0f && source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) {
                 set(pos + available.y)
                 return Offset(0f, available.y)
