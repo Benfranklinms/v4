@@ -353,7 +353,7 @@ fun NowPlayingScreen(s: AppState, shared: SharedTransitionScope, scope: Animated
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun NpLine(text: String, style: androidx.compose.ui.text.TextStyle, reduce: Boolean, align: androidx.compose.ui.text.style.TextAlign? = null, modifier: Modifier = Modifier) {
+internal fun NpLine(text: String, style: androidx.compose.ui.text.TextStyle, reduce: Boolean, align: androidx.compose.ui.text.style.TextAlign? = null, modifier: Modifier = Modifier) {
     if (reduce) {
         Text(text, style = style, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = align, modifier = modifier)
         return

@@ -123,8 +123,8 @@ struct MiniPlayerContent: View {
             if let t = player.current {
                 ArtView(url: t.thumb, image: player.artwork, size: 64, radius: 10)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(t.title).font(theme.ui(13, .semibold)).foregroundStyle(p.txt).lineLimit(1)
-                    Text(t.artists).font(theme.ui(11)).foregroundStyle(p.t2).lineLimit(1)
+                    Marquee(text: t.title, font: theme.ui(13, .semibold), color: p.txt, height: 17)
+                    Marquee(text: t.artists, font: theme.ui(11), color: p.t2, height: 14)
                     ProgressLine().frame(height: 3)
                 }
                 Spacer(minLength: 0)

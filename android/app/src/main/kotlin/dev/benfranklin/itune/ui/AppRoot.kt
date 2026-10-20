@@ -395,11 +395,12 @@ private fun MiniPlayer(s: AppState, shared: SharedTransitionScope, scope: Animat
                     Artwork(tr.thumb, 42.dp, circle = true)
                 }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(
-                        tr.title, style = T.ui(14.sp, FontWeight.SemiBold, ChromeOn).copy(shadow = ChromeTextShadow), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    // same marquee as Now Playing: scrolls only when it overflows, ellipsis under Reduce Motion
+                    dev.benfranklin.itune.ui.screens.NpLine(
+                        tr.title, T.ui(14.sp, FontWeight.SemiBold, ChromeOn).copy(shadow = ChromeTextShadow), reduce,
                         modifier = Modifier.sharedBounds(rememberSharedContentState("title"), scope).testTag("mini_title"),
                     )
-                    Text(tr.artists, style = T.ui(12.sp, FontWeight.Medium, ChromeOnMuted).copy(shadow = ChromeTextShadow), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    dev.benfranklin.itune.ui.screens.NpLine(tr.artists, T.ui(12.sp, FontWeight.Medium, ChromeOnMuted).copy(shadow = ChromeTextShadow), reduce)
                 }
                 val hs by animateFloatAsState(if (liked) 1f else 0.9f, spring(dampingRatio = 0.4f, stiffness = 600f), label = "mheart")
                 Icon(

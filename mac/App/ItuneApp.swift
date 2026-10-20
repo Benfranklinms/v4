@@ -505,7 +505,7 @@ struct PlayerBar: View {
                                 ArtView(url: t.thumb, image: player.artwork, size: 46, radius: 8)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Marquee(text: t.title, font: theme.ui(13, .semibold), color: p.txt)
-                                    Text(t.artists).font(theme.ui(11.5, .medium)).foregroundStyle(p.t2).lineLimit(1)
+                                    Marquee(text: t.artists, font: theme.ui(11.5, .medium), color: p.t2, height: 15)
                                 }
                             }
                             .frame(width: compact ? 150 : 220, alignment: .leading)
@@ -544,6 +544,11 @@ struct Marquee: View {
     @State private var box: CGFloat = 0
     @State private var go = false
     var body: some View {
+        if Motion.reduce {
+            // Reduce Motion: no scrolling, the usual ellipsis
+            Text(text).font(font).foregroundStyle(color).lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading).frame(height: height, alignment: .topLeading)
+        } else {
         GeometryReader { g in
             let over = w > g.size.width + 1
             Text(text).font(font).foregroundStyle(color).lineLimit(1).fixedSize()
@@ -555,6 +560,7 @@ struct Marquee: View {
         }
         .frame(height: height)
         .clipped()
+        }
     }
 }
 
