@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -98,8 +99,10 @@ private class FilterHits(val list: List<Track>, val idx: List<Int>)
 
 /** Glass search pill under a list's header (same look as the Search tab field, smaller). */
 @Composable
-private fun ListSearchField(q: String, onChange: (String) -> Unit, reduce: Boolean, onDone: () -> Unit) {
+private fun ListSearchField(q: String, onChange: (String) -> Unit, autoFocus: Boolean, onClose: () -> Unit, onDone: () -> Unit) {
     val c = LocalColors.current
+    val fr = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { if (autoFocus) runCatching { fr.requestFocus() } }
     Row(
         Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(40.dp).glass(RoundedCornerShape(20.dp), dark = 0.40f, sheen = 0.07f, rim = 0.65f).padding(start = 14.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -111,16 +114,11 @@ private fun ListSearchField(q: String, onChange: (String) -> Unit, reduce: Boole
                 q, onChange, singleLine = true, textStyle = T.ui(13.5.sp, FontWeight.Medium), cursorBrush = androidx.compose.ui.graphics.SolidColor(c.txt),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onDone() }),
-                modifier = Modifier.fillMaxWidth().testTag("list_search"),
+                modifier = Modifier.fillMaxWidth().focusRequester(fr).testTag("list_search"),
             )
         }
-        androidx.compose.animation.AnimatedVisibility(
-            q.isNotEmpty(),
-            enter = if (reduce) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.scaleIn(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeIn(),
-            exit = if (reduce) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.scaleOut(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeOut(),
-        ) {
-            Icon(androidx.compose.material.icons.Icons.Rounded.Close, "Clear", tint = c.t3, modifier = Modifier.size(28.dp).padding(4.dp).press { onChange("") }.testTag("list_search_clear"))
-        }
+        // × clears the text; on an empty field it tucks the pill away again
+        Icon(androidx.compose.material.icons.Icons.Rounded.Close, if (q.isEmpty()) "Close search" else "Clear", tint = c.t3, modifier = Modifier.size(28.dp).padding(4.dp).press { if (q.isEmpty()) onClose() else onChange("") }.testTag("list_search_clear"))
     }
 }
 
@@ -150,6 +148,9 @@ fun TrackListPage(
     // in-list search: filtered off the main thread (keys cached per track list), rows keep their keys so the
     // list springs between full and filtered; a tap plays the FULL list from that song
     var query by androidx.compose.runtime.saveable.rememberSaveable(source) { mutableStateOf("") }
+    // the pill stays tucked away (no layout change) until the search button in the header opens it
+    var searchOpen by androidx.compose.runtime.saveable.rememberSaveable(source) { mutableStateOf(false) }
+    val showSearch = searchable && !tracks.isNullOrEmpty() && (searchOpen || query.isNotEmpty())
     val keyCache = remember { java.util.concurrent.atomic.AtomicReference<Pair<List<Track>, List<String>>?>(null) }
     val hits by androidx.compose.runtime.produceState<FilterHits?>(null, tracks, query) {
         val tl = tracks
@@ -193,11 +194,26 @@ fun TrackListPage(
                             Modifier.size(44.dp).glass(CircleShape, dark = 0.34f, sheen = 0.08f, rim = 0.65f).press { tracks?.takeIf { it.isNotEmpty() }?.let { Playback.playShuffled(ctx, it, source) } ?: s.toast("Nothing to play yet") },
                             contentAlignment = Alignment.Center,
                         ) { Icon(Icons.Rounded.Shuffle, null, tint = c.txt, modifier = Modifier.size(20.dp)) }
+                        if (searchable && !tracks.isNullOrEmpty()) {
+                            Box(
+                                Modifier.size(44.dp).glass(CircleShape, dark = 0.34f, sheen = 0.08f, rim = 0.65f)
+                                    .then(if (showSearch) Modifier.background(c.txt.copy(alpha = 0.12f), CircleShape) else Modifier)
+                                    .press { if (showSearch) { query = ""; searchOpen = false; focus.clearFocus() } else searchOpen = true }
+                                    .testTag("list_search_open"),
+                                contentAlignment = Alignment.Center,
+                            ) { Icon(Icons.Rounded.Search, "Search", tint = c.txt, modifier = Modifier.size(20.dp)) }
+                        }
                     }
                     Spacer(Modifier.height(16.dp))
-                    if (searchable && !tracks.isNullOrEmpty()) {
-                        ListSearchField(query, { query = it }, reduce) { focus.clearFocus() }
-                        Spacer(Modifier.height(8.dp))
+                    androidx.compose.animation.AnimatedVisibility(
+                        showSearch,
+                        enter = if (reduce) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.expandVertically(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeIn(),
+                        exit = if (reduce) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.shrinkVertically(dev.benfranklin.itune.ui.components.glassSpring()) + androidx.compose.animation.fadeOut(),
+                    ) {
+                        Column {
+                            ListSearchField(query, { query = it }, autoFocus = searchOpen && query.isEmpty(), onClose = { searchOpen = false; focus.clearFocus() }) { focus.clearFocus() }
+                            Spacer(Modifier.height(8.dp))
+                        }
                     }
                 }
             }
