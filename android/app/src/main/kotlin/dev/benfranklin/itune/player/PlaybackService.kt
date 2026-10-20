@@ -108,7 +108,7 @@ class PlaybackService : MediaSessionService() {
 
     /** Swiping the app away keeps the music going; only stop when nothing is playing. */
     override fun onTaskRemoved(rootIntent: Intent?) {
-        Playback.saveSessionNow("task removed")
+        Playback.saveSessionNow("task removed", waitMs = 400)
         val p = session?.player
         if (p == null || !p.playWhenReady || p.mediaItemCount == 0 || p.playbackState == Player.STATE_ENDED) {
             stopSelf()
@@ -117,7 +117,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         likeJob?.cancel()
-        Playback.saveSessionNow("service destroy")
+        Playback.saveSessionNow("service destroy", waitMs = 400)
         Playback.detach()
         session?.run {
             player.release()

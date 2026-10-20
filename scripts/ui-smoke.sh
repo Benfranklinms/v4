@@ -491,6 +491,106 @@ else
   log "WARN: mini player not shown (stream unavailable on the emulator?)"
 fi
 
+# ---------------------------------------------------------------- Now Playing stress: stays responsive, title scrolls with the page
+# (0.2.2 on a phone: "stuck, can't move" on Now Playing and the title pinned over the controls while scrolling)
+log "== Now Playing stress"
+# y (centre) of the first node with <resource-id>, or empty
+node_y() { local xy; xy=$(find_node resource-id "$1") && echo "${xy#* }"; }
+anr_count() { timeout 10 adb logcat -d 2>/dev/null | grep -cE "ANR in $PKG|Input dispatching timed out.*$PKG|Application Not Responding: $PKG"; }
+ANR0=$(anr_count)
+refocus; close_np
+dump
+MINI_XY=$(find_node resource-id mini_player || true)
+if [ -n "$MINI_XY" ] && id mini_player 0 8; then
+  sleep 1; dump
+  T0=$(node_y np_title)
+  log "np title y at open: ${T0:-none}"
+  [ -n "$T0" ] || { log "MISSING (required): np_title on Now Playing"; FAILS=$((FAILS + 1)); }
+  timeout 10 adb shell input keyevent KEYCODE_MEDIA_PLAY; sleep 1
+  # seek repeatedly (taps along the scrubber, quick succession)
+  if SC=$(find_node resource-id np_scrubber); then
+    read SCX SCY <<< "$SC"
+    W=$(python3 - "$O/ui.xml" <<'PY'
+import sys, re, xml.etree.ElementTree as ET
+r = ET.parse(sys.argv[1]).getroot()
+for n in r.iter('node'):
+    if n.get('resource-id','').endswith('np_scrubber'):
+        m = list(map(int, re.findall(r'\d+', n.get('bounds','')))); print(m[0], m[2]); break
+PY
+)
+    read SL SR <<< "$W"
+    for f in 20 55 30 75 10 45 65 25; do adb shell input tap $(( SL + (SR - SL) * f / 100 )) $SCY; sleep 0.25; done
+    sleep 1; crash_check "np repeated seeks"; log "np repeated seeks done"
+  else log "WARN: no scrubber for the seek burst"; fi
+  # the options menu and sheets open and close, and leave nothing behind that eats taps
+  id np_more && { wait_for resource-id sheet 5 && back; }
+  id np_queue && { wait_for resource-id queue_sheet 5 && id sheet_close 0; }
+  sleep 1
+  # close by tapping the scrim above the sheet (top of the screen); Back if the sheet covers that on a short screen
+  if id np_more && wait_for resource-id sheet 5; then
+    adb shell input tap $(px 50) $(py 4); sleep 1; dump
+    find_node resource-id sheet >/dev/null && { log "WARN: scrim tap did not close the menu (sheet covers the top?): Back"; back; }
+  fi
+  sleep 1; dump
+  if find_node resource-id sheet >/dev/null; then log "MISSING (required): a sheet stayed open after closing it on Now Playing"; FAILS=$((FAILS + 1)); shot missing-np-sheet-closed; back
+  else log "np sheets open/close ok"; fi
+  # a tap right after the sheets reaches Now Playing (no invisible layer left over)
+  id np_lyrics && { sleep 0.8; id np_lyrics; } || { log "MISSING (required): tap on Now Playing after closing sheets"; FAILS=$((FAILS + 1)); }
+  # scroll the page: the title must move with it (not stay pinned near where it was)
+  scroll_down; dump
+  T1=$(node_y np_title)
+  if [ -n "$T0" ]; then
+    if [ -z "$T1" ]; then log "np title scrolled off with the page"
+    elif [ $(( T0 - T1 )) -gt $(( SH / 20 )) ]; then log "np title scrolled with the page ($T0 -> $T1)"
+    else log "MISSING (required): np title stayed put while the page scrolled ($T0 -> $T1)"; FAILS=$((FAILS + 1)); shot missing-np-title-scroll; fi
+  fi
+  shot np-stress-scrolled
+  # drag inside the lyrics both ways: lyrics scroll, Now Playing stays open (a pull inside them never minimises it)
+  if LY=$(find_node resource-id np_lyrics_list); then
+    read LX LYY <<< "$LY"
+    adb shell input swipe $LX $(( LYY + SH / 12 )) $LX $(( LYY - SH / 12 )) 350; sleep 0.6
+    adb shell input swipe $LX $(( LYY - SH / 12 )) $LX $(( LYY + SH / 12 )) 350; sleep 0.6
+    adb shell input swipe $LX $(( LYY - SH / 12 )) $LX $(( LYY + SH / 12 )) 200; sleep 1
+    dump; np_open && log "lyrics drags kept Now Playing open" || { log "MISSING (required): dragging the lyrics closed Now Playing"; FAILS=$((FAILS + 1)); id mini_player 0; }
+  else log "WARN: lyrics list not on screen (no lyrics for this song?)"; fi
+  scroll_down; scroll_down; dump
+  find_node resource-id np_upnext >/dev/null && log "np up next reached" || log "WARN: up next not visible in the stress pass"
+  # Back while scrolled closes Now Playing; reopening shows it exactly as the first time (top, title in place)
+  back; sleep 1; dump
+  if np_open; then log "MISSING (required): Back on a scrolled Now Playing did not close it"; FAILS=$((FAILS + 1)); close_np; fi
+  if id mini_player 0 6; then
+    sleep 1; dump; T2=$(node_y np_title)
+    if [ -n "$T0" ] && [ -n "$T2" ] && [ $(( T2 > T0 ? T2 - T0 : T0 - T2 )) -le 12 ]; then log "np reopens the same (title y $T0 -> $T2)"
+    else log "MISSING (required): Now Playing reopened differently (title y ${T0:-?} -> ${T2:-none})"; FAILS=$((FAILS + 1)); shot missing-np-reopen; fi
+  fi
+  # swipe down to dismiss, then reopen IMMEDIATELY (inside the collapse): the reopened page must still scroll + go Back
+  dump
+  if find_node resource-id np_close >/dev/null && [ -n "$MINI_XY" ]; then
+    adb shell "input swipe $(px 50) $(py 24) $(px 50) $(py 82) 250; input tap $MINI_XY"
+    sleep 1.5; crash_check "np swipe + instant reopen"; dump
+    if ! np_open; then id mini_player 0 4; sleep 1; dump; fi
+    if np_open; then
+      T3=$(node_y np_title); scroll_down; dump; T4=$(node_y np_title)
+      if [ -n "$T3" ] && { [ -z "$T4" ] || [ $(( T3 - T4 )) -gt $(( SH / 20 )) ]; }; then log "reopened Now Playing scrolls ($T3 -> ${T4:-off})"
+      else log "MISSING (required): reopened Now Playing does not scroll ($T3 -> ${T4:-?})"; FAILS=$((FAILS + 1)); shot missing-np-reopen-scroll; fi
+      back; sleep 1; dump
+      np_open && { log "MISSING (required): Back on the reopened Now Playing did nothing"; FAILS=$((FAILS + 1)); close_np; } || log "Back closes the reopened Now Playing"
+    else log "WARN: Now Playing did not reopen after the swipe"; fi
+  fi
+  # responsiveness probe: a tab tap after all of that lands within a few seconds
+  refocus; close_np
+  T_0=$SECONDS
+  if tab Search && wait_for resource-id search_field 6; then log "UI responsive after Now Playing stress ($((SECONDS - T_0))s)"
+  else log "MISSING (required): UI unresponsive after Now Playing stress"; FAILS=$((FAILS + 1)); shot missing-responsive; fi
+  ANR1=$(anr_count)
+  if [ "$ANR1" -gt "$ANR0" ]; then log "MISSING (required): ANR during Now Playing stress"; FAILS=$((FAILS + 1)); timeout 10 adb logcat -d 2>/dev/null | grep -E -A12 "ANR in $PKG" | head -40 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+  else log "no ANR during Now Playing stress"; fi
+  timeout 10 adb logcat -d -s itune-session:I 2>/dev/null | grep -cE " saved " | sed 's/^/[ui]   session saves so far: /' | tee -a "$O/steps.txt"
+  gfx np-stress
+else
+  log "WARN: mini player not shown for the Now Playing stress pass"
+fi
+
 # ---------------------------------------------------------------- liked song shows in Library live (no relaunch)
 log "== Liked Songs live"
 tab Library

@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         state.flushPending()
         runCatching { dev.benfranklin.itune.data.UiStore.save(state) }
+        // async: the process keeps running (the service holds it); never block the main thread on the core here
         dev.benfranklin.itune.player.Playback.saveSessionNow("activity stop")
         super.onStop()
     }
@@ -113,7 +114,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         requestHighRefresh(false)
         runCatching { dev.benfranklin.itune.data.UiStore.save(state) }
-        dev.benfranklin.itune.player.Playback.saveSession()
+        dev.benfranklin.itune.player.Playback.saveSessionImmediate()
         super.onPause()
     }
 

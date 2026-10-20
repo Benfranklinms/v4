@@ -331,7 +331,9 @@ fun bottomInset(extra: Dp = 24.dp): Dp {
 }
 
 /** The album-tinted chrome colour (animated ~400 ms on track change); #09090A with nothing playing. */
-val LocalChromeTint = staticCompositionLocalOf { Color(ChromeTint.NO_TRACK) }
+// dynamic (not static): the tint animates for 400 ms on every track change, and a static local re-composed the
+// whole app on each of those frames; now only the chrome that reads it does
+val LocalChromeTint = androidx.compose.runtime.compositionLocalOf { Color(ChromeTint.NO_TRACK) }
 
 /** White text / icons on the tinted chrome, and the inactive label colour (>= 4.5:1, see [ChromeTint]). */
 val ChromeOn = Color(ChromeTint.LABEL_ACTIVE)

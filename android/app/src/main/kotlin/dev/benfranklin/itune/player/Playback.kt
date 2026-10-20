@@ -143,8 +143,25 @@ object Playback {
         }
     }
 
-    /** Persist the session in the core (pause, track change, onStop, service destroy, every 5 s while playing). */
+    /**
+     * Persist the session in the core (pause, track change, seek, queue edits, every 5 s while playing). Main thread.
+     * Requests are COALESCED: a burst (repeated seeks, a track change + pause + queue publish) becomes one save
+     * ~[SAVE_COALESCE_MS] later, taken from the player at that moment. The core write itself always runs on the core
+     * thread, never here. Lifecycle exits use [saveSessionImmediate] / [saveSessionNow].
+     */
     fun saveSession() {
+        if (Looper.myLooper() != Looper.getMainLooper()) { main.post { saveSession() }; return }
+        if (savePending) return
+        savePending = true
+        main.postDelayed(saveRunnable, SAVE_COALESCE_MS)
+    }
+
+    @Volatile private var savePending = false
+    private val saveRunnable = Runnable { savePending = false; saveSessionImmediate() }
+
+    /** One save right now (snapshot on the main thread, core write on the core thread). Main thread. */
+    fun saveSessionImmediate() {
+        if (savePending) { main.removeCallbacks(saveRunnable); savePending = false }
         val p = player ?: return
         if (p.mediaItemCount == 0) return
         val pos = p.currentPosition
@@ -167,10 +184,13 @@ object Playback {
     }
 
     /**
-     * Exit paths (activity stop, task removed, service destroyed): save NOW and wait for it (bounded), so a process
-     * killed right after still has the latest track, queue and position. Main thread; at most ~1.5 s.
+     * Exit paths (activity stop, task removed, service destroyed). The player is read on the main thread, the core
+     * write runs on its own short-lived thread, and the main thread waits for it at most [waitMs] (a real, bounded
+     * Thread.join: 0.2.2 used runBlocking(coreQ) here, which queued behind any core work and could not be
+     * interrupted while an FFI call was blocked, freezing the UI on stop/return).
      */
-    fun saveSessionNow(reason: String) {
+    fun saveSessionNow(reason: String, waitMs: Long = 0L) {
+        if (savePending) { main.removeCallbacks(saveRunnable); savePending = false }
         val p = player ?: return
         if (p.mediaItemCount == 0) return
         val pos = p.currentPosition
@@ -178,15 +198,16 @@ object Playback {
         val id = p.currentMediaItem?.mediaId ?: return
         val title = p.currentMediaItem?.mediaMetadata?.title?.toString().orEmpty()
         val n = p.mediaItemCount
-        runCatching {
-            kotlinx.coroutines.runBlocking(coreQ) {
-                kotlinx.coroutines.withTimeoutOrNull(1500) {
-                    val ci = alignCore(idx, id)
-                    Session.save(pos)
-                    android.util.Log.i(TAG, "saved idx=$idx core=$ci/$n id=$id pos=$pos title=$title (sync: $reason)")
-                }
-            }
-        }.onFailure { android.util.Log.w(TAG, "sync save failed ($reason)", it) }
+        val t0 = android.os.SystemClock.uptimeMillis()
+        val th = Thread({
+            runCatching {
+                val ci = alignCore(idx, id)
+                Session.save(pos)
+                android.util.Log.i(TAG, "saved idx=$idx core=$ci/$n id=$id pos=$pos title=$title (sync: $reason) in ${android.os.SystemClock.uptimeMillis() - t0}ms")
+            }.onFailure { android.util.Log.w(TAG, "exit save failed ($reason)", it) }
+        }, "itune-exit-save")
+        th.start()
+        if (waitMs > 0) runCatching { th.join(waitMs) }
     }
 
     private fun playerIds(p: ExoPlayer): List<String> = (0 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId }
@@ -234,7 +255,7 @@ object Playback {
     fun resumptionItems(): Session.Saved? = Session.restore(App.instance)
 
     internal fun detach() {
-        saveSession()
+        if (savePending) { main.removeCallbacks(saveRunnable); savePending = false }
         finishPlay(false)
         player?.removeListener(listener)
         player = null
@@ -715,4 +736,5 @@ object Playback {
     @Suppress("unused")
     private const val UNSET = C.TIME_UNSET
     private const val TAG = "itune-session"
+    private const val SAVE_COALESCE_MS = 800L
 }

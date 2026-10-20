@@ -45,7 +45,9 @@ data class ItuneColors(
 @Immutable
 data class ItuneFonts(val ui: FontFamily, val num: FontFamily, val key: String)
 
-val LocalColors = staticCompositionLocalOf { colorsOf(Palettes.mono, Color(0xFF6A4A8A)) }
+// dynamic: the album glow inside the palette animates (900 ms) on every track change; a static local invalidated
+// the entire tree each frame of it, only readers recompose now
+val LocalColors = androidx.compose.runtime.compositionLocalOf { colorsOf(Palettes.mono, Color(0xFF6A4A8A)) }
 val LocalFonts = staticCompositionLocalOf { ItuneFonts(FontFamily.Default, FontFamily.Monospace, "default") }
 val LocalReduceMotion = staticCompositionLocalOf { false }
 val LocalLyricsScale = staticCompositionLocalOf { 1f }

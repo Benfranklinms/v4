@@ -121,7 +121,9 @@ fun SheetHost(s: AppState) {
     }
     val scrim by animateFloatAsState(if (open) 0.55f else 0f, tween(260), label = "scrim")
     if (scrim > 0.01f) {
-        Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim / 0.55f }.background(Color.Black.copy(alpha = 0.55f)).plainClick { s.closeSheet() })
+        // only an OPEN sheet's scrim takes touches: while it fades out after a close it is paint only, so nothing
+        // invisible is left eating taps ("ghost UI")
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim / 0.55f }.background(Color.Black.copy(alpha = 0.55f)).then(if (open) Modifier.plainClick { s.closeSheet() }.testTag("sheet_scrim") else Modifier))
     }
     val drag = remember { androidx.compose.animation.core.Animatable(0f) }
     val dragScope = rememberCoroutineScope()
