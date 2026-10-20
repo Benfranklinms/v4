@@ -610,12 +610,14 @@ struct TrackListPage: View {
                         if let a = actions { a }
                     }.padding(.top, 10)
                 }
-                if searchable, let ts = tracks, !ts.isEmpty {
-                    Spacer(minLength: 16)
-                    ListSearchField(text: $query)
-                }
             }.padding(.top, 10).enter(0)
-            Spacer().frame(height: 24)
+            if searchable, let ts = tracks, !ts.isEmpty {
+                // own row under the header: always on screen, however narrow the window or open the queue
+                HStack { Spacer(minLength: 0); ListSearchField(text: $query) }.padding(.top, 14).enter(1)
+                Spacer().frame(height: 10)
+            } else {
+                Spacer().frame(height: 24)
+            }
             if let ts = tracks {
                 if ts.isEmpty {
                     EmptyHint(icon: "music.note", text: empty)
