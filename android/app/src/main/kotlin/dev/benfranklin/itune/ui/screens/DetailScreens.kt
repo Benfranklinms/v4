@@ -56,6 +56,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -117,7 +120,15 @@ private fun ListSearchField(q: String, onChange: (String) -> Unit, autoFocus: Bo
                 q, onChange, singleLine = true, textStyle = T.ui(13.5.sp, FontWeight.Medium), cursorBrush = androidx.compose.ui.graphics.SolidColor(c.txt),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { onDone() }),
-                modifier = Modifier.fillMaxWidth().focusRequester(fr).testTag("list_search"),
+                // a hardware Enter submits here and is consumed (down and up), so it never falls through to
+                // another focusable (the Back button would close the search)
+                modifier = Modifier.fillMaxWidth().focusRequester(fr).testTag("list_search")
+                    .onPreviewKeyEvent { e ->
+                        val k = e.key
+                        if (k != androidx.compose.ui.input.key.Key.Enter && k != androidx.compose.ui.input.key.Key.NumPadEnter) return@onPreviewKeyEvent false
+                        if (e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) onDone()
+                        true
+                    },
             )
         }
         // × clears the text; on an empty field it tucks the pill away again
@@ -148,6 +159,7 @@ fun TrackListPage(
     val list = rememberLazyListState()
     val reduce = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     // in-list search: filtered off the main thread (keys cached per track list), rows keep their keys so the
     // list springs between full and filtered; a tap plays the FULL list from that song
     var query by androidx.compose.runtime.saveable.rememberSaveable(source) { mutableStateOf("") }
@@ -291,7 +303,11 @@ fun TrackListPage(
                     contentAlignment = Alignment.CenterStart,
                     label = "listSearchBar",
                 ) { open ->
-                    if (open) ListSearchField(query, { query = it }, autoFocus = query.isEmpty(), onClose = { closeSearch() }, modifier = Modifier.padding(end = 8.dp)) { focus.clearFocus() }
+                    if (open) ListSearchField(query, { query = it }, autoFocus = query.isEmpty(), onClose = { closeSearch() }, modifier = Modifier.padding(end = 8.dp)) {
+                        // submit keeps the field focused and only drops the keyboard: the filtered rows stay put
+                        android.util.Log.i("itune-filter", "submit len=${query.length}")
+                        keyboard?.hide()
+                    }
                     else Text(if (collapsed) title else "", style = T.ui(15.sp, FontWeight.Bold), modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

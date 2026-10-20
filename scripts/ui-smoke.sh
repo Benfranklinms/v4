@@ -813,6 +813,8 @@ if id search_album 1 30; then
     if [ -n "$LSY" ] && [ "$LSY" -lt $(( SH * 18 / 100 )) ]; then log "search pill at the top ok"; else log "MISSING (required): search pill pinned at the top (y=${LSY:-none})"; FAILS=$((FAILS + 1)); fi
     if [ -n "$TRY" ] && [ "$TRY" -gt "${LSY:-0}" ] && [ "$TRY" -lt "$KBTOP" ]; then log "filtered row visible above the keyboard ok"; else log "MISSING (required): filtered row visible with the keyboard open (row y=${TRY:-none}, keyboard top $KBTOP)"; FAILS=$((FAILS + 1)); fi
     kb_done; shot list-filter
+    # submit (Enter) only drops the keyboard: the pill and the filtered rows stay
+    dump; if find_node resource-id list_search >/dev/null; then log "search stays open after submit ok"; else log "MISSING (required): search stays open after submit"; FAILS=$((FAILS + 1)); fi
     if wait_for resource-id track_row 5; then
       XY=$(find_node resource-id track_row); adb shell input tap $XY; sleep 2; crash_check "filtered row"
       PL=$(timeout 10 adb logcat -d -s itune-filter:I 2>/dev/null | grep "play idx=" | tail -n 1)
