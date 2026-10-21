@@ -54,6 +54,36 @@ pub fn main_artist(a: &str) -> String {
     a.split(&[',', '&'][..]).next().unwrap_or("").trim().to_string()
 }
 
+/// One key per song for top lists: the same title (case-insensitive, trimmed) by the same artist is one
+/// song even when it was played from two video ids ("Young And Beautiful" / "Young and Beautiful").
+/// Falls back to the track id when there is no title.
+pub fn song_key(track_id: &str, title: &str, artist: &str) -> String {
+    let t = title.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    if t.is_empty() {
+        return format!("id:{track_id}");
+    }
+    let a = main_artist(artist).split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    format!("{t}\u{1f}{a}")
+}
+
+/// Song group per row: rows of one video id stay together (even if its artist text changed between
+/// plays), and different ids join when their song_key matches.
+pub fn song_groups(rows: &[PlayRow]) -> Vec<String> {
+    let mut by_id: HashMap<&str, String> = HashMap::new();
+    let mut by_key: HashMap<String, String> = HashMap::new();
+    rows.iter()
+        .map(|r| {
+            if let Some(g) = by_id.get(r.track_id.as_str()) {
+                return g.clone();
+            }
+            let k = song_key(&r.track_id, &r.title, &r.artist);
+            let g = by_key.entry(k).or_insert_with(|| r.track_id.clone()).clone();
+            by_id.insert(r.track_id.as_str(), g.clone());
+            g
+        })
+        .collect()
+}
+
 // ------------------------------------------------------------------ calendar helpers (no chrono)
 
 /// days since 1970-01-01 -> (year, month 1..12, day 1..31)
@@ -205,6 +235,7 @@ struct Acc {
     plays: u32,
     tracks: HashMap<String, i64>,
     titles: HashMap<String, String>,
+    ids: HashMap<String, String>,
     hours: [i64; 24],
 }
 
@@ -322,6 +353,7 @@ pub fn build_page(
     let mut active: HashSet<i64> = HashSet::new();
     // skips over the last 90 days: (latest row, skips, rows)
     let mut skips: HashMap<String, (usize, u32, u32)> = HashMap::new();
+    let groups = song_groups(rows);
 
     for (i, r) in rows.iter().enumerate() {
         let day = r.local_day();
@@ -352,12 +384,14 @@ pub fn build_page(
                     acc.plays += 1;
                     plays += 1;
                 }
-                *acc.tracks.entry(r.track_id.clone()).or_default() += r.ms;
-                acc.titles.entry(r.track_id.clone()).or_insert_with(|| r.title.clone());
+                let sk = groups[i].clone();
+                *acc.tracks.entry(sk.clone()).or_default() += r.ms;
+                acc.titles.entry(sk.clone()).or_insert_with(|| r.title.clone());
+                acc.ids.entry(sk.clone()).or_insert_with(|| r.track_id.clone());
                 acc.hours[r.local_hour()] += r.ms;
                 total_ms += r.ms;
                 clock[r.local_hour()] += r.ms;
-                let t = tracks.entry(r.track_id.clone()).or_insert((i, 0, 0));
+                let t = tracks.entry(sk).or_insert((i, 0, 0));
                 t.0 = i;
                 if r.counts() {
                     t.1 += 1;
@@ -422,7 +456,7 @@ pub fn build_page(
                 minutes: (acc.ms / 60_000) as u32,
                 plays: acc.plays,
                 line,
-                top_track_id: top.map(|t| t.0.clone()).unwrap_or_default(),
+                top_track_id: top.and_then(|t| acc.ids.get(t.0).cloned()).unwrap_or_default(),
                 peak_hour: if acc.ms > 0 { ph } else { -1 },
                 start: d0 * DAY - tz_s,
                 end: d1 * DAY - tz_s,
@@ -578,12 +612,13 @@ pub fn hour_detail(rows: &[PlayRow], range: &str, now: i64, tz_min: i32, hour: u
     let h = (hour % 24) as usize;
     let mut m: HashMap<String, (usize, u32, i64)> = HashMap::new();
     let mut total = 0i64;
+    let groups = song_groups(rows);
     for (i, r) in rows.iter().enumerate() {
         if r.at < from || r.at >= to || r.local_hour() != h {
             continue;
         }
         total += r.ms;
-        let e = m.entry(r.track_id.clone()).or_insert((i, 0, 0));
+        let e = m.entry(groups[i].clone()).or_insert((i, 0, 0));
         e.0 = i;
         if r.counts() {
             e.1 += 1;
@@ -752,6 +787,40 @@ mod tests {
         ];
         v.sort_by_key(|r| r.at);
         v
+    }
+
+    #[test]
+    fn same_song_from_two_ids_is_one_row() {
+        let t = today();
+        let mut v = vec![
+            play(t - 2, 15, 4, "y1", "Young And Beautiful", "Lana Del Rey", "", false),
+            play(t - 2, 16, 4, "y1", "Young And Beautiful", "Lana Del Rey", "", false),
+            play(t - 1, 15, 4, "y2", "Young and Beautiful ", "Lana Del Rey", "", false),
+            play(t - 1, 16, 4, "y2", "  young and beautiful", "Lana Del Rey", "", false),
+            // same title, other artist: stays separate
+            play(t - 1, 17, 4, "y3", "Young and Beautiful", "Someone Else", "", false),
+            play(t, 15, 4, "h", "Hips Don't Lie", "Shakira, Ed Sheeran", "", false),
+            play(t, 16, 4, "h", "Hips Don't Lie", "Shakira, Ed Sheeran", "", false),
+            play(t, 17, 4, "h", "Hips Don't Lie", "Shakira, Ed Sheeran", "", false),
+        ];
+        v.sort_by_key(|r| r.at);
+        let p = build_page(&v, &[], "week", now(), TZ, 30, &HashMap::new());
+        let yb: Vec<_> = p.top_tracks.iter().filter(|x| x.track.artists == "Lana Del Rey").collect();
+        assert_eq!(yb.len(), 1);
+        assert_eq!(yb[0].plays, 4);
+        assert_eq!(p.top_tracks[0].plays, 4);
+        assert_eq!(p.top_tracks.len(), 3);
+        assert_eq!(recap(&p).top_tracks.len(), 3);
+        assert_eq!(song_key("a", "Young And Beautiful", "Lana Del Rey"), song_key("b", " young and  beautiful ", "Lana Del Rey & X"));
+        assert_ne!(song_key("a", "Young And Beautiful", "Lana Del Rey"), song_key("b", "Young And Beautiful", "Other"));
+        let h = hour_detail(&v, "week", now(), TZ, 15);
+        assert_eq!(h.tracks.iter().filter(|x| x.track.artists == "Lana Del Rey").count(), 1);
+        // db top list merge
+        let tr = |id: &str, title: &str| Track { id: id.into(), title: title.into(), artists: "Lana Del Rey".into(), artist_id: None, album: None, album_id: None, thumb: String::new(), duration_s: 0 };
+        let m = crate::db::merge_same_songs(vec![(tr("x", "Other"), 3, 9), (tr("y1", "Young And Beautiful"), 2, 8), (tr("y2", "Young and Beautiful"), 2, 8)], 10);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0].0.id, "y1");
+        assert_eq!(m[0].1, 4);
     }
 
     #[test]

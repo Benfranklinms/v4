@@ -708,78 +708,182 @@ private struct DayPlaysSheet: View {
 
 // MARK: Recap
 
-/// The 9:16 story card (also rendered to PNG for Save / Copy).
+/// Same title (trimmed, case-insensitive) by the same main artist = one row. The core already merges; this
+/// keeps the card right for any list.
+func recapMergeSameSongs(_ list: [TrackStat]) -> [TrackStat] {
+    var order: [String] = []
+    var m: [String: TrackStat] = [:]
+    for t in list {
+        let title = t.track.title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased()
+        let artist = (t.track.artists.split(whereSeparator: { $0 == "," || $0 == "&" }).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? "").lowercased()
+        let k = title.isEmpty ? "id:" + t.track.id : title + "\u{1f}" + artist
+        if var p = m[k] { p.plays += t.plays; p.minutes += t.minutes; m[k] = p } else { m[k] = t; order.append(k) }
+    }
+    return order.compactMap { m[$0] }.enumerated().sorted { a, b in
+        if a.element.plays != b.element.plays { return a.element.plays > b.element.plays }
+        if a.element.minutes != b.element.minutes { return a.element.minutes > b.element.minutes }
+        return a.offset < b.offset
+    }.map { $0.element }
+}
+
+/// The Pulse mark (app icon glyph): a disc with three rounded bars cut out. Fill with eoFill.
+struct PulseMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 24
+        var p = Path()
+        p.addEllipse(in: CGRect(x: rect.minX + 2 * s, y: rect.minY + 2 * s, width: 20 * s, height: 20 * s))
+        for (x0, y0, y1) in [(7.4, 8.6, 15.4), (11.0, 6.4, 17.6), (14.6, 7.8, 16.2)] as [(CGFloat, CGFloat, CGFloat)] {
+            p.addRoundedRect(in: CGRect(x: rect.minX + x0 * s, y: rect.minY + y0 * s, width: 2 * s, height: (y1 - y0) * s), cornerSize: CGSize(width: s, height: s))
+        }
+        return p
+    }
+}
+
+private let recapBase = Color(.sRGB, red: 9 / 255, green: 9 / 255, blue: 10 / 255, opacity: 1)
+
+/// Dark base, a soft low-saturation glow of the top artist's art, vignette and fine grain. No hard edges.
+private struct RecapBackdrop: View {
+    let art: NSImage?
+    var body: some View {
+        ZStack {
+            recapBase
+            if let a = art {
+                Image(nsImage: a).resizable().aspectRatio(contentMode: .fill).frame(width: 560, height: 560).clipped()
+                    .saturation(0.25).blur(radius: 60, opaque: false).opacity(0.7)
+                    .mask(RadialGradient(stops: [.init(color: .black, location: 0), .init(color: .black.opacity(0.6), location: 0.38), .init(color: .black.opacity(0.15), location: 0.72), .init(color: .clear, location: 1)], center: .center, startRadius: 0, endRadius: 280))
+                    .position(x: 252, y: 128)
+            } else {
+                RadialGradient(colors: [.white.opacity(0.12), .clear], center: UnitPoint(x: 0.7, y: 0.2), startRadius: 0, endRadius: 340)
+            }
+            LinearGradient(stops: [.init(color: .clear, location: 0.3), .init(color: recapBase.opacity(0.6), location: 1)], startPoint: .top, endPoint: .bottom)
+            RadialGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.55), .init(color: .black.opacity(0.6), location: 1)], center: UnitPoint(x: 0.5, y: 0.42), startRadius: 0, endRadius: 500)
+            Canvas { ctx, size in
+                var seed: UInt64 = 29
+                func next() -> Double { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Double(seed >> 33) / Double(1 << 31) }
+                for _ in 0..<9000 {
+                    let x = next() * size.width, y = next() * size.height, v = next()
+                    ctx.fill(Path(CGRect(x: x, y: y, width: 0.34, height: 0.34)), with: .color(Color(white: v).opacity(0.10)))
+                }
+            }
+        }
+        .frame(width: RecapCard.W, height: RecapCard.H).clipped()
+    }
+}
+
+/// The 9:16 story card (also rendered to PNG for Save / Copy). 360x640 pt, rendered @3x. 32 pt (= 96 px)
+/// gutters; blocks stack from measured text; the footer sits on the bottom margin and the song list keeps
+/// only the rows that fit above it.
 struct RecapCard: View {
     let r: Recap
     let art: NSImage?
     let accent: Color
-    var body: some View {
-        let white = Color.white, dim = Color.white.opacity(0.7)
-        ZStack(alignment: .topLeading) {
-            Color(red: 0.05, green: 0.045, blue: 0.05)
-            if let a = art {
-                Image(nsImage: a).resizable().aspectRatio(contentMode: .fill).frame(width: 360, height: 640).blur(radius: 40).clipped().opacity(0.9)
-            }
-            LinearGradient(colors: [.black.opacity(0.45), .black.opacity(0.65), .black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("iTune").font(.custom("Manrope", size: 13).weight(.bold)).foregroundStyle(dim)
-                    Spacer()
-                    Text(r.periodLabel).font(.custom("Manrope", size: 11.5).weight(.medium)).foregroundStyle(dim)
-                }
-                Text(r.title).font(.custom("Manrope", size: 34).weight(.bold)).foregroundStyle(white).padding(.top, 26)
-                HStack(alignment: .lastTextBaseline, spacing: 3) {
-                    let m = Int(r.minutes)
-                    if m >= 60 {
-                        Text("\(m / 60)").font(.custom("JetBrains Mono", size: 72).weight(.light))
-                        Text("h").font(.custom("Manrope", size: 20).weight(.semibold)).foregroundStyle(dim).padding(.trailing, 10)
-                        Text(String(format: "%02d", m % 60)).font(.custom("JetBrains Mono", size: 72).weight(.light))
-                    } else {
-                        Text("\(m)").font(.custom("JetBrains Mono", size: 72).weight(.light))
-                    }
-                    Text("m").font(.custom("Manrope", size: 20).weight(.semibold)).foregroundStyle(dim)
-                }.foregroundStyle(white).padding(.top, 14)
-                Text(playsLabel(Int(r.plays)) + (r.changePercent.map { " · \($0 >= 0 ? "+" : "")\($0)% vs last \(r.range == "month" ? "month" : "week")" } ?? ""))
-                    .font(.custom("Manrope", size: 13).weight(.medium)).foregroundStyle(accent)
-                if let a = r.topArtist {
-                    HStack(spacing: 16) {
-                        Group {
-                            if let i = art { Image(nsImage: i).resizable().aspectRatio(contentMode: .fill) } else { Color.white.opacity(0.1) }
-                        }.frame(width: 76, height: 76).clipShape(Circle()).overlay(Circle().stroke(accent, lineWidth: 2).padding(-3))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Top artist").font(.custom("Manrope", size: 12).weight(.semibold)).foregroundStyle(dim)
-                            Text(a.name).font(.custom("Manrope", size: 21).weight(.bold)).foregroundStyle(white).lineLimit(1)
-                            Text(hm(Int(a.minutes))).font(.custom("JetBrains Mono", size: 12)).foregroundStyle(dim)
-                        }
-                    }.padding(.top, 36)
-                }
-                if !r.topTracks.isEmpty {
-                    Text("Top songs").font(.custom("Manrope", size: 12).weight(.semibold)).foregroundStyle(dim).padding(.top, 34)
-                    ForEach(Array(r.topTracks.prefix(5).enumerated()), id: \.offset) { i, t in
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("\(i + 1)").font(.custom("JetBrains Mono", size: 13)).foregroundStyle(i == 0 ? accent : white.opacity(0.5)).frame(width: 14)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(t.track.title).font(.custom("Manrope", size: 16).weight(.bold)).foregroundStyle(white).lineLimit(1)
-                                Text(t.track.artists).font(.custom("Manrope", size: 11).weight(.medium)).foregroundStyle(dim).lineLimit(1)
-                            }
-                            Spacer()
-                            Text("\(t.plays)×").font(.custom("JetBrains Mono", size: 12)).foregroundStyle(dim)
-                        }.padding(.top, 12)
-                    }
-                }
-                Spacer()
-                let foot = [r.moodLine.isEmpty ? nil : r.moodLine, r.goalStreak > 0 ? "\(r.goalStreak)-day goal streak" : nil].compactMap { $0 }.joined(separator: "  ·  ")
-                Text(foot).font(.custom("Manrope", size: 12).weight(.medium)).foregroundStyle(dim).lineLimit(1)
-            }
-            .padding(.horizontal, 32).padding(.top, 44).padding(.bottom, 40)
+    static let W: CGFloat = 360, H: CGFloat = 640, G: CGFloat = 32
+
+    private func ui(_ s: CGFloat, _ w: Font.Weight) -> Font { .custom("Manrope", size: s).weight(w) }
+    private func num(_ s: CGFloat, _ w: Font.Weight = .regular) -> Font { .custom("JetBrains Mono", size: s).weight(w) }
+    static func lineH(_ family: String, _ size: CGFloat, _ w: NSFont.Weight) -> CGFloat {
+        let d = NSFontDescriptor(fontAttributes: [.family: family]).addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: w.rawValue]])
+        let f = NSFont(descriptor: d, size: size) ?? NSFont.systemFont(ofSize: size, weight: w)
+        return ceil(f.ascender - f.descender + f.leading)
+    }
+
+    /// "96 plays · +12% vs last week": numerals in JetBrains Mono, words in Manrope, one baseline.
+    private func playsLine(white: Color, dim: Color, faint: Color) -> Text {
+        var t = Text("\(r.plays)").font(num(13.3)).foregroundColor(accent)
+        t = t + Text(r.plays == 1 ? " play" : " plays").font(ui(12.7, .medium)).foregroundColor(dim)
+        if let c = r.changePercent {
+            t = t + Text("   ·   ").font(ui(12.7, .medium)).foregroundColor(faint)
+            t = t + Text("\(c >= 0 ? "+" : "−")\(abs(c))%").font(num(13.3)).foregroundColor(dim)
+            t = t + Text(" vs last \(r.range == "month" ? "month" : "week")").font(ui(12.7, .medium)).foregroundColor(dim)
         }
-        .frame(width: 360, height: 640)
+        return t
+    }
+
+    var body: some View {
+        let white = Color(white: 0.95), dim = Color.white.opacity(0.63), faint = Color.white.opacity(0.4)
+        let songs = Array(recapMergeSameSongs(r.topTracks).prefix(5))
+        let foot = [r.moodLine.isEmpty ? nil : r.moodLine, r.goalStreak > 0 ? "\(r.goalStreak)-day goal streak" : nil].compactMap { $0 }.joined(separator: "   ·   ")
+        let m = Int(r.minutes)
+        let parts: [(String, String)] = m >= 60 ? [("\(m / 60)", "h"), (String(format: "%02d", m % 60), "m")] : [("\(m)", "m")]
+        // the big numerals shrink only when a long total would not fit the 296 pt between the gutters
+        let digitCount = CGFloat(parts.reduce(0) { $0 + $1.0.count })
+        let digitSize = min(83, (Self.W - 2 * Self.G - 64) / max(1, digitCount * 0.6))
+        let labH = Self.lineH("Manrope", 10, .semibold) + 14
+        let titleH = Self.lineH("Manrope", 16.7, .bold), artistH = Self.lineH("Manrope", 11, .medium)
+        let rowH = titleH + 2 + artistH, rowGap: CGFloat = 13
+        ZStack(alignment: .topLeading) {
+            RecapBackdrop(art: art)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 6) {
+                    PulseMark().fill(white, style: FillStyle(eoFill: true)).frame(width: 17, height: 17)
+                    Text("iTune").font(ui(12.7, .bold)).foregroundStyle(white)
+                    Spacer(minLength: 12)
+                    Text(r.periodLabel).font(ui(10.7, .medium)).foregroundStyle(dim).lineLimit(1)
+                }
+                Text(r.title).font(ui(37, .bold)).tracking(-0.9).foregroundStyle(white).lineLimit(1).minimumScaleFactor(0.6).padding(.top, 30)
+                HStack(alignment: .lastTextBaseline, spacing: 0) {
+                    ForEach(Array(parts.enumerated()), id: \.offset) { i, pr in
+                        Text(pr.0).font(num(digitSize, .light)).tracking(-3).foregroundStyle(white)
+                        Text(pr.1).font(ui(digitSize * 0.3, .semibold)).foregroundStyle(dim).padding(.leading, 5).padding(.trailing, i < parts.count - 1 ? 15 : 0)
+                    }
+                }.lineLimit(1).minimumScaleFactor(0.5).padding(.top, 10)
+                playsLine(white: white, dim: dim, faint: faint).lineLimit(1).padding(.top, 6)
+                if let a = r.topArtist {
+                    HStack(spacing: 17) {
+                        ZStack {
+                            if let i = art { Image(nsImage: i).resizable().aspectRatio(contentMode: .fill) }
+                            else {
+                                Color.white.opacity(0.085)
+                                Text(String(a.name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()).font(ui(28, .bold)).foregroundStyle(dim)
+                            }
+                        }
+                        .frame(width: 69, height: 69).clipShape(Circle())
+                        .overlay(Circle().stroke(accent.opacity(0.8), lineWidth: 1).padding(-3))
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("TOP ARTIST").font(ui(10, .semibold)).tracking(0.8).foregroundStyle(dim)
+                            Text(a.name).font(ui(22, .bold)).tracking(-0.3).foregroundStyle(white).lineLimit(1).truncationMode(.tail)
+                            Text(hm(Int(a.minutes))).font(num(11.3)).foregroundStyle(dim)
+                        }
+                    }.padding(.top, 38)
+                }
+                GeometryReader { g in
+                    let n = songs.isEmpty ? 0 : max(0, min(songs.count, Int((g.size.height - labH + rowGap) / (rowH + rowGap))))
+                    if n > 0 {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("TOP SONGS").font(ui(10, .semibold)).tracking(0.8).foregroundStyle(dim).frame(height: labH - 14, alignment: .leading).padding(.bottom, 14)
+                            VStack(alignment: .leading, spacing: rowGap) {
+                                ForEach(Array(songs.prefix(n).enumerated()), id: \.offset) { i, t in
+                                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                                        Text("\(i + 1)").font(num(12.7)).foregroundStyle(i == 0 ? accent : faint).frame(width: 25, alignment: .leading)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(t.track.title.trimmingCharacters(in: .whitespaces)).font(ui(16.7, .bold)).tracking(-0.15).foregroundStyle(white).lineLimit(1).truncationMode(.tail)
+                                            Text(t.track.artists).font(ui(11, .medium)).foregroundStyle(dim).lineLimit(1).truncationMode(.tail)
+                                        }
+                                        Spacer(minLength: 12)
+                                        Text("\(t.plays)×").font(num(12)).foregroundStyle(dim)
+                                    }.frame(height: rowH, alignment: .top)
+                                }
+                            }
+                        }
+                    }
+                }.padding(.top, 40)
+                if !foot.isEmpty {
+                    Text(foot).font(ui(10.7, .medium)).foregroundStyle(dim).lineLimit(1).truncationMode(.tail).padding(.top, 24)
+                }
+            }
+            .padding(.horizontal, Self.G).padding(.top, 40).padding(.bottom, 40)
+            .frame(width: Self.W, height: Self.H, alignment: .topLeading)
+        }
+        .frame(width: Self.W, height: Self.H)
     }
 }
 
 @MainActor
 enum RecapRender {
     /// 1080x1920 PNG of the card.
+    /// The card is always dark: the palette's own accent (Pure Mono / Adaptive: #E8E8E8), never the live album tint.
+    static func cardAccent(_ theme: Theme) -> Color { theme.p.light ? Palette.hex("E8E8E8") : theme.p.acc }
+
     static func image(_ r: Recap, art: NSImage?, accent: Color) -> NSImage? {
         let rr = ImageRenderer(content: RecapCard(r: r, art: art, accent: accent))
         rr.scale = 3
@@ -835,7 +939,7 @@ private struct RecapSheet: View {
         let url = rc.topArtist?.thumb.isEmpty == false ? rc.topArtist!.thumb : (rc.topTrack?.track.thumb ?? "")
         let art = url.isEmpty ? nil : await ArtCache.shared.image(url, points: 360)
         recap = rc
-        withAnimation(.easeOut(duration: 0.2)) { img = RecapRender.image(rc, art: art, accent: theme.accent) }
+        withAnimation(.easeOut(duration: 0.2)) { img = RecapRender.image(rc, art: art, accent: RecapRender.cardAccent(theme)) }
     }
 
     private func save() {
