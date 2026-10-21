@@ -726,19 +726,6 @@ func recapMergeSameSongs(_ list: [TrackStat]) -> [TrackStat] {
     }.map { $0.element }
 }
 
-/// The Pulse mark (app icon glyph): a disc with three rounded bars cut out. Fill with eoFill.
-struct PulseMark: Shape {
-    func path(in rect: CGRect) -> Path {
-        let s = min(rect.width, rect.height) / 24
-        var p = Path()
-        p.addEllipse(in: CGRect(x: rect.minX + 2 * s, y: rect.minY + 2 * s, width: 20 * s, height: 20 * s))
-        for (x0, y0, y1) in [(7.4, 8.6, 15.4), (11.0, 6.4, 17.6), (14.6, 7.8, 16.2)] as [(CGFloat, CGFloat, CGFloat)] {
-            p.addRoundedRect(in: CGRect(x: rect.minX + x0 * s, y: rect.minY + y0 * s, width: 2 * s, height: (y1 - y0) * s), cornerSize: CGSize(width: s, height: s))
-        }
-        return p
-    }
-}
-
 private let recapBase = Color(.sRGB, red: 9 / 255, green: 9 / 255, blue: 10 / 255, opacity: 1)
 
 /// Dark base, a soft low-saturation glow of the top artist's art, vignette and fine grain. No hard edges.
@@ -815,7 +802,7 @@ struct RecapCard: View {
             RecapBackdrop(art: art)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
-                    PulseMark().fill(white, style: FillStyle(eoFill: true)).frame(width: 17, height: 17)
+                    PulseMark().foregroundStyle(white).frame(width: 17, height: 17)
                     Text("iTune").font(ui(12.7, .bold)).foregroundStyle(white)
                     Spacer(minLength: 12)
                     Text(r.periodLabel).font(ui(10.7, .medium)).foregroundStyle(dim).lineLimit(1)
