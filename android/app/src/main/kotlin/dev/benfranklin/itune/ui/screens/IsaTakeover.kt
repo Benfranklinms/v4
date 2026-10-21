@@ -28,7 +28,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -347,7 +346,9 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
     Box(
         Modifier.fillMaxSize()
             // while open the takeover owns every touch; while it animates closed, touches go through (no ghost scrim)
-            .pointerInput(open) { if (open) awaitEachGesture { while (true) { val e = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Final); e.changes.forEach { it.consume() }; if (e.changes.all { !it.pressed }) break } } }
+            // (being a hit target is enough: Compose stops hit-testing at the topmost sibling that is hit. Nothing is
+            // consumed here: consuming in the Final pass cancelled the scroll column's drag before touch slop)
+            .pointerInput(open) { if (open) awaitPointerEventScope { while (true) awaitPointerEvent() } }
             .testTag(if (open) "isa_takeover" else "isa_takeover_closing"),
     ) {
         // glass layer: live Haze blur of Home + album tint, revealed from the orb (crossfade under Reduce Motion)

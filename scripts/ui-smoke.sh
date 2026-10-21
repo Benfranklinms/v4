@@ -1102,6 +1102,8 @@ for _ in 1 2 3 4 5 6 7; do
   if B=$(node_bounds stats_clock_face); then
     read -r X1 Y1 X2 Y2 <<< "$B"
     if [ "$Y1" -gt $(py 12) ] && [ "$Y2" -lt $(py 80) ]; then CLOCK=1; break; fi
+    # scrolled past it (tall clock, small screen): come back a little instead of going further down
+    if [ "$Y1" -le $(py 12) ]; then adb shell input swipe $(px 50) $(py 40) $(px 50) $(py 56) 400; sleep 0.8; continue; fi
   fi
   adb shell input swipe $(px 50) $(py 62) $(px 50) $(py 34) 300; sleep 0.8
 done
