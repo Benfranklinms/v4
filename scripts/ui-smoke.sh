@@ -323,6 +323,7 @@ if wait_for resource-id isa_send 5; then log "send button appeared while typing"
 shot isa-typing
 timeout 10 adb logcat -c >/dev/null 2>&1
 id isa_send
+hide_kb
 if wait_for resource-id isa_preview 60; then
   shot isa-preview
   id isa_play
@@ -345,15 +346,18 @@ id nav_isa
 if wait_for resource-id isa_takeover 6; then
   # FOR YOU: tap the first idea card -> a queue preview comes back
   id isa_clear 0
-  for _ in 1 2 3 4; do dump; find_node resource-id isa_foryou_0 >/dev/null && break; scroll_down; done
+  hide_kb
+  # scroll the takeover to its end so the cards sit above the Ask Isa input (a tap on the input focuses the field)
+  scroll_down; scroll_down; scroll_down
   find_node resource-id isa_shuffle_ideas >/dev/null && shot isa-foryou
   if id isa_foryou_0; then
     if wait_for resource-id isa_preview 60; then log "FOR YOU card -> preview ok"; shot isa-foryou-preview
     else log "MISSING (required): no preview after the FOR YOU card"; FAILS=$((FAILS + 1)); shot missing-foryou-preview; fi
   fi
   timeout 10 adb logcat -d -s itune-isa:I 2>/dev/null | grep ideas | tail -n 1 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+  hide_kb
   back; sleep 1; dump
-  if isa_open; then log "MISSING (required): Back did not close the Isa takeover"; FAILS=$((FAILS + 1)); back
+  if isa_open; then log "MISSING (required): Back did not close the Isa takeover"; FAILS=$((FAILS + 1)); shot missing-isa-back; id isa_close 0; sleep 1
   else log "Back closed the Isa takeover"; fi
   find_node resource-id home_list >/dev/null && log "Home kept under the takeover" || { log "MISSING (required): Home after closing Isa"; FAILS=$((FAILS + 1)); }
 else log "MISSING (required): takeover did not reopen"; FAILS=$((FAILS + 1)); fi

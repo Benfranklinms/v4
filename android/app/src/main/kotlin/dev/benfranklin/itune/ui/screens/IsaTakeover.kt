@@ -279,6 +279,7 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
     val lengthIdx by App.prefs.isaLength.state.collectAsState()
     var focused by remember { mutableStateOf(false) }
     var sugg by remember { mutableStateOf<List<String>>(emptyList()) }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var ideas by remember { mutableStateOf(IsaIdeas.cached() ?: IsaIdeas.generic) }
     var ideaSet by remember { mutableStateOf(0) }
     val scroll = rememberScrollState()
@@ -288,7 +289,7 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
     fun run(p: String) {
         if (p.isBlank()) return
         if (App.prefs.haptics.value) view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-        focus.clearFocus(); sugg = emptyList()
+        keyboard?.hide(); focus.clearFocus(); sugg = emptyList()
         IsaSession.run(p) { ready() }
         // the answer shows under the title: bring it into view
         scope.launch { if (reduce) scroll.scrollTo(0) else scroll.animateScrollTo(0) }
@@ -366,7 +367,7 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                 }
                 .then(
                     if (haze != null && liveBlur) Modifier.hazeEffect(haze, glassStyle(c, 0.58f, 26.dp)).background(tint.copy(alpha = 0.22f))
-                    else Modifier.background(c.bg.copy(alpha = 0.94f)).background(tint.copy(alpha = 0.30f)),
+                    else Modifier.background(c.bg.copy(alpha = 0.97f)).background(tint.copy(alpha = 0.18f)),
                 ),
         )
         // ripple rings + rising droplets (F): only while the spring is in flight

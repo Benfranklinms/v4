@@ -30,6 +30,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -179,7 +180,7 @@ internal fun Preview(s: AppState, r: IsaResult, onPlayed: () -> Unit = {}) {
                 Text("${r.tracks.size} songs · ${if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"}", style = T.num(12.sp, color = c.t2))
             }
         }
-        Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.padding(top = 14.dp).horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PillButton(Icons.Rounded.PlayArrow, "Play", primary = true, tag = "isa_play") {
                 dev.benfranklin.itune.data.Recents.register(r.plan.title, dev.benfranklin.itune.data.Recents.Origin("mix", r.plan.title, r.plan.title, "Made with Isa", r.tracks.firstOrNull()?.thumb ?: ""))
                 Playback.play(ctx, r.tracks, 0, r.plan.title); onPlayed()
@@ -203,11 +204,11 @@ internal fun Preview(s: AppState, r: IsaResult, onPlayed: () -> Unit = {}) {
 internal fun PillButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, primary: Boolean = false, tag: String = "", onClick: () -> Unit) {
     val c = LocalColors.current
     Row(
-        Modifier.height(38.dp).clip(RoundedCornerShape(19.dp)).background(if (primary) c.accentUi else c.surf3).press(onClick = onClick).padding(horizontal = 14.dp).testTag(tag),
+        Modifier.height(38.dp).clip(RoundedCornerShape(19.dp)).background(if (primary) c.accentUi else c.surf3).press(onClick = onClick).padding(horizontal = 13.dp).testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = if (primary) c.onAccent else c.txt, modifier = Modifier.size(17.dp))
-        Text(label, style = T.ui(13.sp, FontWeight.Bold, if (primary) c.onAccent else c.txt), modifier = Modifier.padding(start = 6.dp))
+        Text(label, style = T.ui(13.sp, FontWeight.Bold, if (primary) c.onAccent else c.txt), maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 6.dp))
     }
 }
 
