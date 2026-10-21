@@ -188,13 +188,13 @@ object RecapRenderer {
         drawPulse(cv, L, y, mark, white)
         cv.drawText("iTune", L + mark + 18f, mid + cap(brand) / 2, brand)
         cv.drawText(r.periodLabel, R - per.measureText(r.periodLabel), mid + cap(per) / 2, per)
-        y += mark + 112f
+        y += mark + 92f
 
         // title
         val title = paint(f.bold, 112f, white).apply { letterSpacing = -0.025f }
         y += cap(title)
         cv.drawText(fit(title, r.title, R - L), L, y, title)
-        y += 84f
+        y += 64f
 
         // total time: digits and h/m units share one baseline; spacing from ink bounds
         val minutes = r.minutes.toInt()
@@ -216,7 +216,7 @@ object RecapRenderer {
             x += ink(cv, un, x, y, uP)
             if (i < parts.size - 1) x += pairGap
         }
-        y += 72f
+        y += 58f
 
         // plays (+ change): numerals in JetBrains Mono, words in Manrope, one baseline
         val numP = paint(f.num, 40f, accent)
@@ -232,11 +232,11 @@ object RecapRenderer {
         y += cap(wordP)
         x = L
         segs.forEach { (s, p) -> cv.drawText(s, x, y, p); x += p.measureText(s) }
-        y += 120f
+        y += 100f
 
         // top artist: art disc + three lines centred on it
         r.topArtist?.let { a ->
-            val d = 208f
+            val d = 184f
             val c = PointF(L + d / 2, y + d / 2)
             if (art != null) {
                 val sh = BitmapShader(art, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -250,11 +250,11 @@ object RecapRenderer {
                 cv.drawText(ch, c.x - ip.measureText(ch) / 2, c.y + cap(ip) / 2, ip)
             }
             cv.drawCircle(c.x, c.y, d / 2 + 9f, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f; color = accent; alpha = 200 })
-            val tx = L + d + 52f
+            val tx = L + d + 48f
             val lab = paint(f.semi, 30f, dim).apply { letterSpacing = 0.08f }
-            val nm = paint(f.bold, 66f, white).apply { letterSpacing = -0.015f }
+            val nm = paint(f.bold, 62f, white).apply { letterSpacing = -0.015f }
             val tm = paint(f.num, 34f, dim)
-            val g1 = 30f; val g2 = 32f
+            val g1 = 26f; val g2 = 28f
             val block = cap(lab) + g1 + cap(nm) + g2 + cap(tm)
             var ty = y + (d - block) / 2 + cap(lab)
             cv.drawText("TOP ARTIST", tx, ty, lab)
@@ -262,34 +262,35 @@ object RecapRenderer {
             cv.drawText(fit(nm, a.name, R - tx), tx, ty, nm)
             ty += g2 + cap(tm)
             cv.drawText(hm(a.minutes.toInt()), tx, ty, tm)
-            y += d + 120f
+            y += d + 92f
         }
 
         // footer, pinned to the bottom margin
         val footP = paint(f.med, 32f, dim)
-        val foot = listOfNotNull(r.moodLine.ifEmpty { null }, if (r.goalStreak.toInt() > 0) "${r.goalStreak}-day goal streak" else null).joinToString("   ·   ")
+        val foot = listOfNotNull(r.moodLine.ifEmpty { null }, if (r.goalStreak.toInt() > 0) "${r.goalStreak}-day goal streak" else null)
+            .joinToString("   ·   ").ifEmpty { "Fills in as you listen" }
         val footBase = H - BOTTOM
-        val songsBottom = if (foot.isNotEmpty()) footBase - cap(footP) - 80f else H - BOTTOM
+        val songsBottom = if (foot.isNotEmpty()) footBase - cap(footP) - 64f else H - BOTTOM
         if (foot.isNotEmpty()) cv.drawText(fit(footP, foot, R - L), L, footBase, footP)
 
         // top songs: as many rows as fit (max 5), titles ellipsized before the play count
         val songs = mergeSameSongs(r.topTracks)
         if (songs.isNotEmpty()) {
             val lab = paint(f.semi, 30f, dim).apply { letterSpacing = 0.08f }
-            val tP = paint(f.bold, 50f, white).apply { letterSpacing = -0.01f }
-            val aP = paint(f.med, 33f, dim)
+            val tP = paint(f.bold, 48f, white).apply { letterSpacing = -0.01f }
+            val aP = paint(f.med, 32f, dim)
             val rankP = paint(f.num, 38f, faint)
             val rank1 = paint(f.num, 38f, accent)
             val cntP = paint(f.num, 36f, dim)
             val rankCol = 76f
-            val tToA = 28f // title baseline -> artist cap top (clears descenders)
+            val tToA = 24f // title baseline -> artist cap top (clears descenders)
             val rowH = cap(tP) + tToA + cap(aP) + aP.fontMetrics.descent
-            val rowGap = 44f
-            val labH = cap(lab) + 48f
+            val rowGap = 34f
+            val labH = cap(lab) + 42f
             if (y + labH + rowH <= songsBottom) {
                 y += cap(lab)
                 cv.drawText("TOP SONGS", L, y, lab)
-                y += 48f
+                y += 42f
                 val room = songsBottom - y
                 val n = minOf(MAX_SONGS, songs.size, ((room + rowGap) / (rowH + rowGap)).toInt())
                 val shown = songs.take(n)
