@@ -62,6 +62,9 @@ class Prefs(ctx: Context) {
     val searchQuery = str("search_query", "")
     val statsRange = str("stats_range", "month")
     val isaLength = int("isa_length", 0)
+    /** Isa takeover: the typed draft and when Isa was last used (kept 10 min; "last_" keys are not logged). */
+    val lastIsaDraft = str("last_isa_draft", "")
+    val lastIsaAt = long("last_isa_at", 0L)
     val npLyrics = bool("np_lyrics", false)
     val queueTab = int("queue_tab", 0)
 }

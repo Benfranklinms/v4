@@ -154,6 +154,7 @@ internal fun PlaylistMenu(s: AppState, p: Playlist) {
             }
         }
         Spacer(Modifier.height(6.dp))
+        dev.benfranklin.itune.data.Recents.register(p.title, dev.benfranklin.itune.data.Recents.Origin(if (p.id == "liked") "liked" else "playlist", p.id, p.title, p.subtitle, p.thumb))
         MenuRow(Icons.Rounded.PlayArrow, "Play", 0) { s.sheet = null; withTracks { Playback.play(ctx, it, 0, p.title) } }
         MenuRow(Icons.Rounded.Shuffle, "Shuffle", 1) { s.sheet = null; withTracks { Playback.playShuffled(ctx, it, p.title) } }
         MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue", 2) {
@@ -211,6 +212,7 @@ internal fun AlbumMenu(s: AppState, a: Album) {
             }
         }
         Spacer(Modifier.height(6.dp))
+        dev.benfranklin.itune.data.Recents.register(a.title, dev.benfranklin.itune.data.Recents.Origin("album", a.id, a.title, a.artists, a.thumb))
         MenuRow(Icons.Rounded.PlayArrow, "Play", 0) { s.sheet = null; withTracks { Playback.play(ctx, it, 0, a.title) } }
         MenuRow(Icons.Rounded.Shuffle, "Shuffle", 1) { s.sheet = null; withTracks { Playback.playShuffled(ctx, it, a.title) } }
         MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue", 2) { s.sheet = null; withTracks { l -> l.forEach { Playback.addToQueue(ctx, it) }; s.toast("Added to queue") } }
@@ -351,7 +353,7 @@ internal fun AccountSheet(s: AppState) {
         lastfm?.takeIf { it.available }?.let { l ->
             MenuRow(Icons.Rounded.Person, if (l.username.isNotEmpty()) "Last.fm · ${l.username}" else "Connect Last.fm", 2) { s.sheet = null; s.push(Dest.Settings) }
         }
-        MenuRow(Icons.Rounded.Settings, "Settings", 3) { s.sheet = null; s.push(Dest.Settings) }
+        MenuRow(Icons.Rounded.Settings, "Settings", 3, tag = "acct_settings") { s.sheet = null; s.push(Dest.Settings) }
         if (signedIn) {
             MenuRow(Icons.Rounded.Login, "Switch account", 4) {
                 s.sheet = null

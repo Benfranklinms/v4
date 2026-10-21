@@ -177,7 +177,9 @@ tab() {
   scroll_up; scroll_up
   id "tab_$1"
 }
-home_tab() { tab Home; local i; for i in 1 2 3 4 5 6; do scroll_up; dump; find_node resource-id home_settings >/dev/null && break; done; }
+home_tab() { tab Home; local i; for i in 1 2 3 4 5 6; do scroll_up; dump; find_node resource-id home_avatar >/dev/null && break; done; }
+# Settings lives in the avatar menu since 0.2.9
+open_settings() { id home_avatar; id acct_settings; }
 # scroll a page to the top, then down until <resource-id> is on screen
 seek_id() { local i; for i in 1 2 3 4 5; do scroll_up; done; for i in 1 2 3 4 5 6 7 8; do dump; find_node resource-id "$1" >/dev/null && return 0; scroll_down; done; return 1; }
 # a text in the middle band of the screen (proves a list position), skipping the sheet if one is up
@@ -280,7 +282,7 @@ fi
 # ---------------------------------------------------------------- Home
 log "== Home"
 wait_for resource-id home_list 20 || { log "home_list missing"; FAILS=$((FAILS + 1)); }
-shot home
+shot home-top
 SHELVES=0
 for i in $(seq 1 25); do
   dump
@@ -298,36 +300,82 @@ for _ in 1 2 3 4 5 6; do adb shell input swipe $(px 50) $(py 18) $(px 50) $(py 6
 gfx home
 [ $SHELVES = 1 ] || log "WARN: no home shelves seen (emulator network?)"
 shot home-scrolled
-for _ in 1 2 3 4 5 6 7 8; do scroll_up; dump; find_node resource-id isa_length >/dev/null && break; done
+for _ in 1 2 3 4 5 6 7 8; do scroll_up; dump; find_node resource-id home_avatar >/dev/null && break; done
 
-# ---------------------------------------------------------------- Isa command card
+# ---------------------------------------------------------------- Isa takeover (0.2.9: centre nav orb -> full-screen glass)
 log "== Isa"
+isa_open() { find_node resource-id isa_takeover >/dev/null; }
+dump
+find_node resource-id isa_card >/dev/null && { log "MISSING (required): old Isa card still on Home"; FAILS=$((FAILS + 1)); }
+find_node resource-id isa_line >/dev/null && { log "MISSING (required): Isa subtitle line still on Home"; FAILS=$((FAILS + 1)); }
+find_node resource-id mood_Focus >/dev/null && { log "MISSING (required): mood chips still on Home"; FAILS=$((FAILS + 1)); }
+find_node resource-id home_settings >/dev/null && { log "MISSING (required): Settings gear still in the Home top bar"; FAILS=$((FAILS + 1)); }
+find_node resource-id nav_isa >/dev/null && log "nav orb present" || { log "MISSING (required): nav Isa orb"; FAILS=$((FAILS + 1)); }
+id nav_isa
+if wait_for resource-id isa_takeover 8; then log "isa takeover opened from the nav orb"; else log "MISSING (required): Isa takeover did not open"; FAILS=$((FAILS + 1)); fi
+wait_for resource-id isa_input 4 && log "nav pill -> Ask Isa input ok" || { log "MISSING (required): isa_input"; FAILS=$((FAILS + 1)); }
+for m in Focus Drive Rain Hype; do find_node resource-id "mood_$m" >/dev/null || { log "MISSING (required): mood tile $m in the takeover"; FAILS=$((FAILS + 1)); }; done
+shot isa-takeover
 id isa_length; id isa_length; id isa_length; id isa_length
 id isa_field
 type_text "focus music"
-hide_kb
-if [ "${SMOKE_CI:-0}" = 1 ]; then
-  # CI only: the software-GPU emulator died right after the send animation several runs in a row, and Isa
-  # needs network the runner's IP can't use anyway. Field + chips are still checked; phones run the full flow.
-  log "Isa send skipped on the CI emulator"
-  ISA_SENT=0
-else
-  id isa_send; ISA_SENT=1
-fi
-if [ $ISA_SENT = 1 ] && wait_for resource-id isa_preview 45; then
+if wait_for resource-id isa_send 5; then log "send button appeared while typing"; else log "MISSING (required): isa_send while typing"; FAILS=$((FAILS + 1)); fi
+shot isa-typing
+timeout 10 adb logcat -c >/dev/null 2>&1
+id isa_send
+if wait_for resource-id isa_preview 60; then
   shot isa-preview
   id isa_play
-  sleep 4
-  id isa_save 0
-elif [ $ISA_SENT = 1 ]; then
+  sleep 3
   dump
-  if find_node resource-id isa_retry >/dev/null; then log "isa error state shown"; id isa_retry 0; shot isa-error; else log "WARN: isa produced neither preview nor error"; fi
+  if isa_open; then log "MISSING (required): takeover still open after Play"; FAILS=$((FAILS + 1)); shot missing-isa-collapse
+  elif find_node resource-id mini_player >/dev/null; then log "Play collapsed the takeover into the mini player"
+  else log "MISSING (required): no mini player after Isa Play"; FAILS=$((FAILS + 1)); shot missing-isa-mini; fi
+  timeout 10 adb logcat -d -s itune-isa:I itune-recents:I 2>/dev/null | tail -n 4 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+else
+  dump
+  if find_node resource-id isa_retry >/dev/null; then log "MISSING (required): Isa returned the error state (no preview)"; shot isa-error
+  else log "MISSING (required): Isa produced neither preview nor error"; fi
+  FAILS=$((FAILS + 1))
+  timeout 10 adb logcat -d -s itune-isa:I 2>/dev/null | tail -n 4 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+  isa_open && { id isa_close 0; sleep 1; }
 fi
-id isa_clear 0
-[ "${SMOKE_CI:-0}" = 1 ] || { id mood_Focus; sleep 3; }
-shot isa-mood
-id isa_clear 0
-id isa_mic 0 && back
+# dismiss with Back (reverses into the orb); the draft / result are kept for the next open
+id nav_isa
+if wait_for resource-id isa_takeover 6; then
+  # FOR YOU: tap the first idea card -> a queue preview comes back
+  id isa_clear 0
+  for _ in 1 2 3 4; do dump; find_node resource-id isa_foryou_0 >/dev/null && break; scroll_down; done
+  find_node resource-id isa_shuffle_ideas >/dev/null && shot isa-foryou
+  if id isa_foryou_0; then
+    if wait_for resource-id isa_preview 60; then log "FOR YOU card -> preview ok"; shot isa-foryou-preview
+    else log "MISSING (required): no preview after the FOR YOU card"; FAILS=$((FAILS + 1)); shot missing-foryou-preview; fi
+  fi
+  timeout 10 adb logcat -d -s itune-isa:I 2>/dev/null | grep ideas | tail -n 1 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+  back; sleep 1; dump
+  if isa_open; then log "MISSING (required): Back did not close the Isa takeover"; FAILS=$((FAILS + 1)); back
+  else log "Back closed the Isa takeover"; fi
+  find_node resource-id home_list >/dev/null && log "Home kept under the takeover" || { log "MISSING (required): Home after closing Isa"; FAILS=$((FAILS + 1)); }
+else log "MISSING (required): takeover did not reopen"; FAILS=$((FAILS + 1)); fi
+
+# ---------------------------------------------------------------- Home recently-played grid (2x3)
+log "== Recent grid"
+home_tab
+if wait_for resource-id recent_grid 10; then
+  N=$(python3 -c "import sys,re;print(open(sys.argv[1]).read().count('recent_tile\"'))" "$O/ui.xml")
+  log "recent grid tiles: $N; first: '$(texts_of recent_tile_title | head -1)'"
+  shot home-rest
+  id recent_tile
+  sleep 2; dump
+  if find_node resource-id home_list >/dev/null && ! find_node resource-id track_row >/dev/null; then
+    # a song tile plays instead of opening a page
+    find_node resource-id mini_player >/dev/null && log "recent tile played a song" || { log "MISSING (required): first recent tile did nothing"; FAILS=$((FAILS + 1)); shot missing-recent-tile; }
+  else
+    log "first recent tile opened its page"; shot recent-open; back
+  fi
+else
+  log "MISSING (required): recent grid not shown after playing"; FAILS=$((FAILS + 1)); shot missing-recent-grid
+fi
 
 # ---------------------------------------------------------------- Library: create playlist
 log "== Library / playlists"
@@ -959,7 +1007,7 @@ id filter_All 0
 # ---------------------------------------------------------------- downloads + import
 log "== Downloads / Import"
 home_tab
-id home_settings
+open_settings
 for _ in 1 2 3 4 5 6 7 8; do dump; find_node resource-id "srow_Downloads" >/dev/null && break; scroll_down; done
 id "srow_Downloads"
 shot downloads
@@ -1086,7 +1134,7 @@ home_tab
 id home_avatar
 shot account
 back
-id home_settings
+open_settings
 shot settings
 log "== Glass see-through (Settings)"
 glass_check settings
@@ -1102,7 +1150,7 @@ back
 log "== Options + place kept across a kill"
 timeout 10 adb logcat -c >/dev/null 2>&1
 tab Stats; id range_week 0
-home_tab; id home_settings
+home_tab; open_settings
 seek_id toggle_haptics; id toggle_haptics 0
 seek_id "srow_Theme, text and fonts"
 if id "srow_Theme, text and fonts" 0; then
@@ -1139,7 +1187,7 @@ shot options-kept
 # put the visual options back for the remaining screenshots
 for _ in 1 2 3; do scroll_up; done
 id lib_Playlists 0
-home_tab; id home_settings
+home_tab; open_settings
 seek_id toggle_haptics; id toggle_haptics 0
 seek_id "srow_Theme, text and fonts"
 if id "srow_Theme, text and fonts" 0; then
@@ -1150,7 +1198,7 @@ back
 # ---------------------------------------------------------------- name + font scale 1.3 audit
 log "== Name / font scale"
 home_tab
-id home_settings
+open_settings
 for _ in 1 2 3; do scroll_up; done
 if id call_name_field 0; then
   clear_field; type_text "Smokey"
@@ -1162,12 +1210,12 @@ if id call_name_field 0; then
   hide_kb; back
   home_tab
   wait_for text "Smokey" 6 contains && log "greeting uses call name" || { log "MISSING (required): greeting with call name"; FAILS=$((FAILS + 1)); }
-  id home_settings; for _ in 1 2 3; do scroll_up; done; id call_name_field; clear_field; hide_kb; back
+  open_settings; for _ in 1 2 3; do scroll_up; done; id call_name_field; clear_field; hide_kb; back
 fi
 home_tab
 timeout 10 adb shell settings put system font_scale 1.3; sleep 3
 id home_avatar; shot account-font130; back
-id home_settings; shot settings-font130
+open_settings; shot settings-font130
 for _ in 1 2 3 4; do dump; find_node resource-id "srow_Theme, text and fonts" >/dev/null && break; scroll_down; done
 id "srow_Theme, text and fonts" 0 && { shot appearance-font130; id "srow_See all themes" 0 && shot appearance-all; back; }
 back

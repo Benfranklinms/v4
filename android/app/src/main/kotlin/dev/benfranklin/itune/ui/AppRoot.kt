@@ -152,7 +152,7 @@ fun AppRoot(s: AppState) {
         val key: Any = s.stack.lastOrNull() ?: s.tab
         LaunchedEffect(key) { chrome.reset() }
         LaunchedEffect(s.nowPlaying) { if (!s.nowPlaying) chrome.show() }
-        BackHandler(enabled = s.sheet != null || s.nowPlaying || s.stack.isNotEmpty()) {
+        BackHandler(enabled = !s.isaOpen && (s.sheet != null || s.nowPlaying || s.stack.isNotEmpty())) {
             // one level per Back: the top sheet only, then Now Playing, then the page
             when {
                 s.sheet != null -> s.closeSheet()
@@ -190,6 +190,8 @@ fun AppRoot(s: AppState) {
                             TopGlassBar(s, chrome)
                             OfflineBanner()
                             PlayerLayer(s, chrome, this@SharedTransitionLayout)
+                            // Isa full-screen glass takeover (nav orb); above the chrome, below sheets + toasts
+                            IsaTakeover(s)
                         }
                         androidx.compose.runtime.CompositionLocalProvider(dev.benfranklin.itune.ui.components.LocalSheetHaze provides sheetHaze) { SheetHost(s) }
                         Toast(s, chrome)
@@ -306,7 +308,8 @@ private fun TopGlassBar(s: AppState, chrome: ChromeState) {
             PulseMark(Modifier.size(20.dp))
             Text(s.tab.label, style = T.ui(16.sp, FontWeight.Bold, ChromeOn).copy(shadow = ChromeTextShadow), modifier = Modifier.padding(start = 10.dp).weight(1f))
             if (s.tab != Tab.Search) Icon(Icons.Rounded.Search, "Search", tint = ChromeOn, modifier = Modifier.size(40.dp).padding(10.dp).press { s.select(Tab.Search) })
-            Icon(Icons.Rounded.Settings, "Settings", tint = ChromeOn, modifier = Modifier.size(40.dp).padding(10.dp).press { s.push(Dest.Settings) })
+            // Home: Settings lives in the avatar menu
+            if (s.tab != Tab.Home) Icon(Icons.Rounded.Settings, "Settings", tint = ChromeOn, modifier = Modifier.size(40.dp).padding(10.dp).press { s.push(Dest.Settings) })
             Box(Modifier.padding(start = 4.dp).size(30.dp).glass(CircleShape, dark = 0.5f, sheen = 0.1f).press { s.sheet = Sheet.Account }, contentAlignment = Alignment.Center) {
                 val av = account?.avatar
                 if (!av.isNullOrEmpty()) Artwork(av, 30.dp, circle = true)
@@ -339,11 +342,12 @@ private fun PlayerLayer(s: AppState, chrome: ChromeState, shared: SharedTransiti
                     visible = current != null,
                     enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = 380f)) { it * 2 } + fadeIn(),
                     exit = slideOutVertically { it * 2 } + fadeOut(),
-                    modifier = Modifier.padding(bottom = (NAV_H + 10).dp).graphicsLayer { translationY = with(density) { (NAV_H + 10).dp.toPx() } * hide.value },
+                    modifier = Modifier.padding(bottom = (NAV_H + 10).dp).graphicsLayer { translationY = with(density) { (NAV_H + 10).dp.toPx() } * hide.value; alpha = 1f - s.isaAnim.value },
                 ) {
                     MiniPlayer(s, shared, this@AnimatedContent)
                 }
-                BottomNav(s, Modifier.graphicsLayer { translationY = with(density) { (NAV_H + 24).dp.toPx() + nav.toPx() } * hide.value; alpha = 1f - hide.value * 0.6f })
+                // the nav pill hands over to the Isa input while the takeover is open (same place, same glass)
+                BottomNav(s, Modifier.graphicsLayer { translationY = with(density) { (NAV_H + 24).dp.toPx() + nav.toPx() } * hide.value; alpha = (1f - hide.value * 0.6f) * (1f - s.isaAnim.value) })
             }
         }
     }
@@ -430,13 +434,15 @@ private fun BottomNav(s: AppState, modifier: Modifier = Modifier) {
     val c = LocalColors.current
     val reduce = LocalReduceMotion.current
     val idx = if (s.stack.isEmpty()) s.tab.ordinal else -1
-    val lens = animateFloatAsState(if (idx < 0) s.tab.ordinal.toFloat() else idx.toFloat(), glassSpring(reduce), label = "lens")
+    // 5 cells: Home, Search, [Isa orb], Library, Stats
+    fun slot(o: Int) = if (o >= 2) o + 1 else o
+    val lens = animateFloatAsState(slot(if (idx < 0) s.tab.ordinal else idx).toFloat(), glassSpring(reduce), label = "lens")
     val lensA = animateFloatAsState(if (idx < 0) 0.45f else 1f, glassSpring(reduce), label = "lensA")
     BoxWithConstraints(
         modifier.padding(horizontal = EDGE.dp).fillMaxWidth().height(NAV_H.dp)
             .chromeGlass(RoundedCornerShape(32.dp)).testTag("bottom_nav"),
     ) {
-        val cell = (maxWidth - 12.dp) / Tab.entries.size
+        val cell = (maxWidth - 12.dp) / (Tab.entries.size + 1)
         // the selected tab is a brighter glass lens that slides between tabs
         Box(
             Modifier.padding(start = 8.dp, top = 6.dp, bottom = 6.dp).width(cell - 4.dp).fillMaxHeight()
@@ -446,6 +452,7 @@ private fun BottomNav(s: AppState, modifier: Modifier = Modifier) {
         )
         Row(Modifier.fillMaxSize().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Tab.entries.forEach { t ->
+                if (t.ordinal == 2) NavIsaOrb(s, Modifier.weight(1f).fillMaxHeight())
                 val on = idx == t.ordinal
                 val icon = when (t) {
                     Tab.Home -> Icons.Rounded.Home

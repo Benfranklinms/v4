@@ -299,6 +299,8 @@ object Playback {
 
     private fun play(ctx: Context, list: List<Track>, index: Int, source: String, startMs: Long) = ensure(ctx) {
         if (player == null || list.isEmpty()) return@ensure
+        // Home › recently played grid (in-memory + IO persistence; never blocks this thread)
+        runCatching { dev.benfranklin.itune.data.Recents.onPlay(source, list) }
         finishPlay(false)
         // optimistic: the mini player shows the tapped song right away
         list.getOrNull(index)?.let { _current.value = it }

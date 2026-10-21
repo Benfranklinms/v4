@@ -126,14 +126,16 @@ fun HomeScreen(s: AppState) {
     val list = dev.benfranklin.itune.data.rememberPersistentListState("home", feed != null)
     LazyColumn(Modifier.fillMaxSize().testTag("home_list"), state = list, contentPadding = PaddingValues(bottom = dev.benfranklin.itune.ui.components.bottomInset())) {
         item(key = "hdr") {
+            // logo + avatar; Settings lives in the avatar menu (Account sheet)
             Row(Modifier.statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 14.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 PulseMark(Modifier.size(22.dp))
                 Text("iTune", style = T.ui(17.sp, FontWeight.Bold), modifier = Modifier.padding(start = 9.dp).weight(1f))
-                Icon(Icons.Rounded.Settings, "Settings", tint = c.t2, modifier = Modifier.size(40.dp).press { s.push(Dest.Settings) }.padding(10.dp).testTag("home_settings"))
-                Box(Modifier.padding(start = 4.dp).size(32.dp).press { s.sheet = Sheet.Account }.glass(CircleShape, dark = 0.5f, sheen = 0.1f).testTag("home_avatar"), contentAlignment = Alignment.Center) {
-                    val av = account?.avatar
-                    if (!av.isNullOrEmpty()) Artwork(av, 30.dp, circle = true)
-                    else Text(name.take(1).uppercase(), style = T.ui(13.sp, FontWeight.Bold))
+                Box(Modifier.size(40.dp).press { s.sheet = Sheet.Account }.testTag("home_avatar"), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(34.dp).glass(CircleShape, dark = 0.5f, sheen = 0.1f), contentAlignment = Alignment.Center) {
+                        val av = account?.avatar
+                        if (!av.isNullOrEmpty()) Artwork(av, 32.dp, circle = true)
+                        else Text(name.take(1).uppercase(), style = T.ui(14.sp, FontWeight.Bold))
+                    }
                 }
             }
         }
@@ -141,10 +143,10 @@ fun HomeScreen(s: AppState) {
             val greet = feed?.greeting ?: "Hello"
             RiseText("$greet, $name", T.ui(22.sp, FontWeight.Bold), Modifier.padding(start = 16.dp, top = 24.dp, end = 16.dp))
         }
-        item(key = "isa") { IsaCommandCard(s, Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp)) }
+        item(key = "recent6") { RecentGrid(s, Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp)) }
         resume?.let { r ->
             item(key = "resume") {
-                Spacer(Modifier.height(36.dp))
+                Spacer(Modifier.height(30.dp))
                 SectionTitle("Continue listening")
                 Row(
                     Modifier.padding(horizontal = 16.dp, vertical = 12.dp).fillMaxWidth().glass(RoundedCornerShape(20.dp), dark = 0.42f)
@@ -188,7 +190,7 @@ fun HomeScreen(s: AppState) {
             }
         } else {
             if (f.recent.isNotEmpty()) {
-                item(key = "recentT") { Spacer(Modifier.height(44.dp)); SectionTitle("Recently played") }
+                item(key = "recentT") { Spacer(Modifier.height(44.dp)); SectionTitle("Recent songs") }
                 item(key = "recent") {
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
                         itemsIndexed(f.recent.take(12), key = { i, t -> "r$i${t.id}" }) { i, t ->

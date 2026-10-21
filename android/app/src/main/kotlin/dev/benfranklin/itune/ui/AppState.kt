@@ -102,6 +102,29 @@ class AppState {
     var forward by mutableStateOf(true)
     var updateNeedsKey by mutableStateOf(false)
 
+    /** Isa full-screen takeover (opened from the nav orb). */
+    var isaOpen by mutableStateOf(false)
+    /** Play / Shuffle closed it: the takeover collapses down into the mini player instead of back into the orb. */
+    var isaToMini by mutableStateOf(false)
+    /** Open progress 0..1 (spring); read it only in draw / graphicsLayer lambdas. */
+    val isaAnim = androidx.compose.animation.core.Animatable(0f)
+    /** Centre of the nav orb in root px (ripple origin); read in draw only. */
+    var isaOrigin = androidx.compose.ui.geometry.Offset.Unspecified
+
+    fun openIsa() {
+        isaToMini = false
+        nowPlaying = false
+        isaOpen = true
+        android.util.Log.i("itune-isa", "open")
+    }
+
+    fun closeIsa(toMini: Boolean = false) {
+        if (!isaOpen) return
+        isaToMini = toMini
+        isaOpen = false
+        android.util.Log.i("itune-isa", "close toMini=$toMini")
+    }
+
     fun push(d: Dest) {
         forward = true
         nowPlaying = false

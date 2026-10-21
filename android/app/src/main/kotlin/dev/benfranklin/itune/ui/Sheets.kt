@@ -225,9 +225,9 @@ private fun nameSheetTint(sheet: Sheet?): Color? {
 }
 
 @Composable
-internal fun MenuRow(icon: ImageVector, label: String, i: Int, onClick: () -> Unit) {
+internal fun MenuRow(icon: ImageVector, label: String, i: Int, tag: String? = null, onClick: () -> Unit) {
     val c = LocalColors.current
-    Row(Modifier.fillMaxWidth().enter(i, 25).press(scaleTo = 0.98f, onClick = onClick).padding(horizontal = 24.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().enter(i, 25).press(scaleTo = 0.98f, onClick = onClick).then(if (tag != null) Modifier.testTag(tag) else Modifier).padding(horizontal = 24.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = c.txt, modifier = Modifier.size(20.dp))
         Text(label, style = T.ui(15.sp, FontWeight.SemiBold), maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 18.dp))
     }

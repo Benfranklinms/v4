@@ -153,10 +153,13 @@ fun TrackListPage(
     onNearEnd: (() -> Unit)? = null,
     loadingMore: Boolean = false,
     searchable: Boolean = true,
+    /** What this page is, for Home › recently played (plays with [source] are recorded as it). */
+    origin: dev.benfranklin.itune.data.Recents.Origin? = null,
     extra: LazyListScope.() -> Unit = {},
 ) {
     val c = LocalColors.current
     val ctx = LocalContext.current
+    if (origin != null) androidx.compose.runtime.SideEffect { dev.benfranklin.itune.data.Recents.register(source, origin) }
     val list = rememberLazyListState()
     val reduce = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
@@ -340,6 +343,7 @@ fun AlbumScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek? = 
         if (a != null) listOfNotNull(a.artists, a.year?.toString(), a.kind).joinToString(" · ") else peek?.subtitle ?: "",
         a?.thumb ?: peek?.art ?: "", page?.tracks, a?.title ?: peek?.title ?: "Album",
         albumMode = true,
+        origin = (a?.title ?: peek?.title)?.let { t -> dev.benfranklin.itune.data.Recents.Origin("album", id, t, a?.artists ?: peek?.subtitle ?: "", a?.thumb ?: peek?.art ?: "") },
         actions = {
             SaveButton(saved) {
                 val al = a ?: return@SaveButton
@@ -413,6 +417,7 @@ fun PlaylistScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek?
         if (p != null) dev.benfranklin.itune.ui.components.withSongs(p.subtitle, page?.tracks?.size) else peek?.subtitle ?: "",
         p?.thumb ?: peek?.art ?: "", page?.tracks, p?.title ?: peek?.title ?: "Playlist",
         playlistId = if (local && id != "liked") id else null,
+        origin = (p?.title ?: peek?.title)?.let { t -> dev.benfranklin.itune.data.Recents.Origin(if (id == "liked") "liked" else "playlist", id, if (id == "liked") "Liked Songs" else t, p?.subtitle ?: peek?.subtitle ?: "", p?.thumb ?: peek?.art ?: "") },
         onNearEnd = if (hasMore) ({ loadMore() }) else null,
         loadingMore = loadingMore,
         actions = {
@@ -435,7 +440,8 @@ fun PlaylistScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek?
 
 @Composable
 fun MixScreen(s: AppState, title: String, tracks: List<Track>) {
-    TrackListPage(s, title, tracks.map { it.artists.split(",")[0] }.distinct().take(4).joinToString(", "), tracks.firstOrNull()?.thumb ?: "", tracks, title)
+    val sub = tracks.map { it.artists.split(",")[0] }.distinct().take(4).joinToString(", ")
+    TrackListPage(s, title, sub, tracks.firstOrNull()?.thumb ?: "", tracks, title, origin = dev.benfranklin.itune.data.Recents.Origin(if (title.endsWith(" radio")) "radio" else "mix", title, title, sub, tracks.firstOrNull()?.thumb ?: ""))
 }
 
 @Composable
