@@ -807,7 +807,7 @@ struct RecapCard: View {
         let fRow = Self.fm("Manrope", 16, .bold), fArt = Self.fm("Manrope", 10.7, .medium), fFoot = Self.fm("Manrope", 10.7, .medium)
         let fName = Self.fm("Manrope", 21, .bold), fMono = Self.fm("JetBrains Mono", 11.3, .regular)
         // rows, Android numbers / 3: title cap + 8 + artist cap + artist descent, 11 pt apart; label cap + 14 above them
-        let rowH = fRow.cap + 8 + fArt.cap - fArt.desc, rowGap: CGFloat = 11.3
+        let rowH = fRow.cap + 8 + fArt.cap - fArt.desc, rowGap: CGFloat = 10
         let labH = fLab.cap + 14
         ZStack(alignment: .topLeading) {
             RecapBackdrop(art: art)
@@ -850,7 +850,7 @@ struct RecapCard: View {
                     }.padding(.top, 33)
                 }
                 GeometryReader { g in
-                    let n = songs.isEmpty ? 0 : max(0, min(songs.count, Int((g.size.height - labH + rowGap) / (rowH + rowGap))))
+                    let n = songs.isEmpty ? 0 : max(0, min(songs.count, Int((g.size.height - labH + rowGap + 0.5) / (rowH + rowGap))))
                     if n > 0 {
                         VStack(alignment: .leading, spacing: 0) {
                             Text("TOP SONGS").font(ui(10, .semibold)).tracking(0.8).foregroundStyle(dim)
@@ -872,7 +872,7 @@ struct RecapCard: View {
                             }
                         }
                     }
-                }.padding(.top, 31)
+                }.padding(.top, 27)
                 Text(footer).font(ui(10.7, .medium)).foregroundStyle(dim).lineLimit(1).truncationMode(.tail)
                     .padding(.top, 21 - fFoot.top).padding(.bottom, -fFoot.bottom)
             }

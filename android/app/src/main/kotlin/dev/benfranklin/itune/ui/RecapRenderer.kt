@@ -262,7 +262,7 @@ object RecapRenderer {
             cv.drawText(fit(nm, a.name, R - tx), tx, ty, nm)
             ty += g2 + cap(tm)
             cv.drawText(hm(a.minutes.toInt()), tx, ty, tm)
-            y += d + 92f
+            y += d + 80f
         }
 
         // footer, pinned to the bottom margin
@@ -285,14 +285,14 @@ object RecapRenderer {
             val rankCol = 76f
             val tToA = 24f // title baseline -> artist cap top (clears descenders)
             val rowH = cap(tP) + tToA + cap(aP) + aP.fontMetrics.descent
-            val rowGap = 34f
+            val rowGap = 30f
             val labH = cap(lab) + 42f
             if (y + labH + rowH <= songsBottom) {
                 y += cap(lab)
                 cv.drawText("TOP SONGS", L, y, lab)
                 y += 42f
                 val room = songsBottom - y
-                val n = minOf(MAX_SONGS, songs.size, ((room + rowGap) / (rowH + rowGap)).toInt())
+                val n = minOf(MAX_SONGS, songs.size, ((room + rowGap + 0.5f) / (rowH + rowGap)).toInt())
                 val shown = songs.take(n)
                 val cntW = shown.maxOfOrNull { cntP.measureText("${it.plays}×") } ?: 0f
                 shown.forEachIndexed { i, t ->
