@@ -67,6 +67,7 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions { unitTests.isIncludeAndroidResources = true }
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/versions/9/OSGI-INF/MANIFEST.MF", "META-INF/DEPENDENCIES")
         jniLibs.useLegacyPackaging = false
@@ -106,6 +107,13 @@ dependencies {
     implementation(libs.haze)
     coreLibraryDesugaring(libs.desugar)
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.14.1")
+}
+
+// Recap card PNGs (Robolectric, native graphics): only when RECAP_PNG is set (CI "Recap cards" step).
+tasks.withType<Test>().configureEach {
+    if (System.getenv("RECAP_PNG").isNullOrEmpty()) exclude("**/RecapRenderTest*")
+    else systemProperty("recap.out", System.getenv("RECAP_PNG"))
 }
 
 // The glass guard (live blur on real phones, legible album-tinted chrome) runs with every release build.

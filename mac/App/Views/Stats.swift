@@ -708,78 +708,187 @@ private struct DayPlaysSheet: View {
 
 // MARK: Recap
 
-/// The 9:16 story card (also rendered to PNG for Save / Copy).
+/// Same title (trimmed, case-insensitive) by the same main artist = one row. The core already merges; this
+/// keeps the card right for any list.
+func recapMergeSameSongs(_ list: [TrackStat]) -> [TrackStat] {
+    var order: [String] = []
+    var m: [String: TrackStat] = [:]
+    for t in list {
+        let title = t.track.title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased()
+        let artist = (t.track.artists.split(whereSeparator: { $0 == "," || $0 == "&" }).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? "").lowercased()
+        let k = title.isEmpty ? "id:" + t.track.id : title + "\u{1f}" + artist
+        if var p = m[k] { p.plays += t.plays; p.minutes += t.minutes; m[k] = p } else { m[k] = t; order.append(k) }
+    }
+    return order.compactMap { m[$0] }.enumerated().sorted { a, b in
+        if a.element.plays != b.element.plays { return a.element.plays > b.element.plays }
+        if a.element.minutes != b.element.minutes { return a.element.minutes > b.element.minutes }
+        return a.offset < b.offset
+    }.map { $0.element }
+}
+
+private let recapBase = Color(.sRGB, red: 9 / 255, green: 9 / 255, blue: 10 / 255, opacity: 1)
+
+/// Dark base, a soft low-saturation glow of the top artist's art, vignette and fine grain. No hard edges.
+private struct RecapBackdrop: View {
+    let art: NSImage?
+    var body: some View {
+        ZStack {
+            recapBase
+            if let a = art {
+                Image(nsImage: a).resizable().aspectRatio(contentMode: .fill).frame(width: 560, height: 560).clipped()
+                    .saturation(0.25).blur(radius: 60, opaque: false).opacity(0.7)
+                    .mask(RadialGradient(stops: [.init(color: .black, location: 0), .init(color: .black.opacity(0.6), location: 0.38), .init(color: .black.opacity(0.15), location: 0.72), .init(color: .clear, location: 1)], center: .center, startRadius: 0, endRadius: 280))
+                    .position(x: 252, y: 128)
+            } else {
+                RadialGradient(colors: [.white.opacity(0.12), .clear], center: UnitPoint(x: 0.7, y: 0.2), startRadius: 0, endRadius: 340)
+            }
+            LinearGradient(stops: [.init(color: .clear, location: 0.3), .init(color: recapBase.opacity(0.6), location: 1)], startPoint: .top, endPoint: .bottom)
+            RadialGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.55), .init(color: .black.opacity(0.6), location: 1)], center: UnitPoint(x: 0.5, y: 0.42), startRadius: 0, endRadius: 500)
+            Canvas { ctx, size in
+                var seed: UInt64 = 29
+                func next() -> Double { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Double(seed >> 33) / Double(1 << 31) }
+                for _ in 0..<9000 {
+                    let x = next() * size.width, y = next() * size.height, v = next()
+                    ctx.fill(Path(CGRect(x: x, y: y, width: 0.34, height: 0.34)), with: .color(Color(white: v).opacity(0.10)))
+                }
+            }
+        }
+        .frame(width: RecapCard.W, height: RecapCard.H).clipped()
+    }
+}
+
+/// The 9:16 story card (also rendered to PNG for Save / Copy). 360x640 pt, rendered @3x. 32 pt (= 96 px)
+/// gutters; blocks stack from measured text; the footer sits on the bottom margin and the song list keeps
+/// only the rows that fit above it.
 struct RecapCard: View {
     let r: Recap
     let art: NSImage?
     let accent: Color
+    static let W: CGFloat = 360, H: CGFloat = 640, G: CGFloat = 32
+
+    private func ui(_ s: CGFloat, _ w: Font.Weight) -> Font { .custom("Manrope", size: s).weight(w) }
+    private func num(_ s: CGFloat, _ w: Font.Weight = .regular) -> Font { .custom("JetBrains Mono", size: s).weight(w) }
+
+    /// "96 plays · +12% vs last week": numerals in JetBrains Mono, words in Manrope, one baseline.
+    private func playsLine(white: Color, dim: Color, faint: Color) -> Text {
+        var t = Text("\(r.plays)").font(num(13.3)).foregroundColor(accent)
+        t = t + Text(r.plays == 1 ? " play" : " plays").font(ui(12.7, .medium)).foregroundColor(dim)
+        if let c = r.changePercent {
+            t = t + Text("   ·   ").font(ui(12.7, .medium)).foregroundColor(faint)
+            t = t + Text("\(c >= 0 ? "+" : "−")\(abs(c))%").font(num(13.3)).foregroundColor(dim)
+            t = t + Text(" vs last \(r.range == "month" ? "month" : "week")").font(ui(12.7, .medium)).foregroundColor(dim)
+        }
+        return t
+    }
+    /// Font metrics used to place text by its cap height (as the Android card does), not by its line box.
+    struct FM {
+        let asc, desc, cap, lead: CGFloat
+        var top: CGFloat { asc - cap }          // line-box space above the caps
+        var bottom: CGFloat { -desc + lead }    // line-box space below the baseline
+    }
+    static func fm(_ family: String, _ size: CGFloat, _ w: NSFont.Weight) -> FM {
+        let d = NSFontDescriptor(fontAttributes: [.family: family]).addingAttributes([.traits: [NSFontDescriptor.TraitKey.weight: w.rawValue]])
+        let f = NSFont(descriptor: d, size: size) ?? NSFont.systemFont(ofSize: size, weight: w)
+        return FM(asc: f.ascender, desc: f.descender, cap: f.capHeight, lead: f.leading)
+    }
+
     var body: some View {
-        let white = Color.white, dim = Color.white.opacity(0.7)
+        let white = Color(white: 0.95), dim = Color.white.opacity(0.63), faint = Color.white.opacity(0.4)
+        let songs = Array(recapMergeSameSongs(r.topTracks).prefix(5))
+        let foot = [r.moodLine.isEmpty ? nil : r.moodLine, r.goalStreak > 0 ? "\(r.goalStreak)-day goal streak" : nil].compactMap { $0 }.joined(separator: "   ·   ")
+        let footer = foot.isEmpty ? "Fills in as you listen" : foot
+        let m = Int(r.minutes)
+        let parts: [(String, String)] = m >= 60 ? [("\(m / 60)", "h"), (String(format: "%02d", m % 60), "m")] : [("\(m)", "m")]
+        // the big numerals shrink only when a long total would not fit the 296 pt between the gutters
+        let digitCount = CGFloat(parts.reduce(0) { $0 + $1.0.count })
+        let digitSize = min(83, (Self.W - 2 * Self.G - 64) / max(1, digitCount * 0.6))
+        let fTitle = Self.fm("Manrope", 37, .bold), fDigit = Self.fm("JetBrains Mono", digitSize, .light)
+        let fPlays = Self.fm("Manrope", 12.7, .medium), fLab = Self.fm("Manrope", 10, .semibold)
+        let fRow = Self.fm("Manrope", 16, .bold), fArt = Self.fm("Manrope", 10.7, .medium), fFoot = Self.fm("Manrope", 10.7, .medium)
+        let fName = Self.fm("Manrope", 21, .bold), fMono = Self.fm("JetBrains Mono", 11.3, .regular)
+        // rows, Android numbers / 3: title cap + 8 + artist cap + artist descent, 11 pt apart; label cap + 14 above them
+        let rowH = fRow.cap + 8 + fArt.cap - fArt.desc, rowGap: CGFloat = 10
+        let labH = fLab.cap + 14
         ZStack(alignment: .topLeading) {
-            Color(red: 0.05, green: 0.045, blue: 0.05)
-            if let a = art {
-                Image(nsImage: a).resizable().aspectRatio(contentMode: .fill).frame(width: 360, height: 640).blur(radius: 40).clipped().opacity(0.9)
-            }
-            LinearGradient(colors: [.black.opacity(0.45), .black.opacity(0.65), .black.opacity(0.92)], startPoint: .top, endPoint: .bottom)
+            RecapBackdrop(art: art)
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("iTune").font(.custom("Manrope", size: 13).weight(.bold)).foregroundStyle(dim)
-                    Spacer()
-                    Text(r.periodLabel).font(.custom("Manrope", size: 11.5).weight(.medium)).foregroundStyle(dim)
-                }
-                Text(r.title).font(.custom("Manrope", size: 34).weight(.bold)).foregroundStyle(white).padding(.top, 26)
-                HStack(alignment: .lastTextBaseline, spacing: 3) {
-                    let m = Int(r.minutes)
-                    if m >= 60 {
-                        Text("\(m / 60)").font(.custom("JetBrains Mono", size: 72).weight(.light))
-                        Text("h").font(.custom("Manrope", size: 20).weight(.semibold)).foregroundStyle(dim).padding(.trailing, 10)
-                        Text(String(format: "%02d", m % 60)).font(.custom("JetBrains Mono", size: 72).weight(.light))
-                    } else {
-                        Text("\(m)").font(.custom("JetBrains Mono", size: 72).weight(.light))
+                HStack(spacing: 6) {
+                    PulseMark().foregroundStyle(white).frame(width: 17, height: 17)
+                    Text("iTune").font(ui(12.7, .bold)).foregroundStyle(white)
+                    Spacer(minLength: 12)
+                    Text(r.periodLabel).font(ui(10.7, .medium)).foregroundStyle(dim).lineLimit(1)
+                }.frame(height: 17)
+                Text(r.title).font(ui(37, .bold)).tracking(-0.9).foregroundStyle(white).lineLimit(1).minimumScaleFactor(0.6)
+                    .padding(.top, 31 - fTitle.top).padding(.bottom, -fTitle.bottom)
+                HStack(alignment: .lastTextBaseline, spacing: 0) {
+                    ForEach(Array(parts.enumerated()), id: \.offset) { i, pr in
+                        Text(pr.0).font(num(digitSize, .light)).tracking(-digitSize * 0.04).foregroundStyle(white)
+                        Text(pr.1).font(ui(digitSize * 0.3, .semibold)).foregroundStyle(dim).padding(.leading, 5).padding(.trailing, i < parts.count - 1 ? 15 : 0)
                     }
-                    Text("m").font(.custom("Manrope", size: 20).weight(.semibold)).foregroundStyle(dim)
-                }.foregroundStyle(white).padding(.top, 14)
-                Text(playsLabel(Int(r.plays)) + (r.changePercent.map { " · \($0 >= 0 ? "+" : "")\($0)% vs last \(r.range == "month" ? "month" : "week")" } ?? ""))
-                    .font(.custom("Manrope", size: 13).weight(.medium)).foregroundStyle(accent)
+                }.lineLimit(1).padding(.top, 21 - fDigit.top).padding(.bottom, -fDigit.bottom)
+                playsLine(white: white, dim: dim, faint: faint).lineLimit(1)
+                    .padding(.top, 19 - fPlays.top).padding(.bottom, -fPlays.bottom)
                 if let a = r.topArtist {
                     HStack(spacing: 16) {
-                        Group {
-                            if let i = art { Image(nsImage: i).resizable().aspectRatio(contentMode: .fill) } else { Color.white.opacity(0.1) }
-                        }.frame(width: 76, height: 76).clipShape(Circle()).overlay(Circle().stroke(accent, lineWidth: 2).padding(-3))
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Top artist").font(.custom("Manrope", size: 12).weight(.semibold)).foregroundStyle(dim)
-                            Text(a.name).font(.custom("Manrope", size: 21).weight(.bold)).foregroundStyle(white).lineLimit(1)
-                            Text(hm(Int(a.minutes))).font(.custom("JetBrains Mono", size: 12)).foregroundStyle(dim)
-                        }
-                    }.padding(.top, 36)
-                }
-                if !r.topTracks.isEmpty {
-                    Text("Top songs").font(.custom("Manrope", size: 12).weight(.semibold)).foregroundStyle(dim).padding(.top, 34)
-                    ForEach(Array(r.topTracks.prefix(5).enumerated()), id: \.offset) { i, t in
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("\(i + 1)").font(.custom("JetBrains Mono", size: 13)).foregroundStyle(i == 0 ? accent : white.opacity(0.5)).frame(width: 14)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(t.track.title).font(.custom("Manrope", size: 16).weight(.bold)).foregroundStyle(white).lineLimit(1)
-                                Text(t.track.artists).font(.custom("Manrope", size: 11).weight(.medium)).foregroundStyle(dim).lineLimit(1)
+                        ZStack {
+                            if let i = art { Image(nsImage: i).resizable().aspectRatio(contentMode: .fill) }
+                            else {
+                                Color.white.opacity(0.085)
+                                Text(String(a.name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()).font(ui(28, .bold)).foregroundStyle(dim)
                             }
-                            Spacer()
-                            Text("\(t.plays)×").font(.custom("JetBrains Mono", size: 12)).foregroundStyle(dim)
-                        }.padding(.top, 12)
-                    }
+                        }
+                        .frame(width: 61, height: 61).clipShape(Circle())
+                        .overlay(Circle().stroke(accent.opacity(0.8), lineWidth: 1).padding(-3))
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("TOP ARTIST").font(ui(10, .semibold)).tracking(0.8).foregroundStyle(dim)
+                                .padding(.top, -fLab.top).padding(.bottom, -fLab.bottom)
+                            Text(a.name).font(ui(21, .bold)).tracking(-0.3).foregroundStyle(white).lineLimit(1).truncationMode(.tail)
+                                .padding(.top, 9 - fName.top).padding(.bottom, -fName.bottom)
+                            Text(hm(Int(a.minutes))).font(num(11.3)).foregroundStyle(dim)
+                                .padding(.top, 9 - fMono.top).padding(.bottom, -fMono.bottom)
+                        }
+                    }.padding(.top, 33)
                 }
-                Spacer()
-                let foot = [r.moodLine.isEmpty ? nil : r.moodLine, r.goalStreak > 0 ? "\(r.goalStreak)-day goal streak" : nil].compactMap { $0 }.joined(separator: "  ·  ")
-                Text(foot).font(.custom("Manrope", size: 12).weight(.medium)).foregroundStyle(dim).lineLimit(1)
+                GeometryReader { g in
+                    let n = songs.isEmpty ? 0 : max(0, min(songs.count, Int((g.size.height - labH + rowGap + 0.5) / (rowH + rowGap))))
+                    if n > 0 {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("TOP SONGS").font(ui(10, .semibold)).tracking(0.8).foregroundStyle(dim)
+                                .padding(.top, -fLab.top).padding(.bottom, -fLab.bottom).padding(.bottom, 14)
+                            VStack(alignment: .leading, spacing: rowGap) {
+                                ForEach(Array(songs.prefix(n).enumerated()), id: \.offset) { i, t in
+                                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                                        Text("\(i + 1)").font(num(12.7)).foregroundStyle(i == 0 ? accent : faint).frame(width: 25, alignment: .leading)
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text(t.track.title.trimmingCharacters(in: .whitespaces)).font(ui(16, .bold)).tracking(-0.15).foregroundStyle(white).lineLimit(1).truncationMode(.tail)
+                                                .padding(.top, -fRow.top).padding(.bottom, -fRow.bottom)
+                                            Text(t.track.artists).font(ui(10.7, .medium)).foregroundStyle(dim).lineLimit(1).truncationMode(.tail)
+                                                .padding(.top, 8 - fArt.top).padding(.bottom, -fArt.bottom)
+                                        }
+                                        Spacer(minLength: 12)
+                                        Text("\(t.plays)×").font(num(12)).foregroundStyle(dim)
+                                    }.frame(height: rowH, alignment: .top)
+                                }
+                            }
+                        }
+                    }
+                }.padding(.top, 27)
+                Text(footer).font(ui(10.7, .medium)).foregroundStyle(dim).lineLimit(1).truncationMode(.tail)
+                    .padding(.top, 21 - fFoot.top).padding(.bottom, -fFoot.bottom)
             }
-            .padding(.horizontal, 32).padding(.top, 44).padding(.bottom, 40)
+            .padding(.horizontal, Self.G).padding(.top, 40).padding(.bottom, 40)
+            .frame(width: Self.W, height: Self.H, alignment: .topLeading)
         }
-        .frame(width: 360, height: 640)
+        .frame(width: Self.W, height: Self.H)
     }
 }
 
 @MainActor
 enum RecapRender {
     /// 1080x1920 PNG of the card.
+    /// The card is always dark: the palette's own accent (Pure Mono / Adaptive: #E8E8E8), never the live album tint.
+    static func cardAccent(_ theme: Theme) -> Color { theme.p.light ? Palette.hex("E8E8E8") : theme.p.acc }
+
     static func image(_ r: Recap, art: NSImage?, accent: Color) -> NSImage? {
         let rr = ImageRenderer(content: RecapCard(r: r, art: art, accent: accent))
         rr.scale = 3
@@ -835,7 +944,7 @@ private struct RecapSheet: View {
         let url = rc.topArtist?.thumb.isEmpty == false ? rc.topArtist!.thumb : (rc.topTrack?.track.thumb ?? "")
         let art = url.isEmpty ? nil : await ArtCache.shared.image(url, points: 360)
         recap = rc
-        withAnimation(.easeOut(duration: 0.2)) { img = RecapRender.image(rc, art: art, accent: theme.accent) }
+        withAnimation(.easeOut(duration: 0.2)) { img = RecapRender.image(rc, art: art, accent: RecapRender.cardAccent(theme)) }
     }
 
     private func save() {

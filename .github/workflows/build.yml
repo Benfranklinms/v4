@@ -74,6 +74,16 @@ jobs:
       - name: Build
         working-directory: android
         run: ./gradlew --stacktrace :app:assembleRelease
+      - name: Recap cards
+        continue-on-error: true
+        working-directory: android
+        run: RECAP_PNG="$GITHUB_WORKSPACE/out/recap" ./gradlew --stacktrace :app:testReleaseUnitTest --tests '*RecapRenderTest*'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recap-cards
+          path: out/recap
+          if-no-files-found: warn
       - name: Collect
         run: |
           mkdir -p out

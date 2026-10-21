@@ -183,7 +183,7 @@ impl Db {
             )
             .map_err(e)?;
         let rows = st
-            .query_map(params![since, limit], |r| {
+            .query_map(params![since, limit.saturating_mul(3).max(limit)], |r| {
                 Ok((
                     Track {
                         id: r.get(0)?,
@@ -200,7 +200,7 @@ impl Db {
                 ))
             })
             .map_err(e)?;
-        Ok(rows.filter_map(|x| x.ok()).collect())
+        Ok(merge_same_songs(rows.filter_map(|x| x.ok()).collect(), limit as usize))
     }
 
     pub fn affinity(&self) -> ArtistAffinity {
@@ -618,4 +618,27 @@ impl Db {
             local: n("SELECT COUNT(*) FROM local_tracks"),
         }
     }
+}
+
+/// Top-track rows (track, plays, minutes) with the same song from different video ids folded into one
+/// (see insights::song_key); the most played id wins, counts add up, order by plays then minutes.
+pub fn merge_same_songs(rows: Vec<(Track, u32, u32)>, limit: usize) -> Vec<(Track, u32, u32)> {
+    let mut out: Vec<(Track, u32, u32)> = Vec::new();
+    let mut at: HashMap<String, usize> = HashMap::new();
+    for (t, n, m) in rows {
+        let k = crate::insights::song_key(&t.id, &t.title, &t.artists);
+        match at.get(&k) {
+            Some(&i) => {
+                out[i].1 += n;
+                out[i].2 += m;
+            }
+            None => {
+                at.insert(k, out.len());
+                out.push((t, n, m));
+            }
+        }
+    }
+    out.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
+    out.truncate(limit);
+    out
 }

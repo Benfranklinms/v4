@@ -29,7 +29,8 @@ pub fn summary(db: &Db, range: &str, now: i64, tz_min: i32) -> Result<StatsSumma
     let mut clock = vec![0i64; 24];
     let mut series = vec![0i64; buckets];
     let mut artists: HashMap<String, (String, String, u32, i64)> = HashMap::new();
-    let mut tracks: HashMap<String, (String, String, u32, i64)> = HashMap::new();
+    // per song (see insights::song_key): (track id, title, thumb, plays, ms)
+    let mut tracks: HashMap<String, (String, String, String, u32, i64)> = HashMap::new();
     let mut genres: HashMap<String, i64> = HashMap::new();
     let first = rows.iter().filter(|r| r.0 >= start).map(|r| r.0).min().unwrap_or(now);
     for (at, ms, tz, artist, artist_id, thumb, title, tid, album) in rows.iter() {
@@ -66,9 +67,11 @@ pub fn summary(db: &Db, range: &str, now: i64, tz_min: i32) -> Result<StatsSumma
                 ae.0 = a.clone();
             }
         }
-        let te = tracks.entry(tid.clone()).or_insert((title.clone(), thumb.clone(), 0, 0));
-        te.2 += 1;
-        te.3 += ms;
+        let te = tracks
+            .entry(crate::insights::song_key(tid, title, artist))
+            .or_insert((tid.clone(), title.clone(), thumb.clone(), 0, 0));
+        te.3 += 1;
+        te.4 += ms;
         *genres.entry(genre_of(title, artist, album.as_deref().unwrap_or(""))).or_default() += ms;
     }
     let mut top_artists: Vec<NamedCount> = artists
@@ -84,8 +87,8 @@ pub fn summary(db: &Db, range: &str, now: i64, tz_min: i32) -> Result<StatsSumma
         }
     }
     let mut top_tracks: Vec<NamedCount> = tracks
-        .into_iter()
-        .map(|(id, (name, thumb, n, ms))| NamedCount { id, name, thumb, plays: n, minutes: (ms / 60_000) as u32 })
+        .into_values()
+        .map(|(id, name, thumb, n, ms)| NamedCount { id, name, thumb, plays: n, minutes: (ms / 60_000) as u32 })
         .collect();
     top_tracks.sort_by(|a, b| b.plays.cmp(&a.plays).then(b.minutes.cmp(&a.minutes)));
     top_tracks.truncate(10);

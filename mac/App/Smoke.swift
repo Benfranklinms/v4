@@ -857,7 +857,7 @@ enum Smoke {
         record("stats_goal_pref", g1 == 15 && Engine.core.statsGoal() == g0, "15 stored, restored \(g0)")
 
         // Recap: renders a 1080x1920 card, Copy puts it on the pasteboard
-        if let rc = await Engine.off({ try Engine.core.statsRecap(range: "week", tzOffsetMin: Engine.tzMinutes) }), let img = RecapRender.image(rc, art: nil, accent: Theme.shared.accent) {
+        if let rc = await Engine.off({ try Engine.core.statsRecap(range: "week", tzOffsetMin: Engine.tzMinutes) }), let img = RecapRender.image(rc, art: nil, accent: RecapRender.cardAccent(Theme.shared)) {
             let px = img.representations.first.map { CGSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? img.size
             if let d = RecapRender.png(img) { try? d.write(to: out.appendingPathComponent("83-recap-card.png")) }
             NSPasteboard.general.clearContents()
@@ -865,10 +865,51 @@ enum Smoke {
             let pasted = NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
             record("stats_recap_render", Int(px.width) >= 1000 && abs(Double(px.height) / Double(max(1, px.width)) - 16.0 / 9.0) < 0.05 && pasted, "\(Int(px.width))x\(Int(px.height)), copied=\(pasted), '\(rc.title)' \(rc.periodLabel) \(rc.minutes) min")
         } else { record("stats_recap_render", false, "no recap") }
+        recapSamples()
         m.recapOpen = true; await sleep(2.0)
         shot("84-stats-recap-sheet", includeSheet: true)
         m.recapOpen = false; await sleep(0.8)
         nav.scrollTarget = nil
+    }
+
+    /// Recap cards from fixed sample data (a busy week with a duplicate title + long names, and a sparse
+    /// first week): written as 83a/83b/83c PNGs for design review; the songs list must never overlap the footer.
+    static func recapSamples() {
+        func t(_ id: String, _ title: String, _ artists: String, _ plays: UInt32, _ min: UInt32) -> TrackStat {
+            TrackStat(track: Track(id: id, title: title, artists: artists, artistId: nil, album: nil, albumId: nil, durationS: 200, thumb: ""), plays: plays, minutes: min)
+        }
+        // stand-in monochrome portrait (no real artwork in the repo)
+        let art = NSImage(size: NSSize(width: 360, height: 360), flipped: false) { rect in
+            NSGradient(colors: [NSColor(white: 0.58, alpha: 1), NSColor(white: 0.08, alpha: 1)])?.draw(in: NSBezierPath(rect: rect), relativeCenterPosition: NSPoint(x: 0.1, y: 0.2))
+            NSColor(white: 0.76, alpha: 1).setFill(); NSBezierPath(ovalIn: NSRect(x: 125, y: 125, width: 110, height: 150)).fill()
+            NSColor(white: 0.15, alpha: 1).setFill(); NSBezierPath(ovalIn: NSRect(x: 100, y: 195, width: 160, height: 120)).fill()
+            return true
+        }
+        let ben = Recap(range: "week", title: "Your week", periodLabel: "15 – 21 Oct", minutes: 213, plays: 96, changePercent: nil,
+                        topArtist: NamedCount(id: "UCx", name: "Lana Del Rey", thumb: "", plays: 30, minutes: 24), topTrack: nil,
+                        topTracks: [t("h", "Hips Don’t Lie (Anniversary Version) [feat. Ed Sheeran & Beéle]", "Shakira, Ed Sheeran, Beéle", 3, 10),
+                                    t("y1", "Young And Beautiful", "Lana Del Rey", 2, 8), t("l", "Levitating (feat. DaBaby)", "Dua Lipa", 2, 7),
+                                    t("y2", "Young and Beautiful", "Lana Del Rey", 2, 8), t("s", "Summertime Sadness", "Lana Del Rey", 2, 8),
+                                    t("b", "Born To Die", "Lana Del Rey", 1, 4)],
+                        topArtists: [], moodLine: "Mostly afternoons this week", peakHour: 15, goalStreak: 2, newArtists: 0)
+        let sparse = Recap(range: "week", title: "Your week", periodLabel: "20 – 21 Oct", minutes: 12, plays: 3, changePercent: nil,
+                           topArtist: NamedCount(id: "", name: "Dua Lipa", thumb: "", plays: 3, minutes: 12), topTrack: nil,
+                           topTracks: [t("l", "Levitating", "Dua Lipa", 2, 8), t("h", "Houdini", "Dua Lipa", 1, 4)],
+                           topArtists: [], moodLine: "", peakHour: -1, goalStreak: 0, newArtists: 0)
+        let long = Recap(range: "month", title: "Your month", periodLabel: "1 – 31 Oct", minutes: 7687, plays: 1204, changePercent: -8,
+                         topArtist: NamedCount(id: "UCy", name: "Sushin Shyam, Dabzee, Vedan and the Manjummel Boys Orchestra", thumb: "", plays: 300, minutes: 2410), topTrack: nil,
+                         topTracks: (1...5).map { t("x\($0)", "A Very Long Song Title That Never Ends (Extended Club Mix) Part \($0)", "Some Artist, Another Artist, A Third One", UInt32(40 - $0), 100) },
+                         topArtists: [], moodLine: "Mostly late nights this month", peakHour: 23, goalStreak: 14, newArtists: 0)
+        let merged = recapMergeSameSongs(ben.topTracks)
+        let acc = Palette.hex("E8E8E8")
+        var ok = merged.count == 5 && merged.first?.track.id == "y1" && merged.first?.plays == 4
+        let samples: [(String, Recap, NSImage?)] = [("83a-recap-ben", ben, art), ("83b-recap-sparse", sparse, nil), ("83c-recap-long", long, art)]
+        for (name, rc, a) in samples {
+            guard let img = RecapRender.image(rc, art: a, accent: acc), let d = RecapRender.png(img) else { ok = false; continue }
+            try? d.write(to: out.appendingPathComponent("\(name).png"))
+            ok = ok && (img.representations.first?.pixelsWide ?? 0) == 1080
+        }
+        record("stats_recap_samples", ok, "merged \(merged.count) rows, top '\(merged.first?.track.title ?? "-")' \(merged.first?.plays ?? 0)x")
     }
 
     static func listSearchChecks() async {

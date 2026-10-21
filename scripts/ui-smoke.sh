@@ -1129,6 +1129,9 @@ if wait_for resource-id recap_card 8; then
   id recap_month 0; sleep 2
   id recap_save 0; sleep 2
   log "recap save: $(stats_log | grep "save ->" | tail -n 1 | sed 's/.*itune-recap: //')"
+  # keep the saved 1080x1920 card itself (not just the screen) for review
+  rp=$(timeout 10 adb shell 'ls -t /sdcard/Pictures/iTune/*.png 2>/dev/null | head -n 1' | tr -d '\r')
+  [ -n "$rp" ] && timeout 20 adb pull "$rp" "$O/recap-card-saved.png" >/dev/null 2>&1 && log "recap png pulled: $rp"
   back
 else log "MISSING (required): recap sheet"; FAILS=$((FAILS + 1)); fi
 crash_check "stats"

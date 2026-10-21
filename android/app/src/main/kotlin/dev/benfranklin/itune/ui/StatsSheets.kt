@@ -1,12 +1,8 @@
 package dev.benfranklin.itune.ui
 
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -71,7 +67,6 @@ import dev.benfranklin.itune.ui.theme.T
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /** The plays inside one bar of the Stats chart, newest first. */
 @Composable
@@ -153,12 +148,13 @@ internal fun RecapSheet(s: AppState, startRange: String) {
     var range by remember { mutableStateOf(if (startRange == "month") "month" else "week") }
     var bmp by remember { mutableStateOf<Bitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val accent = c.accentUi
+    // the shared card keeps the theme's own accent (Pure Mono / Adaptive: #E8E8E8), never the live album tint
+    val accent = RecapRenderer.cardAccent(c.acc, c.light)
     LaunchedEffect(range) {
         val t0 = System.nanoTime()
         val r = io { App.core.statsRecap(range, tzMin()) } ?: return@LaunchedEffect
         val art = withContext(Dispatchers.IO) { RecapRenderer.loadArt(ctx, r.topArtist?.thumb?.ifEmpty { null } ?: r.topTrack?.track?.thumb) }
-        bmp = withContext(Dispatchers.Default) { RecapRenderer.render(ctx, r, accent, art) }
+        bmp = withContext(Dispatchers.Default) { RecapRenderer.render(RecapRenderer.fonts(ctx), r, accent, art) }
         Log.i("itune-recap", "rendered range=$range min=${r.minutes} ms=${(System.nanoTime() - t0) / 1_000_000}")
     }
     Column(Modifier.padding(horizontal = 24.dp).testTag("recap_sheet"), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -209,146 +205,4 @@ internal fun RecapSheet(s: AppState, startRange: String) {
             }
         }
     }
-}
-
-object RecapRenderer {
-    const val W = 1080
-    const val H = 1920
-
-    fun loadArt(ctx: Context, url: String?): Bitmap? {
-        if (url.isNullOrEmpty()) return null
-        return runCatching {
-            val req = coil.request.ImageRequest.Builder(ctx).data(url).size(720, 720).allowHardware(false).build()
-            val res = kotlinx.coroutines.runBlocking { coil.Coil.imageLoader(ctx).execute(req) }
-            (res.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
-        }.getOrNull()
-    }
-
-    private fun font(ctx: Context, res: Int, fallback: android.graphics.Typeface): android.graphics.Typeface =
-        runCatching { androidx.core.content.res.ResourcesCompat.getFont(ctx, res) }.getOrNull() ?: fallback
-
-    /** Draws the 1080x1920 story card. Pure android.graphics: safe off the main thread. */
-    fun render(ctx: Context, r: dev.benfranklin.itune.core.Recap, accent: androidx.compose.ui.graphics.Color, art: Bitmap?): Bitmap {
-        val b = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
-        val cv = android.graphics.Canvas(b)
-        val bold = font(ctx, dev.benfranklin.itune.R.font.manrope_bold, android.graphics.Typeface.DEFAULT_BOLD)
-        val semi = font(ctx, dev.benfranklin.itune.R.font.manrope_semibold, android.graphics.Typeface.DEFAULT)
-        val med = font(ctx, dev.benfranklin.itune.R.font.manrope_medium, android.graphics.Typeface.DEFAULT)
-        val mono = font(ctx, dev.benfranklin.itune.R.font.jetbrainsmono_light, android.graphics.Typeface.MONOSPACE)
-        val monoR = font(ctx, dev.benfranklin.itune.R.font.jetbrainsmono_regular, android.graphics.Typeface.MONOSPACE)
-        val acc = android.graphics.Color.argb(255, (accent.red * 255).toInt(), (accent.green * 255).toInt(), (accent.blue * 255).toInt())
-        cv.drawColor(android.graphics.Color.rgb(12, 11, 13))
-        // backdrop: the top artist's art, heavily softened (down- then up-scaled) and darkened
-        if (art != null) {
-            val small = Bitmap.createScaledBitmap(art, 18, 32, true)
-            val soft = Bitmap.createScaledBitmap(small, W / 4, H / 4, true)
-            val p = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
-            cv.drawBitmap(soft, null, android.graphics.Rect(0, 0, W, H), p)
-            small.recycle(); soft.recycle()
-        }
-        val shade = android.graphics.Paint().apply {
-            shader = android.graphics.LinearGradient(0f, 0f, 0f, H.toFloat(),
-                intArrayOf(android.graphics.Color.argb(120, 0, 0, 0), android.graphics.Color.argb(170, 0, 0, 0), android.graphics.Color.argb(235, 6, 6, 8)),
-                floatArrayOf(0f, 0.45f, 1f), android.graphics.Shader.TileMode.CLAMP)
-        }
-        cv.drawRect(0f, 0f, W.toFloat(), H.toFloat(), shade)
-        val white = android.graphics.Color.WHITE
-        val dim = android.graphics.Color.argb(178, 255, 255, 255)
-        val faint = android.graphics.Color.argb(120, 255, 255, 255)
-        fun paint(tf: android.graphics.Typeface, size: Float, color: Int) = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { typeface = tf; textSize = size; this.color = color }
-        fun fit(p: android.graphics.Paint, s: String, max: Float): String {
-            if (p.measureText(s) <= max) return s
-            var t = s
-            while (t.isNotEmpty() && p.measureText("$t…") > max) t = t.dropLast(1)
-            return "$t…"
-        }
-        val L = 96f
-        cv.drawText("iTune", L, 170f, paint(bold, 40f, dim))
-        cv.drawText(r.periodLabel, (W - L) - paint(med, 34f, dim).measureText(r.periodLabel), 170f, paint(med, 34f, dim))
-        cv.drawText(r.title, L, 330f, paint(bold, 104f, white))
-        // total listening
-        val h = r.minutes.toInt() / 60
-        val m = r.minutes.toInt() % 60
-        val big = paint(mono, 220f, white)
-        val unit = paint(semi, 60f, dim)
-        var x = L
-        if (h > 0) {
-            cv.drawText("$h", x, 600f, big); x += big.measureText("$h") + 10f
-            cv.drawText("h", x, 600f, unit); x += unit.measureText("h") + 34f
-            cv.drawText("%02d".format(m), x, 600f, big); x += big.measureText("%02d".format(m)) + 10f
-        } else {
-            cv.drawText("$m", x, 600f, big); x += big.measureText("$m") + 10f
-        }
-        cv.drawText("m", x, 600f, unit)
-        val sub = buildString {
-            append(playsLabel(r.plays.toInt()))
-            r.changePercent?.let { append(" · ${if (it >= 0) "+" else ""}$it% vs last ${if (r.range == "month") "month" else "week"}") }
-        }
-        cv.drawText(sub, L, 680f, paint(med, 40f, acc))
-        // top artist
-        var y = 800f
-        r.topArtist?.let { a ->
-            val d = 230f
-            if (art != null) {
-                val sh = android.graphics.BitmapShader(art, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP)
-                val sc = d / minOf(art.width, art.height)
-                sh.setLocalMatrix(android.graphics.Matrix().apply { setScale(sc, sc); postTranslate(L - (art.width * sc - d) / 2, y - (art.height * sc - d) / 2) })
-                cv.drawCircle(L + d / 2, y + d / 2, d / 2, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { shader = sh })
-            }
-            cv.drawCircle(L + d / 2, y + d / 2, d / 2 + 6f, android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = 5f; color = acc })
-            cv.drawText("Top artist", L + d + 48f, y + 82f, paint(semi, 36f, dim))
-            cv.drawText(fit(paint(bold, 64f, white), a.name, W - L - (L + d + 48f)), L + d + 48f, y + 158f, paint(bold, 64f, white))
-            cv.drawText(hm(a.minutes.toInt()), L + d + 48f, y + 212f, paint(monoR, 36f, dim))
-            y += d + 110f
-        }
-        // top songs
-        if (r.topTracks.isNotEmpty()) {
-            cv.drawText("Top songs", L, y, paint(semi, 36f, dim))
-            y += 30f
-            r.topTracks.take(5).forEachIndexed { i, t ->
-                y += 92f
-                cv.drawText("${i + 1}", L, y, paint(monoR, 40f, if (i == 0) acc else faint))
-                cv.drawText(fit(paint(bold, 48f, white), t.track.title, W - L - (L + 70f) - 120f), L + 70f, y, paint(bold, 48f, white))
-                val pl = "${t.plays}×"
-                val pp = paint(monoR, 36f, dim)
-                cv.drawText(pl, W - L - pp.measureText(pl), y, pp)
-                cv.drawText(fit(paint(med, 32f, dim), t.track.artists, W - 2 * L - 70f), L + 70f, y + 44f, paint(med, 32f, dim))
-                y += 30f
-            }
-        }
-        // footer: mood + streak
-        val foot = listOfNotNull(r.moodLine.ifEmpty { null }, if (r.goalStreak.toInt() > 0) "${r.goalStreak}-day goal streak" else null).joinToString("  ·  ")
-        if (foot.isNotEmpty()) cv.drawText(fit(paint(med, 36f, dim), foot, W - 2 * L), L, H - 140f, paint(med, 36f, dim))
-        return b
-    }
-
-    fun writeShareFile(ctx: Context, b: Bitmap, range: String): File? = runCatching {
-        val dir = File(ctx.cacheDir, "share").apply { mkdirs() }
-        val f = File(dir, "recap-$range.png")
-        f.outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        f
-    }.getOrNull()
-
-    /** Pictures/iTune via MediaStore (Android 10+); the app's own Pictures folder before that. */
-    fun saveToPictures(ctx: Context, b: Bitmap, range: String): String? = runCatching {
-        val name = "recap-$range-${System.currentTimeMillis() / 1000}.png"
-        if (Build.VERSION.SDK_INT >= 29) {
-            val v = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/iTune")
-                put(MediaStore.Images.Media.IS_PENDING, 1)
-            }
-            val cr = ctx.contentResolver
-            val uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v) ?: return@runCatching null
-            cr.openOutputStream(uri)?.use { b.compress(Bitmap.CompressFormat.PNG, 100, it) } ?: return@runCatching null
-            v.clear(); v.put(MediaStore.Images.Media.IS_PENDING, 0)
-            cr.update(uri, v, null, null)
-            "Pictures/iTune"
-        } else {
-            val dir = File(ctx.getExternalFilesDir(Environment.DIRECTORY_PICTURES), "").apply { mkdirs() }
-            File(dir, name).outputStream().use { b.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            "the app's Pictures folder"
-        }
-    }.getOrNull()
 }
