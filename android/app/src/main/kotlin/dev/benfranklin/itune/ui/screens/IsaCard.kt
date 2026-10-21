@@ -169,7 +169,7 @@ internal fun Preview(s: AppState, r: IsaResult, onPlayed: () -> Unit = {}) {
     val mins = (total / 60).toInt()
     var saved by remember(r) { mutableStateOf(false) }
     Column(Modifier.padding(top = 16.dp).testTag("isa_preview")) {
-        Row(Modifier.fillMaxWidth().press(scaleTo = 0.98f) { s.push(Dest.Mix(r.plan.title, r.tracks)) }, verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().press(scaleTo = 0.98f) { s.push(Dest.Mix(r.plan.title, r.tracks)) }.testTag("isa_result_card"), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(86.dp, 64.dp)) {
                 r.tracks.take(3).forEachIndexed { i, t ->
                     Box(Modifier.offset(x = (i * 11).dp, y = (i * 2).dp).graphicsLayer { alpha = 1f - i * 0.12f }) { Artwork(t.thumb, 58.dp, 9.dp) }

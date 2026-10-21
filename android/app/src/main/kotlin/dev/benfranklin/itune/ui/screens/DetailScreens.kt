@@ -441,7 +441,7 @@ fun PlaylistScreen(s: AppState, id: String, peek: dev.benfranklin.itune.ui.Peek?
 @Composable
 fun MixScreen(s: AppState, title: String, tracks: List<Track>) {
     val sub = tracks.map { it.artists.split(",")[0] }.distinct().take(4).joinToString(", ")
-    TrackListPage(s, title, sub, tracks.firstOrNull()?.thumb ?: "", tracks, title, origin = dev.benfranklin.itune.data.Recents.Origin(if (title.endsWith(" radio")) "radio" else "mix", title, title, sub, tracks.firstOrNull()?.thumb ?: ""))
+    TrackListPage(s, title, sub, tracks.firstOrNull()?.thumb ?: "", tracks, title, origin = if (title.endsWith(" radio")) dev.benfranklin.itune.data.Recents.Origin("radio", title, dev.benfranklin.itune.data.Recents.radioTitle(title), "Radio", tracks.firstOrNull()?.thumb ?: "") else dev.benfranklin.itune.data.Recents.Origin("mix", title, title, sub, tracks.firstOrNull()?.thumb ?: ""))
 }
 
 @Composable

@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -78,6 +79,25 @@ import java.util.TimeZone
 object HomeCache {
     var feed: HomeFeed? = null
     var at = 0L
+    /** The greeting's fade/slide plays once per process; a tab return shows it still. */
+    var greeted = false
+}
+
+/** Greeting: a soft fade + rise on first load only (graphicsLayer; crossfade under Reduce Motion / battery saver). */
+@Composable
+private fun Greeting(text: String, modifier: Modifier) {
+    val reduce = dev.benfranklin.itune.ui.theme.LocalReduceMotion.current
+    val saver by rememberPowerSave()
+    val a = remember { androidx.compose.animation.core.Animatable(if (HomeCache.greeted) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        HomeCache.greeted = true
+        if (a.value < 1f) a.animateTo(1f, if (reduce || saver) androidx.compose.animation.core.tween(150) else androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 220f))
+    }
+    val calm = reduce || saver
+    Text(
+        text, style = T.ui(22.sp, FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = modifier.graphicsLayer { alpha = a.value.coerceIn(0f, 1f); if (!calm) translationY = (1f - a.value) * 12.dp.toPx() }.testTag("home_greeting"),
+    )
 }
 
 fun tzMin() = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
@@ -141,7 +161,7 @@ fun HomeScreen(s: AppState) {
         }
         item(key = "greet") {
             val greet = feed?.greeting ?: "Hello"
-            RiseText("$greet, $name", T.ui(22.sp, FontWeight.Bold), Modifier.padding(start = 16.dp, top = 24.dp, end = 16.dp))
+            Greeting("$greet, $name", Modifier.padding(start = 16.dp, top = 24.dp, end = 16.dp))
         }
         item(key = "recent6") { RecentGrid(s, Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp)) }
         resume?.let { r ->
@@ -214,7 +234,7 @@ fun HomeScreen(s: AppState) {
                                     Text("%02d".format(i + 1), style = T.num(11.sp, FontWeight.Medium), modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
                                     Box(
                                         Modifier.align(Alignment.BottomEnd).padding(8.dp).size(30.dp).clip(CircleShape).background(c.txt)
-                                            .press { Playback.play(ctx, m.tracks, 0, m.title) },
+                                            .press { dev.benfranklin.itune.data.Recents.registerMix(m.title, m.tracks, m.subtitle); Playback.play(ctx, m.tracks, 0, m.title) },
                                         contentAlignment = Alignment.Center,
                                     ) { Icon(Icons.Rounded.PlayArrow, "Play", tint = c.bg, modifier = Modifier.size(18.dp)) }
                                 }
@@ -226,11 +246,11 @@ fun HomeScreen(s: AppState) {
                 }
             }
             if (f.onRepeat.size >= 4) {
-                item(key = "repeatT") { Spacer(Modifier.height(44.dp)); SectionTitle("On Repeat", action = "Play") { Playback.play(ctx, f.onRepeat, 0, "On Repeat") } }
+                item(key = "repeatT") { Spacer(Modifier.height(44.dp)); SectionTitle("On Repeat", action = "Play") { dev.benfranklin.itune.data.Recents.registerMix("On Repeat", f.onRepeat); Playback.play(ctx, f.onRepeat, 0, "On Repeat") } }
                 item(key = "repeat") { TrackRail(s, f.onRepeat, "On Repeat") }
             }
             if (f.discover.size >= 6) {
-                item(key = "discT") { Spacer(Modifier.height(44.dp)); SectionTitle("Discover", action = "Play") { Playback.play(ctx, f.discover, 0, "Discover") } }
+                item(key = "discT") { Spacer(Modifier.height(44.dp)); SectionTitle("Discover", action = "Play") { dev.benfranklin.itune.data.Recents.registerMix("Discover", f.discover); Playback.play(ctx, f.discover, 0, "Discover") } }
                 item(key = "disc") { TrackRail(s, f.discover, "Discover") }
             }
             f.shelves.forEachIndexed { si, sh ->
@@ -303,7 +323,7 @@ private fun TrackRail(s: AppState, tracks: List<dev.benfranklin.itune.core.Track
     val ctx = LocalContext.current
     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 14.dp)) {
         itemsIndexed(tracks.take(20), key = { k, v -> "$k:" + v.hashCode() }) { i, t ->
-            Column(Modifier.width(124.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { Playback.play(ctx, tracks, i, source) }) {
+            Column(Modifier.width(124.dp).enter(i).press(scaleTo = 0.96f, onLongClick = { s.sheet = Sheet.TrackMenu(t) }) { dev.benfranklin.itune.data.Recents.registerMix(source, tracks); Playback.play(ctx, tracks, i, source) }) {
                 Artwork(t.thumb, 124.dp, 10.dp)
                 Text(t.title, style = T.ui(13.sp, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 Text(t.artists, style = T.ui(11.5.sp, FontWeight.Medium, c.t3), maxLines = 1, overflow = TextOverflow.Ellipsis)

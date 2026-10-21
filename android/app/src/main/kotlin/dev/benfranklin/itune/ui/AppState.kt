@@ -112,6 +112,7 @@ class AppState {
     var isaOrigin = androidx.compose.ui.geometry.Offset.Unspecified
 
     fun openIsa() {
+        isaPending = null
         isaToMini = false
         nowPlaying = false
         isaOpen = true
@@ -125,7 +126,24 @@ class AppState {
         android.util.Log.i("itune-isa", "close toMini=$toMini")
     }
 
+    /** A page asked for while the Isa takeover is open: it is pushed once the takeover has folded into the orb. */
+    private var isaPending: Dest? = null
+
+    /** Called by the takeover while it closes (and once it has closed): shows the waiting page on top. */
+    fun flushIsaPush() {
+        val d = isaPending ?: return
+        isaPending = null
+        push(d)
+    }
+
     fun push(d: Dest) {
+        // never push a page underneath the open takeover (0.2.10): fold Isa back into the orb first
+        if (isaOpen) {
+            isaPending = d
+            closeIsa()
+            android.util.Log.i("itune-isa", "push after close ${d::class.simpleName}")
+            return
+        }
         forward = true
         nowPlaying = false
         stack.add(d)

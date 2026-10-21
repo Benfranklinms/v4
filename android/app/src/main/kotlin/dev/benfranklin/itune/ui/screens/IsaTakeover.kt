@@ -43,6 +43,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -73,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -129,6 +132,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.hypot
@@ -243,7 +247,11 @@ fun IsaTakeover(s: AppState) {
         } else if (shown) {
             focus.clearFocus()
             IsaSession.onClose()
-            anim.animateTo(0f, if (reduce) tween(150) else if (s.isaToMini) spring(dampingRatio = 0.85f, stiffness = 420f) else spring(dampingRatio = 0.9f, stiffness = 600f))
+            // a page opened from inside (result card, …) appears once the takeover is mostly folded away
+            anim.animateTo(0f, if (reduce) tween(150) else if (s.isaToMini) spring(dampingRatio = 0.85f, stiffness = 420f) else spring(dampingRatio = 0.9f, stiffness = 600f)) {
+                if (value < 0.3f) s.flushIsaPush()
+            }
+            s.flushIsaPush()
             shown = false
             back.floatValue = 0f; drag.floatValue = 0f
         }
@@ -274,7 +282,7 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
     val tint = LocalChromeTint.current
     val open = s.isaOpen
     val st = IsaSession.state
-    val text = IsaSession.text
+    // the draft is read only inside the input's own scope: typing never recomposes the whole takeover
     val lengthIdx by App.prefs.isaLength.state.collectAsState()
     var focused by remember { mutableStateOf(false) }
     var sugg by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -297,13 +305,17 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
         val said = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!said.isNullOrBlank()) { IsaSession.text = said; run(said) }
     }
-    LaunchedEffect(text) {
-        if (text.isBlank()) { sugg = emptyList(); return@LaunchedEffect }
-        delay(120)
-        sugg = io { App.core.isaSuggestions(text) }.orEmpty()
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.snapshotFlow { IsaSession.text }.collectLatest { text ->
+            if (text.isBlank()) { sugg = emptyList(); return@collectLatest }
+            delay(120)
+            sugg = io { App.core.isaSuggestions(text) }.orEmpty()
+        }
     }
     // orb / shimmer motion only while open and not reduced; values read in draw lambdas
     val live = open && !reduce
+    val saver by rememberPowerSave()
+    val calm = reduce || saver
     val inf = rememberInfiniteTransition(label = "isa-t")
     val pulse = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (thinking) 900 else 2000), RepeatMode.Reverse), label = "pulse")
     val wave = inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1400)), label = "wave")
@@ -416,8 +428,13 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                 GlassIconButton(Icons.Rounded.Close, "Close", size = 44.dp, iconSize = 20.dp, tag = "isa_close", modifier = Modifier.align(Alignment.CenterEnd)) { s.closeIsa() }
             }
             Column(
-                Modifier.weight(1f).fillMaxWidth().nestedScroll(conn).verticalScroll(scroll)
-                    .padding(horizontal = 16.dp).padding(bottom = (NAV_H + 32).dp),
+                // docked above the Ask Isa input (0.2.10): the scroll area ENDS above the pill (keyboard / nav bar
+                // included), so the length pill and the FOR YOU cards can never sit hidden under it
+                Modifier.weight(1f).fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars).only(WindowInsetsSides.Bottom))
+                    .padding(bottom = (NAV_H + 8 + 10).dp)
+                    .nestedScroll(conn).verticalScroll(scroll)
+                    .padding(horizontal = 16.dp).padding(bottom = 16.dp).testTag("isa_scroll"),
             ) {
                 Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
                     Canvas(Modifier.size(132.dp)) {
@@ -447,7 +464,11 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                     }
                 }
                 // result: thinking shimmer / queue preview / error + retry
-                AnimatedContent(st, transitionSpec = { fadeIn(tween(240)) togetherWith fadeOut(tween(140)) }, contentKey = { it::class }, label = "isa-st") { x ->
+                AnimatedContent(st, transitionSpec = {
+                    // the result card springs in when the playlist is ready (crossfade only when calm)
+                    if (targetState is IsaState.Ready && !calm) (fadeIn(tween(200)) + scaleIn(readySpring, initialScale = 0.92f)) togetherWith fadeOut(tween(120))
+                    else fadeIn(tween(240)) togetherWith fadeOut(tween(140))
+                }, contentKey = { it::class }, label = "isa-st") { x ->
                     when (x) {
                         is IsaState.Thinking -> Box(Modifier.padding(top = 10.dp).fillMaxWidth().glass(RoundedCornerShape(22.dp), dark = 0.30f, sheen = 0.06f, rim = 0.6f).drawBehind {
                             val sx = size.width * shimS.value
@@ -478,7 +499,7 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             row.forEachIndexed { k, (label, sub, prompt) ->
                                 Row(
-                                    Modifier.weight(1f).height(64.dp).glass(RoundedCornerShape(20.dp), dark = 0.30f, sheen = 0.07f, rim = 0.65f)
+                                    Modifier.weight(1f).isaRise(r * 2 + k, s, calm).height(64.dp).glass(RoundedCornerShape(20.dp), dark = 0.30f, sheen = 0.07f, rim = 0.65f)
                                         .press(scaleTo = 0.96f) { IsaSession.text = ""; run(prompt) }.padding(7.dp).testTag("mood_$label"),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -494,7 +515,7 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                 }
                 // length pill
                 Row(
-                    Modifier.padding(top = 16.dp).height(34.dp).clip(RoundedCornerShape(17.dp)).border(0.6.dp, c.t4, RoundedCornerShape(17.dp))
+                    Modifier.padding(top = 16.dp).isaRise(4, s, calm).height(34.dp).clip(RoundedCornerShape(17.dp)).border(0.6.dp, c.t4, RoundedCornerShape(17.dp))
                         .press { App.prefs.isaLength.value = (lengthIdx + 1) % LENGTHS.size; IsaSession.touch() }.padding(horizontal = 13.dp).testTag("isa_length"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -521,10 +542,12 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                     },
                     label = "ideas",
                 ) { set ->
+                    // a shuffle (not the first show) flips / slides the new cards in, one after another
+                    val shuffled = remember { ideaSet > 0 }
                     Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         pool.drop(set * 3).take(3).forEachIndexed { i, idea ->
                             Row(
-                                Modifier.fillMaxWidth().height(44.dp).glass(RoundedCornerShape(22.dp), dark = 0.30f, sheen = 0.07f, rim = 0.6f)
+                                Modifier.fillMaxWidth().isaRise(5 + i, s, calm).shuffleIn(i, shuffled && !calm).height(44.dp).glass(RoundedCornerShape(22.dp), dark = 0.30f, sheen = 0.07f, rim = 0.6f)
                                     .press(scaleTo = 0.98f) { IsaSession.text = ""; run(idea.prompt) }.padding(start = 6.dp, end = 6.dp).testTag("isa_foryou_$i"),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -556,6 +579,8 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                     translationY = drag.floatValue * 0.3f
                 },
         ) {
+            Scoped {
+            val text = IsaSession.text
             Row(
                 Modifier.padding(horizontal = EDGE.dp).fillMaxWidth().height(NAV_H.dp).chromeGlass(RoundedCornerShape(32.dp)).padding(start = 22.dp, end = 8.dp).testTag("isa_input"),
                 verticalAlignment = Alignment.CenterVertically,
@@ -588,6 +613,7 @@ private fun TakeoverBody(s: AppState, reduce: Boolean, back: androidx.compose.ru
                     }.testTag("isa_mic"),
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Rounded.Mic, "Speak", tint = c.bg, modifier = Modifier.size(22.dp)) }
+            }
             }
         }
     }
@@ -629,7 +655,7 @@ fun NavIsaOrb(s: AppState, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun rememberPowerSave(): androidx.compose.runtime.State<Boolean> {
+internal fun rememberPowerSave(): androidx.compose.runtime.State<Boolean> {
     val ctx = LocalContext.current
     val pm = remember { ctx.getSystemService(android.os.PowerManager::class.java) }
     val st = remember { mutableStateOf(pm?.isPowerSaveMode == true) }
@@ -642,3 +668,37 @@ private fun rememberPowerSave(): androidx.compose.runtime.State<Boolean> {
     }
     return st
 }
+
+private val readySpring = spring<Float>(dampingRatio = 0.72f, stiffness = 380f)
+
+/**
+ * Staggered rise of the takeover's tiles / pill / cards after the reveal, driven by the open progress itself (read in
+ * the layer lambda: no extra animations, no recomposition). Item [i] starts a little after item i-1; first 8 only.
+ */
+private fun Modifier.isaRise(i: Int, s: AppState, calm: Boolean): Modifier = if (calm || i > 7) this else graphicsLayer {
+    val p = s.isaAnim.value
+    if (s.isaToMini && !s.isaOpen) return@graphicsLayer
+    val q = ((p - 0.35f - i * 0.035f) / 0.4f).coerceIn(0f, 1f)
+    val e = 1f - (1f - q) * (1f - q) * (1f - q)
+    alpha = e
+    translationY = (1f - e) * 18.dp.toPx()
+}
+
+/** Shuffle ideas: each new card flips up and slides in, 50 ms after the one above (graphicsLayer only). */
+private fun Modifier.shuffleIn(i: Int, on: Boolean): Modifier = if (!on) this else composed {
+    val a = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { delay(i * 50L); a.animateTo(1f, shuffleSpring) }
+    graphicsLayer {
+        val k = a.value
+        alpha = k.coerceIn(0f, 1f)
+        rotationX = (1f - k) * -28f
+        cameraDistance = 14f * density
+        translationY = (1f - k) * 12.dp.toPx()
+    }
+}
+
+private val shuffleSpring = spring<Float>(dampingRatio = 0.78f, stiffness = 340f)
+
+/** Its own recomposition scope: state read inside (the Isa draft) recomposes only this part. */
+@Composable
+private fun Scoped(content: @Composable () -> Unit) = content()

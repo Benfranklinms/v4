@@ -42,6 +42,8 @@ class MainActivity : ComponentActivity() {
         val crash = CrashLog.take(this)
         dev.benfranklin.itune.data.Likes.load()
         dev.benfranklin.itune.data.Library.refresh()
+        // Home's recent grid is process-level state: seed it now so Home draws it in its first frame
+        dev.benfranklin.itune.data.HomeGrid.tiles
         dev.benfranklin.itune.data.Net.watch(applicationContext)
         restoreSignIn()
         setContent {

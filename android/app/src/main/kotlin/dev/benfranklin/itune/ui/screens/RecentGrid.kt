@@ -42,10 +42,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.benfranklin.itune.App
 import dev.benfranklin.itune.core.Track
+import dev.benfranklin.itune.data.HomeGrid
 import dev.benfranklin.itune.data.Recents
-import dev.benfranklin.itune.data.io
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.spring
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.composed
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.unit.Constraints
+import kotlinx.coroutines.launch
 import dev.benfranklin.itune.player.Playback
 import dev.benfranklin.itune.ui.AppState
 import dev.benfranklin.itune.ui.Dest
@@ -59,56 +70,100 @@ import dev.benfranklin.itune.ui.theme.LocalReduceMotion
 import dev.benfranklin.itune.ui.theme.T
 import kotlinx.coroutines.delay
 
-/** One tile of the grid: a collection, or a recent song filling the gaps. */
-private data class Tile(val origin: Recents.Origin?, val track: Track?) {
-    val title get() = origin?.title ?: track?.title ?: ""
-    val thumb get() = origin?.thumb ?: track?.thumb ?: ""
-    val key get() = origin?.key ?: ("t:" + (track?.id ?: ""))
-}
+private typealias Tile = HomeGrid.Tile
 
 /**
- * Home › recently played (Spotify-style 2×3): the 6 newest collections played (albums, playlists, Liked Songs,
- * mixes, radio), filled with recent songs; hidden with no history. Tap opens, long-press = the usual menu, the
- * playing tile shows a small equaliser (still under Reduce Motion). Updates live after every play.
+ * Home › recently played (Spotify-style 2×3): collections first (recently played, then library playlists, Liked
+ * Songs, saved playlists / albums), songs only as filler; hidden with no history. Tap opens, long-press = the usual
+ * menu, the playing tile shows a small equaliser (still under Reduce Motion).
+ *
+ * The tiles come from a process-level StateFlow ([HomeGrid.tiles]), so a tab return draws them in the first frame.
+ * Motion (graphicsLayer only, values read in layer lambdas): a staggered spring rise on the first appearance per
+ * process only, a spring glide when a collection jumps to the top, new tiles fade/scale in. Reduce Motion or
+ * battery saver: crossfades only.
  */
 @Composable
 fun RecentGrid(s: AppState, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
-    LaunchedEffect(Unit) { Recents.load() }
-    val cols by Recents.items.collectAsState()
-    val plays by Recents.plays.collectAsState()
-    val current by Playback.current.collectAsState()
-    var songs by remember { mutableStateOf<List<Track>>(emptyList()) }
-    // recent songs from play history (core, IO); re-read after plays once the core has logged them
-    LaunchedEffect(plays, current?.id) {
-        if (plays > 0) delay(1500)
-        io { App.core.recent(12u) }?.let { songs = it }
-    }
-    val tiles = remember(cols, songs) {
-        val out = cols.take(6).map { Tile(it, null) }.toMutableList()
-        val seen = HashSet<String>()
-        for (t in songs) {
-            if (out.size >= 6) break
-            if (seen.add(t.id)) out += Tile(null, t)
-        }
-        out.toList()
-    }
+    val tiles by HomeGrid.tiles.collectAsState()
     if (tiles.isEmpty()) return
+    val reduce = LocalReduceMotion.current
+    val saver by rememberPowerSave()
+    val calm = reduce || saver
+    // entrance only the first time the grid is ever drawn in this process; tab returns draw it still
+    val entrance = remember { !HomeGrid.entered }
+    val mounted = remember { booleanArrayOf(false) }
+    LaunchedEffect(Unit) { HomeGrid.entered = true; mounted[0] = true }
     val active by Recents.active.collectAsState()
     val playing by Playback.playing.collectAsState()
-    Column(modifier.fillMaxWidth().testTag("recent_grid"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        tiles.chunked(2).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { t ->
+    val current by Playback.current.collectAsState()
+    val songs = remember(tiles) { tiles.mapNotNull { it.track } }
+    Layout(
+        content = {
+            tiles.forEachIndexed { i, t ->
+                key(t.key) {
                     val on = playing && (if (t.origin != null) active == t.key else active == null && current?.id == t.track?.id)
-                    RecentTile(t, on, Modifier.weight(1f),
+                    RecentTile(
+                        t, on, Modifier.gridMotion(i, entrance, mounted, calm),
                         onOpen = { open(s, ctx, t, songs) },
-                        onMenu = menu(s, t))
+                        onMenu = menu(s, t),
+                    )
                 }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
+        },
+        modifier = modifier.fillMaxWidth().testTag("recent_grid"),
+    ) { ms, cs ->
+        val gap = 8.dp.roundToPx()
+        val w = ((cs.maxWidth - gap) / 2).coerceAtLeast(0)
+        val h = 56.dp.roundToPx()
+        val ps = ms.map { it.measure(Constraints.fixed(w, h)) }
+        val rows = (ps.size + 1) / 2
+        layout(cs.maxWidth, rows * h + (rows - 1).coerceAtLeast(0) * gap) {
+            ps.forEachIndexed { i, p -> p.place((i % 2) * (w + gap), (i / 2) * (h + gap)) }
         }
     }
+}
+
+private val riseSpec = spring<Float>(dampingRatio = 0.82f, stiffness = 320f)
+private val glideSpec = spring(dampingRatio = 0.86f, stiffness = 380f, visibilityThreshold = Offset(0.5f, 0.5f))
+private val fadeSpec = tween<Float>(150)
+
+/**
+ * Per-tile motion, all in graphicsLayer: [entrance] = first appearance (staggered, first 8 tiles only), a tile that
+ * appears later (a new collection) fades/scales in, and a tile whose slot changes glides there from its old slot.
+ */
+private fun Modifier.gridMotion(index: Int, entrance: Boolean, mounted: BooleanArray, calm: Boolean): Modifier = composed {
+    val late = mounted[0]
+    val a = remember { Animatable(if ((entrance && index < 8) || late) 0f else 1f) }
+    val off = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val scope = rememberCoroutineScope()
+    var last by remember { mutableStateOf<Offset?>(null) }
+    LaunchedEffect(Unit) {
+        if (a.value < 1f) {
+            if (calm) a.animateTo(1f, fadeSpec)
+            else { if (!late) delay(index * 45L); a.animateTo(1f, riseSpec) }
+        }
+    }
+    this
+        .onPlaced { lc ->
+            val p = lc.positionInParent()
+            val prev = last
+            last = p
+            if (prev != null && prev != p) {
+                if (calm) scope.launch { a.snapTo(0f); a.animateTo(1f, fadeSpec) }
+                else scope.launch { off.snapTo(off.value + (prev - p)); off.animateTo(Offset.Zero, glideSpec) }
+            }
+        }
+        .graphicsLayer {
+            val k = a.value
+            alpha = k.coerceIn(0f, 1f)
+            if (!calm) {
+                val sc = 0.94f + 0.06f * k
+                scaleX = sc; scaleY = sc
+                translationY = (1f - k) * 14.dp.toPx() + off.value.y
+                translationX = off.value.x
+            }
+        }
 }
 
 private fun open(s: AppState, ctx: android.content.Context, t: Tile, songs: List<Track>) {
@@ -117,7 +172,7 @@ private fun open(s: AppState, ctx: android.content.Context, t: Tile, songs: List
         o == null -> t.track?.let { tr -> val i = songs.indexOfFirst { it.id == tr.id }.coerceAtLeast(0); Playback.play(ctx, songs.ifEmpty { listOf(tr) }, i, "Recently played") }
         o.kind == "album" -> s.push(Dest.Album(o.id, Peek(o.title, o.subtitle, o.thumb)))
         o.kind == "playlist" || o.kind == "liked" -> s.push(Dest.Playlist(o.id, Peek(o.title, o.subtitle, o.thumb)))
-        o.tracks.isNotEmpty() -> s.push(Dest.Mix(o.title, o.tracks))
+        o.tracks.isNotEmpty() -> s.push(Dest.Mix(if (o.kind == "radio") o.id else o.title, o.tracks))
         else -> s.toast("Couldn't open ${o.title}")
     }
 }

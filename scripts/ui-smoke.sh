@@ -177,6 +177,19 @@ tab() {
   scroll_up; scroll_up
   id "tab_$1"
 }
+node_bounds() {
+  python3 - "$O/ui.xml" "$1" <<'PY2'
+import sys, re, xml.etree.ElementTree as ET
+try: r = ET.parse(sys.argv[1]).getroot()
+except Exception: sys.exit(1)
+for n in r.iter('node'):
+    if n.get('resource-id','').split('/')[-1] != sys.argv[2]: continue
+    m = list(map(int, re.findall(r'\d+', n.get('bounds',''))))
+    if len(m) == 4 and m[2] > m[0] and m[3] > m[1]: print(*m); sys.exit(0)
+sys.exit(1)
+PY2
+}
+nav_xy() { dump; find_node resource-id "tab_$1"; }
 home_tab() { tab Home; local i; for i in 1 2 3 4 5 6; do scroll_up; dump; find_node resource-id home_avatar >/dev/null && break; done; }
 # Settings lives in the avatar menu since 0.2.9
 open_settings() { id home_avatar; id acct_settings; }
@@ -326,6 +339,17 @@ id isa_send
 hide_kb
 if wait_for resource-id isa_preview 60; then
   shot isa-preview
+  # 0.2.10: the result card opens its mix ON TOP: the takeover folds into the orb first (never a page behind it)
+  if id isa_result_card 0; then
+    sleep 2; dump
+    if isa_open; then log "MISSING (required): takeover still open after tapping the result card"; FAILS=$((FAILS + 1)); shot missing-isa-result-open
+    elif find_node resource-id track_row >/dev/null; then log "result card: takeover gone, mix page visible on top"; shot isa-result-page
+    else log "MISSING (required): result card opened no visible page"; FAILS=$((FAILS + 1)); shot missing-isa-result-page; fi
+    timeout 10 adb logcat -d -s itune-isa:I 2>/dev/null | grep "push after close" | tail -n 1 | sed 's/^/[ui]   /' | tee -a "$O/steps.txt"
+    back; sleep 1
+    id nav_isa
+    wait_for resource-id isa_preview 8 || log "WARN: result not kept on reopen"
+  else log "MISSING (required): isa_result_card"; FAILS=$((FAILS + 1)); fi
   id isa_play
   sleep 3
   dump
@@ -350,6 +374,16 @@ if wait_for resource-id isa_takeover 6; then
   # scroll the takeover to its end so the cards sit above the Ask Isa input (a tap on the input focuses the field)
   scroll_down; scroll_down; scroll_down
   find_node resource-id isa_shuffle_ideas >/dev/null && shot isa-foryou
+  # 0.2.10: scrolled to the end, the last FOR YOU card (and the length pill) sit fully ABOVE the Ask Isa input
+  dump
+  B0=$(node_bounds isa_foryou_0); B2=$(node_bounds isa_foryou_2); BI=$(node_bounds isa_input); BL=$(node_bounds isa_length)
+  if [ -n "$B2" ] && [ -n "$BI" ] && [ -n "$B0" ]; then
+    read -r _ a1 _ a2 <<< "$B0"; H0=$(( a2 - a1 )); read -r _ b1 _ b2 <<< "$B2"; H2=$(( b2 - b1 )); Y2=$b2; read -r _ YI _ _ <<< "$BI"
+    log "isa bottom: last card h=$H2 (first $H0) bottom=$Y2 input top=$YI length='${BL}'"
+    if [ $H2 -ge $(( H0 * 9 / 10 )) ] && [ $Y2 -le $YI ]; then log "last FOR YOU card fully visible above the input"; shot isa-bottom
+    else log "MISSING (required): last FOR YOU card hidden under the Ask Isa input"; FAILS=$((FAILS + 1)); shot missing-isa-bottom; fi
+  else log "MISSING (required): FOR YOU cards / input not found at the end of the takeover ($B0 | $B2 | $BI)"; FAILS=$((FAILS + 1)); shot missing-isa-bottom; fi
+  shot isa-mic-idle
   if id isa_foryou_0; then
     if wait_for resource-id isa_preview 60; then log "FOR YOU card -> preview ok"; shot isa-foryou-preview
     else log "MISSING (required): no preview after the FOR YOU card"; FAILS=$((FAILS + 1)); shot missing-foryou-preview; fi
@@ -368,7 +402,20 @@ home_tab
 if wait_for resource-id recent_grid 10; then
   N=$(python3 -c "import sys,re;print(open(sys.argv[1]).read().count('recent_tile\"'))" "$O/ui.xml")
   log "recent grid tiles: $N; first: '$(texts_of recent_tile_title | head -1)'"
+  texts_of recent_tile_title | sed 's/^/[ui]   tile: /' | tee -a "$O/steps.txt"
+  DUP=$(texts_of recent_tile_title | sort | uniq -d | head -3)
+  if [ -n "$DUP" ]; then log "MISSING (required): duplicate recent tiles: $DUP"; FAILS=$((FAILS + 1)); else log "recent grid: no duplicate titles"; fi
   shot home-rest
+  # 0.2.10: back from another tab the grid is there in the FIRST dump (process-level state, no wait / pop-in)
+  tab Library; sleep 1.5
+  adb shell input tap $(nav_xy Home); timeout 20 adb exec-out screencap -p > "$O/home-return-instant.png" 2>/dev/null; dump
+  if find_node resource-id recent_grid >/dev/null; then
+    N2=$(python3 -c "import sys,re;print(open(sys.argv[1]).read().count('recent_tile\"'))" "$O/ui.xml")
+    if [ "$N2" = "$N" ]; then log "recent grid visible immediately after a tab return ($N2 tiles)"; else log "MISSING (required): grid had $N2 of $N tiles right after a tab return"; FAILS=$((FAILS + 1)); fi
+  else
+    find_node resource-id home_list >/dev/null && { log "MISSING (required): recent grid not visible right after a tab return"; FAILS=$((FAILS + 1)); } || log "WARN: Home not on screen yet after the tab tap"
+  fi
+  shot home-return
   id recent_tile
   sleep 2; dump
   if find_node resource-id home_list >/dev/null && ! find_node resource-id track_row >/dev/null; then
