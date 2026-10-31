@@ -1006,6 +1006,15 @@ enum Smoke {
         nav.forward(); await sleep(0.8)
         let fwdOK = nav.section == .search
         record("history_back_forward", backOK && fwdOK, "back -> \(backOK ? "home" : "?"), forward -> \(fwdOK ? "search" : "?")")
+        // 0.2.11: a real search through the UI must come back with song rows (required)
+        m.run("white keys")
+        _ = await wait(30) { !m.loading }
+        await sleep(1.5)
+        shot("63b-search-white-keys")
+        let wk = m.results
+        let wkSongs = wk?.tracks.filter { $0.title.lowercased().contains("white keys") && !$0.artists.isEmpty } ?? []
+        record("search_white_keys", (wk?.tracks.count ?? 0) >= 3 && !wkSongs.isEmpty, "query “\(m.query)”: \(wk?.tracks.count ?? 0) songs (\(wkSongs.count) titled white keys, first \(wkSongs.first.map { "\($0.title) — \($0.artists)" } ?? "none")), \(wk?.artists.count ?? 0) artists, \(wk?.albums.count ?? 0) albums, \(wk?.playlists.count ?? 0) playlists")
+        m.filter = "Songs"; await sleep(1.0); shot("63c-search-white-keys-songs"); m.filter = "All"
         m.showBrowse(); m.closeDropdown()
 
         // 4. Isa: orb opens the Command card centred over a blurred backdrop; Esc closes it

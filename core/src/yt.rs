@@ -124,6 +124,9 @@ const CLIENTS: &[Client] = &[
     },
 ];
 
+/// Response header block limit for HTTP/2 (bytes).
+const MAX_HEADER_LIST: u32 = 256 * 1024;
+
 pub struct Yt {
     pub rp: RustyPipe,
     http: reqwest::Client,
@@ -153,11 +156,15 @@ pub fn client_keys() -> Vec<String> {
 
 impl Yt {
     pub fn new(storage_dir: &str) -> Result<Self, CoreError> {
+        // music.youtube.com now answers some requests with more than 16 KB of response headers
+        // (hyper's HTTP/2 default limit), which reset the stream with PROTOCOL_ERROR and failed every
+        // rustypipe call. Allow larger header blocks on both clients.
         let rp = RustyPipe::builder()
             .storage_dir(storage_dir)
-            .build()
+            .build_with_client(reqwest::Client::builder().http2_max_header_list_size(MAX_HEADER_LIST))
             .map_err(|e| CoreError::Network { msg: e.to_string() })?;
         let http = reqwest::Client::builder()
+            .http2_max_header_list_size(MAX_HEADER_LIST)
             .gzip(true)
             .timeout(std::time::Duration::from_secs(20))
             .build()
@@ -169,16 +176,28 @@ impl Yt {
         &self.http
     }
 
-    pub async fn search(&self, q: &str) -> Result<SearchResults, CoreError> {
+    /// Own WEB_REMIX search request + parser (tolerates both result layouts).
+    async fn search_own(&self, q: &str, params: Option<&str>) -> Result<crate::search::Parsed, CoreError> {
+        let mut body = json!({ "query": q });
+        if let Some(p) = params {
+            body["params"] = json!(p);
+        }
+        let v = self.remix_post("search", "", body, None, None).await?;
+        let p = crate::search::parse_search(&v);
+        if !p.recognised {
+            return Err(CoreError::Network { msg: "search: unrecognised response".into() });
+        }
+        Ok(p)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn search_own_raw(&self, q: &str) -> Result<Value, CoreError> {
+        self.remix_post("search", "", json!({ "query": q }), None, None).await
+    }
+
+    async fn search_main_rp(&self, q: &str) -> Result<SearchResults, CoreError> {
         let main = self.rp.query().music_search_main(q).await.map_err(net)?;
-        let mut out = SearchResults {
-            top: None,
-            tracks: vec![],
-            artists: vec![],
-            albums: vec![],
-            playlists: vec![],
-            corrected_query: main.corrected_query.clone(),
-        };
+        let mut out = SearchResults { top: None, tracks: vec![], artists: vec![], albums: vec![], playlists: vec![], corrected_query: main.corrected_query.clone() };
         for it in &main.items.items {
             match it {
                 rp::MusicItem::Track(t) => out.tracks.push(conv_track(t)),
@@ -188,11 +207,49 @@ impl Yt {
                 _ => {}
             }
         }
+        Ok(out)
+    }
+
+    async fn search_tracks_rp(&self, q: &str) -> Result<Vec<Track>, CoreError> {
+        let r = self.rp.query().music_search_tracks(q).await.map_err(net)?;
+        Ok(r.items.items.iter().map(conv_track).collect())
+    }
+
+    /// Main search. Our own parser first; the rustypipe parser is the fallback, so one parser
+    /// breaking never fails the search.
+    pub async fn search(&self, q: &str) -> Result<SearchResults, CoreError> {
+        let own = self.search_own(q, None).await;
+        let mut out = match own {
+            Ok(p) if !p.is_empty() => p.into_results(),
+            other => {
+                let why = match &other {
+                    Ok(_) => "empty".to_string(),
+                    Err(e) => e.to_string(),
+                };
+                log::warn!("search: own parser {why}; trying fallback");
+                match self.search_main_rp(q).await {
+                    Ok(r) if !(r.tracks.is_empty() && r.artists.is_empty() && r.albums.is_empty() && r.playlists.is_empty()) => r,
+                    Ok(r) => match other {
+                        Ok(p) => p.into_results(),
+                        Err(_) => r,
+                    },
+                    Err(e2) => match other {
+                        Ok(p) => p.into_results(),
+                        Err(e1) => {
+                            // last chance: the songs filter alone
+                            match self.search_tracks(q).await {
+                                Ok(t) if !t.is_empty() => SearchResults { top: t.first().cloned(), tracks: t, artists: vec![], albums: vec![], playlists: vec![], corrected_query: None },
+                                _ => return Err(CoreError::Network { msg: format!("search failed: {e1}; fallback: {e2}") }),
+                            }
+                        }
+                    },
+                }
+            }
+        };
         // Main search mixes videos; make sure we have a decent list of songs.
         if out.tracks.len() < 8 {
-            if let Ok(t) = self.rp.query().music_search_tracks(q).await {
-                for x in t.items.items.iter() {
-                    let tr = conv_track(x);
+            if let Ok(t) = self.search_tracks(q).await {
+                for tr in t {
                     if !out.tracks.iter().any(|y| y.id == tr.id) {
                         out.tracks.push(tr);
                     }
@@ -203,14 +260,31 @@ impl Yt {
         Ok(out)
     }
 
+    /// Songs-only search (import matching, Isa, add-to-playlist). Own parser first, rustypipe fallback.
     pub async fn search_tracks(&self, q: &str) -> Result<Vec<Track>, CoreError> {
-        let r = self.rp.query().music_search_tracks(q).await.map_err(net)?;
-        Ok(r.items.items.iter().map(conv_track).collect())
+        let own = self.search_own(q, Some(crate::search::SONGS_PARAMS)).await.map(|p| p.tracks());
+        match own {
+            Ok(t) if !t.is_empty() => Ok(t),
+            other => match self.search_tracks_rp(q).await {
+                Ok(t) if !t.is_empty() => Ok(t),
+                Ok(t) => other.or(Ok(t)),
+                Err(e2) => other.map_err(|e1| CoreError::Network { msg: format!("{e1}; fallback: {e2}") }),
+            },
+        }
     }
 
     pub async fn suggestions(&self, q: &str) -> Result<Vec<String>, CoreError> {
-        let r = self.rp.query().music_search_suggestion(q).await.map_err(net)?;
-        Ok(r.terms.into_iter().collect())
+        let own = self
+            .remix_post("music/get_search_suggestions", "", json!({ "input": q }), None, None)
+            .await
+            .map(|v| crate::search::parse_suggestions(&v));
+        match own {
+            Ok(t) if !t.is_empty() => Ok(t),
+            other => match self.rp.query().music_search_suggestion(q).await {
+                Ok(r) if !r.terms.is_empty() => Ok(r.terms),
+                _ => other,
+            },
+        }
     }
 
     pub async fn album(&self, id: &str) -> Result<AlbumPage, CoreError> {
@@ -548,7 +622,7 @@ fn net(e: rustypipe::error::Error) -> CoreError {
 const WEB_REMIX_VERSION: &str = "1.20251015.03.00";
 const WEB_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
-fn runs_text(v: Option<&Value>) -> String {
+pub(crate) fn runs_text(v: Option<&Value>) -> String {
     let Some(v) = v else { return String::new() };
     if let Some(s) = v.get("simpleText").and_then(|x| x.as_str()) {
         return s.to_string();
@@ -559,7 +633,7 @@ fn runs_text(v: Option<&Value>) -> String {
         .unwrap_or_default()
 }
 
-fn thumb_of(v: &Value) -> String {
+pub(crate) fn thumb_of(v: &Value) -> String {
     let mut best = String::new();
     let mut bw = 0u64;
     fn walk(v: &Value, best: &mut String, bw: &mut u64, d: u32) {
@@ -601,7 +675,7 @@ fn thumb_of(v: &Value) -> String {
     best
 }
 
-fn parse_duration(s: &str) -> u32 {
+pub(crate) fn parse_duration(s: &str) -> u32 {
     let mut t = 0u32;
     for p in s.trim().split(':') {
         match p.parse::<u32>() {
@@ -612,7 +686,7 @@ fn parse_duration(s: &str) -> u32 {
     t
 }
 
-fn browse_id_of(v: &Value) -> Option<(String, String)> {
+pub(crate) fn browse_id_of(v: &Value) -> Option<(String, String)> {
     let be = v.get("browseEndpoint")?;
     let id = be.get("browseId")?.as_str()?.to_string();
     let pt = be
@@ -788,7 +862,7 @@ fn first_continuation(v: &Value) -> Option<String> {
 }
 
 impl Yt {
-    async fn remix_post(&self, endpoint: &str, query: &str, body: Value, visitor: Option<&str>, cookie: Option<&str>) -> Result<Value, CoreError> {
+    pub(crate) async fn remix_post(&self, endpoint: &str, query: &str, body: Value, visitor: Option<&str>, cookie: Option<&str>) -> Result<Value, CoreError> {
         let mut ctx = json!({"client": {"clientName": "WEB_REMIX", "clientVersion": WEB_REMIX_VERSION, "hl": "en", "gl": "IN"}});
         if let Some(v) = visitor {
             ctx["client"]["visitorData"] = json!(v);

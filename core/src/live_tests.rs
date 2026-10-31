@@ -238,3 +238,46 @@ fn library_revision_bumps_on_changes() {
     c.add_to_playlist(p.id.clone(), t).unwrap();
     assert!(c.library_revision() > r3, "add did not bump");
 }
+
+/// "white keys" must return song rows from the main search, the songs filter and suggestions.
+#[tokio::test]
+async fn live_search_white_keys() {
+    if !live() {
+        return;
+    }
+    let c = core();
+    let r = c.search("white keys".into()).await.unwrap();
+    assert!(r.tracks.iter().any(|t| t.title.to_lowercase().contains("white keys") && !t.artists.is_empty()), "no song rows: {:?}", r.tracks.iter().map(|t| &t.title).collect::<Vec<_>>());
+    assert!(!r.artists.is_empty(), "no artists");
+    let t = c.yt.search_tracks("white keys").await.unwrap();
+    assert!(t.len() >= 5 && t.iter().all(|x| !x.id.is_empty() && !x.title.is_empty()));
+    assert!(t.iter().any(|x| x.album_id.is_some() && x.duration_s > 0));
+    let s = c.search_suggestions("white ke".into()).await.unwrap();
+    assert!(!s.is_empty(), "no suggestions");
+    // own parser on its own (no fallback): the live page must still be recognised and carry songs
+    let v = c.yt.search_own_raw("white keys").await.unwrap();
+    let p = crate::search::parse_search(&v);
+    assert!(p.recognised && !p.tracks().is_empty(), "own parser found no tracks");
+    println!("white keys ok: {} tracks ({} - {}), {} artists, {} albums, {} playlists, songs filter {}, suggestions {:?}", r.tracks.len(), r.tracks[0].title, r.tracks[0].artists, r.artists.len(), r.albums.len(), r.playlists.len(), t.len(), s);
+}
+
+/// The rustypipe catalogue calls (album, artist, playlist, radio, charts, its own search) must
+/// work too: they back album/artist pages and are the search fallback.
+#[tokio::test]
+async fn live_catalogue_calls() {
+    if !live() {
+        return;
+    }
+    let c = core();
+    let y = &c.yt;
+    let q = y.rp.query();
+    let main = q.music_search_main("white keys").await.map(|r| r.items.items.len());
+    let tracks = q.music_search_tracks("white keys").await.map(|r| r.items.items.len());
+    let artist = q.music_artist("UCsWqHrJvOU_uukQCU92VEvw", false).await.map(|r| r.name);
+    let album = q.music_album("MPREb_OSAehzZGQMO").await.map(|r| r.name);
+    let radio = q.music_radio_track("BqaUS8slDPY").await.map(|r| r.items.len());
+    println!("catalogue: main {main:?}, tracks {tracks:?}, artist {artist:?}, album {album:?}, radio {radio:?}");
+    // radio (/next) is IP-reputation dependent like the player; reported, not asserted
+    assert!(artist.is_ok() && album.is_ok(), "rustypipe catalogue calls failing");
+    assert!(tracks.map(|n| n > 0).unwrap_or(false), "rustypipe songs search failing");
+}

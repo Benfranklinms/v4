@@ -470,6 +470,34 @@ log "== Search"
 tab Search
 shot search-empty
 id search_field
+# 0.2.11: a real search must come back with song rows (the results page layout changed upstream)
+type_text "white keys"
+submit_search "white keys"
+if wait_for resource-id track_row 30; then
+  WK=$(python3 - "$O/ui.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+r = ET.parse(sys.argv[1]).getroot()
+rows = 0; hits = 0; failed = 0
+for n in r.iter('node'):
+    if n.get('resource-id', '').endswith('track_row'):
+        rows += 1
+        if any('white keys' in (c.get('text') or '').lower() for c in n.iter('node')): hits += 1
+    if "Couldn't search" in (n.get('text') or ''): failed = 1
+print(rows, hits, failed)
+PY
+)
+  read WKR WKH WKF <<< "$WK"
+  shot search-white-keys
+  log "white keys: song rows=${WKR:-0} matching=${WKH:-0} error=${WKF:-?}"
+  if [ "${WKR:-0}" -ge 3 ] && [ "${WKH:-0}" -ge 1 ] && [ "${WKF:-1}" = 0 ]; then log "white keys search returns song rows ok"; else log "MISSING (required): white keys song rows"; FAILS=$((FAILS + 1)); fi
+else
+  dump; find_node text "Couldn't search" contains >/dev/null && log "white keys: Couldn't search shown"
+  shot missing-white-keys
+  log "MISSING (required): white keys song rows"; FAILS=$((FAILS + 1))
+fi
+desc Clear 0
+id search_field
+clear_field
 type_text "adele hello"
 submit_search "adele hello"
 if wait_for resource-id track_row 30; then

@@ -8,6 +8,7 @@ pub mod lastfm;
 pub mod lyrics;
 pub mod model;
 pub mod queue;
+pub mod search;
 pub mod insights;
 pub mod stats;
 pub mod update;
